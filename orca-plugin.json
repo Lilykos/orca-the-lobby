@@ -3,7 +3,7 @@
   "id": "the-lobby",
   "name": "The Lobby",
   "version": "1.0.0",
-  "description": "See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Everything is read on your machine.",
+  "description": "See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Everything is read on your machine. Tour and guide: https://lilykos.github.io/orca-the-lobby/",
   "author": {
     "name": "Lilykos",
     "url": "https://github.com/Lilykos"
