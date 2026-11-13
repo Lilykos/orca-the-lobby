@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>cover</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  :root { --w: 1600px; --h: 1000px; --u: 7px; --pad: 110px; --tag: 36px; --pill: 26px; --kick: 26px; --gap: 44px; }
+  .social { --w: 1280px; --h: 640px; --u: 5px; --pad: 72px; --tag: 29px; --pill: 21px; --kick: 21px; --gap: 30px; }
+  html, body { width: var(--w); height: var(--h); overflow: hidden; background: #141a2a; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; color: #fff; }
+  .stage { position: relative; width: var(--w); height: var(--h); overflow: hidden;
+    background: #141a2a center / 100% 100% no-repeat; }
+  .copy { position: absolute; left: var(--pad); top: 50%; transform: translateY(-50%); width: calc(var(--w) * .46); }
+  .kicker { font-size: var(--kick); letter-spacing: .18em; text-transform: uppercase; color: #f2c14e; font-weight: 600; margin-bottom: calc(var(--gap) * .7); }
+  .mark { display: flex; align-items: center; gap: calc(var(--u) * 3); }
+  .mark img { display: block; image-rendering: pixelated; }
+  .mark .title { width: calc(var(--u) * 29); height: calc(var(--u) * 18); }
+  .mark .orca { width: calc(var(--u) * 30); height: calc(var(--u) * 33); }
+  p.tag { margin-top: var(--gap); font-size: var(--tag); line-height: 1.35; color: rgba(255,255,255,.84); text-wrap: balance; }
+  .pills { margin-top: calc(var(--gap) * 1.1); display: flex; flex-wrap: wrap; gap: calc(var(--pill) * .6); }
+  .pill { font-size: var(--pill); padding: .42em .9em; border-radius: 999px; background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1.5px rgba(242,193,78,.45); white-space: nowrap; }
+  .card { position: absolute; top: 50%; transform: translateY(-50%); padding: 8px; border-radius: 24px; background: #0b0f1a;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.2), 0 0 0 9.5px rgba(255,255,255,.04), 0 40px 90px rgba(0,0,0,.55), 0 0 120px rgba(242,193,78,.16); }
+  .card img { display: block; border-radius: 17px; }
+</style></head>
+<body><div class="stage" id="stage">
+  <div class="copy">
+    <div class="kicker">Orca plugin</div>
+    <div class="mark"><img class="title" src="../../docs/images/title.svg" alt="the lobby"><img class="orca" src="../../docs/images/orca.svg" alt=""></div>
+    <p class="tag">Your coding agents, at work in a pixel office.</p>
+    <div class="pills"><span class="pill">Every agent at a glance</span><span class="pill">Who needs you</span><span class="pill">Who started whom</span><span class="pill">Context &amp; tokens</span></div>
+  </div>
+  <div class="card" id="card"><img id="img" alt=""></div>
+</div>
+<script>
+  // ?bg=<backdrop png url>&fmt=social (1280x640) | default 1600x1000; ?img=<panel png url>&fw&fh=<its size in px>&right=<distance from the right edge>
+  const q = new URLSearchParams(location.search), num = (k, d) => (q.has(k) ? +q.get(k) : d);
+  if (q.get('fmt') === 'social') document.documentElement.classList.add('social');
+  const fw = num('fw', 640), fh = num('fh', 790), right = num('right', 110), card = document.getElementById('card'), img = document.getElementById('img');
+  img.style.width = fw + 'px'; img.style.height = fh + 'px'; card.style.right = right - 8 + 'px';
+  document.getElementById('stage').style.backgroundImage = `url("${q.get('bg')}")`;
+  img.src = q.get('img');
+  img.decode().then(() => document.fonts.ready).then(() => { document.body.dataset.ready = '1' });
+</script></body></html>

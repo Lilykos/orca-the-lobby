@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>icon</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 256px; height: 256px; overflow: hidden; }
+  .icon { position: relative; width: 256px; height: 256px;
+    background: radial-gradient(55% 55% at 50% 52%, rgba(242,193,78,.38) 0%, rgba(242,193,78,0) 100%),
+                linear-gradient(160deg, #141a2a 0%, #2b2748 62%, #4a3558 100%); }
+  /* The mascot is 30x33 art pixels; 6 device pixels each, never smoothed. */
+  img { position: absolute; left: 38px; top: 29px; width: 180px; height: 198px; image-rendering: pixelated; }
+</style></head>
+<body><div class="icon"><img id="orca" src="../../docs/images/orca.svg" alt=""></div>
+<script>document.getElementById('orca').decode().then(() => { document.body.dataset.ready = '1' })</script></body></html>

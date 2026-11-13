@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Lobby: your Orca agents as pixel people</title>
+<meta name="description" content="The Lobby is an Orca plugin that shows your coding agents as pixel-art people in one room per project: who is working, on what, who is stuck, and who needs you. Local only, MIT licensed.">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://lilykos.github.io/orca-the-lobby/">
+<link rel="icon" type="image/png" href="images/icon.png">
+<link rel="apple-touch-icon" href="images/icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="The Lobby">
+<meta property="og:title" content="The Lobby: your Orca agents as pixel people">
+<meta property="og:description" content="Every agent in every worktree in one live view: a pixel room per project, who needs you or is stuck, who started whom, and context and tokens per agent.">
+<meta property="og:url" content="https://lilykos.github.io/orca-the-lobby/">
+<meta property="og:image" content="https://lilykos.github.io/orca-the-lobby/images/cover.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="The Lobby, an Orca plugin: your coding agents at work in a pixel office, with Need you!, Stuck? and Failed bubbles.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The Lobby: your Orca agents as pixel people">
+<meta name="twitter:description" content="One pixel room per project. See who is working, who is stuck and who needs you.">
+<meta name="twitter:image" content="https://lilykos.github.io/orca-the-lobby/images/cover.png">
+<meta name="twitter:image:alt" content="The Lobby, an Orca plugin: your coding agents at work in a pixel office, with Need you!, Stuck? and Failed bubbles.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"The Lobby","applicationCategory":"DeveloperApplication","operatingSystem":"Orca 1.4.248 or newer","description":"An Orca plugin that shows coding agents as pixel-art people in one room per project.","license":"https://opensource.org/licenses/MIT","url":"https://lilykos.github.io/orca-the-lobby/","codeRepository":"https://github.com/Lilykos/orca-the-lobby","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header>
+  <div class="banner">
+    <div class="wrap">
+      <a href="./" aria-label="The Lobby, home">
+        <img class="title px" src="images/title.svg" width="232" height="144" alt="the lobby">
+        <img class="mascot px" src="images/orca.svg" width="128" height="140" alt="" role="presentation">
+      </a>
+    </div>
+  </div>
+  <nav class="nav" aria-label="Site">
+    <div class="wrap">
+      <a href="#why">Why</a>
+      <a href="#tour">Tour</a>
+      <a href="#how">How it works</a>
+      <a href="#permissions">Permissions</a>
+      <a href="#limits">Limits</a>
+      <a href="guide.html">Guide &amp; FAQ</a>
+      <span class="spacer"></span>
+      <a href="https://github.com/Lilykos/orca-the-lobby">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="eyebrow">A plugin for Orca</p>
+      <h1>Every agent. Every worktree. One glance.</h1>
+      <p class="lead">Running a dozen agents in parallel worktrees? <strong>The Lobby</strong> turns them into pixel people in a room per project, so you can see who is working, who is stuck and who needs you, without opening a single tab.</p>
+      <div class="install">
+        <code id="install-cmd">orca plugin install Lilykos/orca-the-lobby</code>
+        <button type="button" data-copy="#install-cmd" aria-label="Copy the install command">Copy</button>
+      </div>
+      <div class="cta">
+        <a class="btn" href="#tour">Take the tour</a>
+        <a class="btn ghost" href="guide.html">Read the guide</a>
+      </div>
+      <ul class="facts" aria-label="At a glance">
+        <li>Orca 1.4.248+</li>
+        <li>Everything is read on your machine</li>
+        <li>MIT licensed</li>
+        <li>No build step, no telemetry</li>
+      </ul>
+    </div>
+    <figure class="cover">
+      <img class="px" src="images/cover.png" width="1280" height="640" alt="The Lobby in Orca's sidebar: several pixel-art office rooms, one per project, with agents seated at desks, a coffee machine and speech bubbles.">
+    </figure>
+  </div>
+</section>
+
+<section class="block" id="why" aria-labelledby="why-h">
+  <div class="wrap">
+    <p class="kicker">Why The Lobby</p>
+    <h2 id="why-h">Parallel agents, without the tab hunt</h2>
+    <div class="grid three">
+      <div class="card">
+        <h3>Everything in one view</h3>
+        <p>Every agent in every worktree, one room per project, with counts of who is working, needs you, is done or failed.</p>
+      </div>
+      <div class="card">
+        <h3>Know who needs you</h3>
+        <p><span class="bubble">Need you!</span> <span class="bubble">Stuck?</span> <span class="bubble">Failed</span> bubbles, a Needs attention filter and an optional stuck-agent notification.</p>
+      </div>
+      <div class="card">
+        <h3>See who started whom</h3>
+        <p>An org chart per project from the exact parent and worker links Orca reports, across worktrees. Never guessed.</p>
+      </div>
+      <div class="card">
+        <h3>Act from the room</h3>
+        <p>Go to an agent, send it an instruction or compact its conversation, and step through agents with <kbd>Mod</kbd>+<kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>.</p>
+      </div>
+      <div class="card">
+        <h3>Context and tokens</h3>
+        <p>Context fill and tokens per agent, and tokens today per project, from your Claude Code and Codex logs.</p>
+      </div>
+      <div class="card">
+        <h3>Private, with some charm</h3>
+        <p>Nothing leaves your machine. A day and night window, five extra palettes plus Orca's theme, and reduced motion respected.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="tour" aria-labelledby="tour-h">
+  <div class="wrap">
+    <p class="kicker">Feature tour</p>
+    <h2 id="tour-h">What you get, one tab at a time</h2>
+    <p class="intro">The Lobby lives in Orca's right sidebar, in three tabs: <strong>Office</strong> to see everyone, <strong>Activity</strong> to see who started whom, and <strong>Settings</strong>. Every picture below is demo data.</p>
+
+    <article class="feature" id="office">
+      <div class="text">
+        <h3>Office: every agent, one room per project</h3>
+        <p>Each project checkout gets a room, and its worktrees share it. Agents that are working sit at their desks with a small thought icon for what they are doing (thinking, shell, web, edit, read, search, plan, tool or delegated work), where Orca reports it. Finished agents gather around the coffee machine.</p>
+        <p>Status colours are consistent everywhere:
+          <span class="tag working">Working</span>
+          <span class="tag blocked">Needs you</span>
+          <span class="tag waiting">Waiting</span>
+          <span class="tag failed">Failed</span>
+          <span class="tag unread">Done · new</span>
+          <span class="tag done">Done</span>
+        </p>
+        <p>The big window follows your local time (night, dawn, morning, day, sunset, evening), and a <strong>List / Grid</strong> toggle puts two projects side by side once the panel is 400px wide.</p>
+      </div>
+      <figure class="shot narrow">
+        <div class="frame tall"><a href="images/office.png" title="Open the full-size image"><img src="images/office.png" width="420" height="1263" loading="lazy" alt="The Office tab in dark theme: a list of rooms, each with a sign, pixel people at desks and a roster of agents beneath."></a></div>
+        <figcaption>Office tab, list layout.</figcaption>
+      </figure>
+    </article>
+
+    <div class="gallery" aria-label="More Office views">
+      <figure class="shot">
+        <div class="frame tall"><a href="images/office-grid.png" title="Open the full-size image"><img src="images/office-grid.png" width="900" height="1189" loading="lazy" alt="The Office tab in Grid layout, two project rooms per row."></a></div>
+        <figcaption>Grid layout: two projects per line when the panel is wide enough.</figcaption>
+      </figure>
+      <figure class="shot">
+        <div class="frame tall"><a href="images/office-light.png" title="Open the full-size image"><img src="images/office-light.png" width="420" height="1263" loading="lazy" alt="The Office tab in a light theme with bright walls and wooden floors."></a></div>
+        <figcaption>The same office in a light theme. Six palettes ship in Settings.</figcaption>
+      </figure>
+    </div>
+
+    <article class="feature flip" id="activity">
+      <div class="text">
+        <h3>Activity: see who started whom</h3>
+        <p>Activity draws a connected chart for every project. Dashed lines from the project hub show membership; solid lines show only the parent-child links Orca actually reports, such as a supervised worker's reported parent and an agent's listed children. Boxes carry a portrait, friendly name, provider, state and task.</p>
+        <p>Folding a chart with ▾ collapses it to its title bar. Wide charts pan by swipe, <kbd>Shift</kbd> + wheel, the left and right arrow keys, or dragging the background, and <strong>Reset view</strong> recentres them. Nothing implies that agents talk to each other, and a missing link never proves an agent has no parent.</p>
+      </div>
+      <figure class="shot">
+        <div class="frame"><a href="images/activity.png" title="Open the full-size image"><img src="images/activity.png" width="900" height="832" loading="lazy" alt="The Activity tab: connected org charts with a project hub linked to agent boxes showing portrait, name, provider, state and task."></a></div>
+        <figcaption>Activity tab: one chart per project.</figcaption>
+      </figure>
+    </article>
+
+    <article class="feature" id="attention">
+      <div class="text">
+        <h3>Needs attention: find who is blocked, fast</h3>
+        <p>Flip <strong>All / Needs attention</strong> above the charts. Agents whose reported state is blocked, or whose reported outcome is a failure, light up; everything else dims. Nothing is removed: the hub and the ancestors of those agents stay in place so the hierarchy remains readable.</p>
+        <p>A project with nothing blocked or failed folds to a single line, and if no project has anything, you get an empty state with a <strong>Show all agents</strong> button.</p>
+      </div>
+      <figure class="shot">
+        <div class="frame"><a href="images/attention.png" title="Open the full-size image"><img src="images/attention.png" width="900" height="832" loading="lazy" alt="The Activity tab with Needs attention switched on: blocked and failed agents highlighted, others dimmed."></a></div>
+        <figcaption>Needs attention on: blocked and failed agents stand out.</figcaption>
+      </figure>
+    </article>
+
+    <article class="feature flip" id="drawer">
+      <div class="text">
+        <h3>The agent drawer: act without hunting through tabs</h3>
+        <p>Click a person, a roster row or a chart box and a sheet slides up over the panel: state, asked and replied notes, calls, tasks, files and PRs, plus context and tokens. <strong>View in Activity</strong> finds the agent in its chart. <kbd>Esc</kbd>, the × button or a click outside closes it and returns focus to where you were.</p>
+        <p>Actions happen only when you press something, and only where Orca lets a plugin:</p>
+        <ul>
+          <li><strong>Go to agent</strong> brings its terminal to the front. For an Orca chat session it opens the workspace and tells you so.</li>
+          <li><strong>Instruction box</strong> (terminal agents): <kbd>Enter</kbd> sends the text, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line. Errors stay under the box and keep your text.</li>
+          <li><strong>Compact conversation</strong> types <code>/compact</code> after you confirm, for Claude Code only.</li>
+        </ul>
+        <p>Controls that do not apply are left out, and live updates never rebuild what you are typing.</p>
+      </div>
+      <figure class="shot narrow">
+        <div class="frame tall"><a href="images/drawer.png" title="Open the full-size image"><img src="images/drawer.png" width="420" height="950" loading="lazy" alt="The agent drawer: Go to agent button, an instruction box, and the agent's context and token lines."></a></div>
+        <figcaption>The drawer: Go to agent, instruction box, context and tokens.</figcaption>
+      </figure>
+    </article>
+
+    <article class="feature" id="bubbles">
+      <div class="text">
+        <h3>Speech bubbles: know who needs you</h3>
+        <p>People at desks and by the coffee machine can speak, one bubble each:</p>
+        <ul>
+          <li><span class="bubble">Need you!</span> for as long as an agent is blocked.</li>
+          <li><span class="bubble">Stuck?</span> once a working agent is overdue by your stuck setting.</li>
+          <li>For 20 seconds after an agent finishes, the first line of its last reply (code is skipped), or <span class="bubble">Failed</span> when Orca reported a failure.</li>
+        </ul>
+        <p>Needing you beats stuck, which beats a finished reply. Bubbles stay inside the room, slide or give way when they would cover a more important one, and clicking one opens that agent's drawer.</p>
+      </div>
+      <figure class="shot">
+        <div class="frame"><img class="px" src="images/bubbles.png" width="420" height="466" loading="lazy" alt="Close-up of a room: pixel people with speech bubbles reading Need you!, Stuck? and a short reply."></div>
+        <figcaption>Need you!, Stuck? and reply bubbles.</figcaption>
+      </figure>
+    </article>
+
+    <article class="feature wide" id="tokens">
+      <div class="text">
+        <h3>Tokens and context: watch the fill</h3>
+        <p><strong>Tokens today</strong> are counted per workspace and per project from the agents' own logs on your machine (Claude Code and Codex), and shown under each Office room, in each Activity chart header and in the drawer. Cached input is counted separately, Codex's cached input is not counted twice, and no money estimate is made.</p>
+        <p><strong>Context</strong> is per agent and exact: Orca's own session record names the provider's session id, and that id picks one log file. The drawer then reads, for example, <code>Context 73% (512k of 700k) · 2 compactions · 1.2M tokens today</code>. An Office row only gets a <strong>Context</strong> badge from 70% (amber) and 90% (red). Where the log does not state the window (Claude Code's does not), you get tokens without a percentage rather than a guess. <a href="#limits">See the limits</a>.</p>
+      </div>
+    </article>
+
+    <article class="feature wide" id="stuck">
+      <div class="text">
+        <h3>Stuck alert: get pinged when an agent goes quiet</h3>
+        <p><strong>Notify me when an agent seems stuck</strong> (Off, or after 10, 20, 30 or 60 minutes; 20 by default) sends one desktop notification per quiet spell when an agent is working with no status, tool call or roster update for that long, or still needs you after that long. The Office row, the drawer and a <span class="bubble">Stuck?</span> bubble mark such agents too, and the status bar item counts agents working and agents that need you.</p>
+      </div>
+    </article>
+
+    <article class="feature flip" id="keys">
+      <div class="text">
+        <h3>Keyboard shortcuts: hop between agents</h3>
+        <p>Move through your agents without the mouse. <strong>Previous agent</strong> and <strong>Next agent</strong> (also in Orca's command palette) go through agents that need you first, then working ones, then the rest, in a steady order, and jump to each like <strong>Go to agent</strong>.</p>
+        <p><a href="guide.html#shortcuts">All shortcuts in the guide</a></p>
+      </div>
+      <div class="table-wrap slim">
+        <table>
+          <thead><tr><th scope="col">Keys</th><th scope="col">Does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Mod</kbd>+<kbd>Alt</kbd>+<kbd>↑</kbd></td><td>Previous agent</td></tr>
+            <tr><td><kbd>Mod</kbd>+<kbd>Alt</kbd>+<kbd>↓</kbd></td><td>Next agent</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close the drawer</td></tr>
+            <tr><td><kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Send / new line in the instruction box</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="feature" id="settings">
+      <div class="text">
+        <h3>Settings and palettes: make it yours</h3>
+        <p>Switch notifications and animation on or off, choose a palette (Orca default follows the app theme; Catppuccin Mocha and Latte, Dracula, GitHub Dark and Light are built in), pick the stuck time, and clear the local activity history. State colours keep their meaning in every palette. Bubbles and animation respect your system's reduced-motion setting.</p>
+      </div>
+      <figure class="shot narrow">
+        <div class="frame tall"><a href="images/settings.png" title="Open the full-size image"><img src="images/settings.png" width="420" height="526" loading="lazy" alt="The Settings tab: notification and animation switches, palette selector, stuck-time selector and a clear history button."></a></div>
+        <figcaption>Settings tab.</figcaption>
+      </figure>
+    </article>
+  </div>
+</section>
+
+<section class="block" id="how" aria-labelledby="how-h">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2 id="how-h">Where the data comes from</h2>
+    <p class="intro">The Lobby is a read-mostly window onto what is already on your machine. It does not run agents, and it does not talk to any server.</p>
+
+    <div class="flow" role="group" aria-label="Data flow from your machine to the panel">
+      <div class="node">
+        <h3>Sources</h3>
+        <ul>
+          <li>Orca: <code>orca worktree ps --json</code> for the roster, states and prompts, plus status and tool-call events</li>
+          <li>Claude Code logs in <code>~/.claude/projects/</code></li>
+          <li>Codex logs in <code>~/.codex/sessions/</code></li>
+          <li>Orca's session store, read-only, for exact per-agent context</li>
+          <li><code>git diff --shortstat HEAD</code></li>
+        </ul>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="node worker">
+        <h3>The Lobby worker</h3>
+        <ul>
+          <li>Polls every 3 s while an agent works, every 20 s when idle</li>
+          <li>Reads each log once, then only what is appended</li>
+          <li>Keeps a 24-hour local journal, never prompts</li>
+        </ul>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="node you">
+        <h3>Your sidebar</h3>
+        <ul>
+          <li>Office, Activity and Settings</li>
+          <li>Optional desktop notifications</li>
+          <li>Actions only when you press something</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="local-note">
+      <span class="mark" aria-hidden="true">✓</span>
+      <p><strong>Nothing leaves your machine.</strong> The plugin sends no data anywhere. Only usage numbers and model ids are read from the agents' logs; Orca's session store is asked only for the provider and its session id, never prompts or messages. <a href="guide.html#data">Full details in the guide</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="permissions" aria-labelledby="perm-h">
+  <div class="wrap">
+    <p class="kicker">Permissions</p>
+    <h2 id="perm-h">What it asks for, and when each is used</h2>
+    <p class="intro">Orca lists these when you install the plugin and asks you to approve them. These are the six it declares in <code>orca-plugin.json</code>.</p>
+    <div class="table-wrap stack">
+      <table>
+        <thead><tr><th scope="col">Capability</th><th scope="col">What it is for</th><th scope="col">When it is used</th></tr></thead>
+        <tbody>
+          <tr><td data-label="Capability"><code>agent:read</code></td><td data-label="What it is for">Seeing your agents: their state, tasks, tool calls and results.</td><td data-label="When it is used">Continuously, to draw the Office and Activity. Tool-call hooks only record the call and return at once; they never deny one.</td></tr>
+          <tr><td data-label="Capability"><code>workspace:read</code></td><td data-label="What it is for">Workspace and project names, so rooms can be grouped.</td><td data-label="When it is used">When the roster changes or a workspace is added or removed.</td></tr>
+          <tr><td data-label="Capability"><code>storage:own</code></td><td data-label="What it is for">The plugin's own storage: your settings and the local activity journal (24 hours at most, no prompts).</td><td data-label="When it is used">When you change a setting, and as agents change state. Settings has a clear button.</td></tr>
+          <tr><td data-label="Capability"><code>workspace:write</code></td><td data-label="What it is for">Opening a workspace or bringing a terminal to the front.</td><td data-label="When it is used">Only when you press <strong>Go to agent</strong> or use the previous / next agent shortcuts.</td></tr>
+          <tr><td data-label="Capability"><code>terminal:send</code></td><td data-label="What it is for">Typing into an agent's terminal.</td><td data-label="When it is used">Only when you press <strong>Send</strong> in the instruction box, or confirm <strong>Compact conversation</strong>. Never by itself. Those controls are hidden if the capability is not granted.</td></tr>
+          <tr><td data-label="Capability"><code>notifications:show</code></td><td data-label="What it is for">Optional desktop notifications.</td><td data-label="When it is used">When an agent starts needing you, ends a long turn, or seems stuck, if you left those switches on. All are in Settings.</td></tr>
+        </tbody>
+        <caption>Terminal actions go through <code>orca terminal send</code>, because the host's own text-sending call only works for the focused workspace.</caption>
+      </table>
+    </div>
+    <div class="card warn" style="margin-top:24px">
+      <h3>One thing capabilities do not cover</h3>
+      <p>The Lobby runs as a trusted worker, so it reads Claude Code and Codex session files and Orca's session store with <em>your own</em> file access, and runs the Orca CLI and Git as you. That is how it gets tokens and per-agent context, and it needs no further capability. The source is public, so you can check exactly what it reads.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="limits" aria-labelledby="limits-h">
+  <div class="wrap">
+    <p class="kicker">Honest limits</p>
+    <h2 id="limits-h">What The Lobby cannot do</h2>
+    <ul class="limits">
+      <li><strong>No typing into chat agents</strong>Orca gives plugins no way to pick or type into a chat tab. For a chat session, <em>Go to agent</em> opens its workspace and says so; the instruction box and Compact are for agents in a terminal.</li>
+      <li><strong>No approve / deny</strong>Orca does not report what a blocked agent is asking, and offers plugins no approval controls. A blocked agent just says <em>Needs you</em> and points to Go to agent.</li>
+      <li><strong>Claude shows no context %</strong>Claude Code's logs do not state the context window, so Claude agents show tokens without a percentage instead of a guessed one. Codex logs do, so Codex agents get one.</li>
+      <li><strong>Per-workspace vs per-agent tokens</strong>Token totals under rooms and in chart headers are per workspace and project for the local day. Per-agent numbers exist only where the exact id chain links an agent to one log.</li>
+      <li><strong>Per-agent context: macOS chat agents only</strong>It needs Orca's internal session store and the <code>sqlite3</code> macOS ships. Agents in a terminal tab, other providers, other systems, or a future Orca that changes that store show nothing.</li>
+      <li><strong>No model name</strong>Orca's supported metadata gives the provider (Claude, Codex, Pi, …), not the selected model, so the provider label is not a model.</li>
+      <li><strong>Some tool calls are missed</strong>Short chat tool calls can fall between polls, and Orca does not yet report terminal tool calls on SSH or WSL hosts.</li>
+      <li><strong>Changed files are approximate</strong><code>git diff --shortstat HEAD</code> counts uncommitted changes but not new untracked files, and matching a Claude transcript to an agent uses title and prompt similarity, which can be ambiguous.</li>
+    </ul>
+    <p>More in the <a href="guide.html#troubleshooting">troubleshooting section</a>.</p>
+  </div>
+</section>
+
+<section class="block" id="requirements" aria-labelledby="req-h">
+  <div class="wrap">
+    <p class="kicker">Requirements</p>
+    <h2 id="req-h">Install it</h2>
+    <div class="grid two">
+      <div class="card">
+        <h3>You need</h3>
+        <ul>
+          <li><a href="https://onorca.dev">Orca</a> 1.4.248 or newer</li>
+          <li>One or more coding agents running in Orca</li>
+          <li>For per-agent context: macOS (it uses the system <code>sqlite3</code>)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Then</h3>
+        <div class="install" style="max-width:none;margin-bottom:1em">
+          <code id="install-cmd-2">orca plugin install Lilykos/orca-the-lobby</code>
+          <button type="button" data-copy="#install-cmd-2" aria-label="Copy the install command">Copy</button>
+        </div>
+        <p>Orca lists what the plugin would be granted and prints a command to re-run with <code>--approve</code>; then open <strong>The Lobby</strong> from the sidebar. <a href="guide.html#install">Step by step</a>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img class="mascot px" src="images/orca.svg" width="84" height="92" alt="">
+    <div>
+      <h2>The Lobby</h2>
+      <ul>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby">Source on GitHub</a></li>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby/issues">Report an issue</a></li>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby/blob/main/LICENSE">MIT license</a></li>
+        <li><a href="guide.html">Guide &amp; FAQ</a></li>
+        <li><a href="https://onorca.dev">Orca</a></li>
+      </ul>
+      <p style="margin-top:14px">Made by Lilykos. No analytics or trackers on this site; the only third-party request is the Pixelify Sans font from Google Fonts.</p>
+    </div>
+  </div>
+</footer>
+<script src="site.js" defer></script>
+</body>
+</html>

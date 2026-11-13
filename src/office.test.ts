@@ -1,0 +1,599 @@
+// `orca plugin test .` runs this in Node: the office model is plain data, no host needed.
+import { assert, test } from 'orca/testing'
+import {
+  applyListed,
+  applyRoster,
+  applyStatus,
+  applyToolAfter,
+  applyToolBefore,
+  classify,
+  createOffice,
+  describe,
+  keepTerminals,
+  placeWorkspace,
+  projectRoot,
+  prune,
+  restore,
+  snapshot,
+  storable,
+  forPanel,
+  STORE_BYTES
+} from './office'
+import { readPrefs } from './protocol'
+import { parseShortstat } from './roster'
+import { assign, digest, emptyDigest } from './transcript'
+
+const status = (state: 'working' | 'blocked' | 'waiting' | 'done', receivedAt: number) => ({
+  workspaceId: 'w1',
+  paneKey: 'pane-1',
+  terminalId: 't1',
+  title: 'Fix login',
+  state,
+  receivedAt
+})
+const call = (tool: string, input: object, callId?: string) => ({
+  agent: 'claude',
+  workspaceId: 'w1',
+  terminalId: 't1',
+  tool,
+  input: input as never,
+  callId
+})
+
+test('sorts tools into what the character does', () => {
+  const kinds = {
+    Edit: 'edit',
+    Write: 'edit',
+    apply_patch: 'edit',
+    Read: 'read',
+    Grep: 'search',
+    Glob: 'search',
+    Bash: 'shell',
+    exec_command: 'shell',
+    WebSearch: 'web',
+    WebFetch: 'web',
+    Agent: 'delegate',
+    Task: 'delegate',
+    TodoWrite: 'plan',
+    TaskCreate: 'plan',
+    Skill: 'tool'
+  }
+  for (const [tool, kind] of Object.entries(kinds)) assert.equal(classify(tool), kind, tool)
+})
+
+test('labels a call from its input', () => {
+  assert.equal(describe({ file_path: '/repo/src/office.ts' }), 'office.ts')
+  assert.equal(describe({ command: 'npm test\nmore', description: 'Run tests' }), 'Run tests')
+  assert.equal(describe({ command: 'npm test\nmore' }), 'npm test')
+  assert.equal(describe({ pattern: 'TODO', path: '/repo' }), 'TODO')
+  assert.equal(describe({ url: 'https://example.com/a/b' }), 'example.com')
+  assert.equal(describe({ command: 'x'.repeat(200) }).length, 80)
+  assert.equal(describe('not an object'), '')
+  assert.equal(describe(null), '')
+})
+
+test('follows an agent through a turn', () => {
+  const office = createOffice()
+  applyStatus(office, status('working', 1000))
+  applyToolBefore(office, call('Edit', { file_path: '/repo/a.ts' }, 'c1'), 1100)
+
+  let [agent] = snapshot(office).agents
+  assert.equal(agent.id, 't1')
+  assert.equal(agent.agent, 'claude')
+  assert.equal(agent.title, 'Fix login')
+  assert.deepEqual(
+    agent.active.map((activity) => [activity.kind, activity.detail]),
+    [['edit', 'a.ts']]
+  )
+
+  applyToolAfter(office, call('Edit', { file_path: '/repo/a.ts' }, 'c1'), 1200)
+  ;[agent] = snapshot(office).agents
+  assert.deepEqual(agent.active, [])
+  assert.equal(agent.recent[0].endedAt, 1200)
+  assert.equal(agent.toolCount, 1)
+
+  // A call still open when the turn ends is closed with it.
+  applyToolBefore(office, call('Bash', { command: 'sleep 9' }), 1300)
+  applyStatus(office, {
+    ...status('done', 1400),
+    mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: 1350 }
+  })
+  ;[agent] = snapshot(office).agents
+  assert.equal(agent.state, 'done')
+  assert.equal(agent.outcome, 'failure')
+  assert.equal(agent.stateStartedAt, 1400)
+  assert.equal(agent.finishedAt, 1350)
+  assert.deepEqual(agent.active, [])
+  assert.equal(agent.recent[0].tool, 'Bash')
+})
+
+test('does not invent a finish time when the roster omits its timestamp', () => {
+  const office = createOffice()
+  applyRoster(
+    office,
+    [{ path: '/w', agents: [{ paneKey: 'finished', state: 'done' }] }],
+    1234
+  )
+  assert.equal(snapshot(office).agents[0].finishedAt, null)
+
+  const transitioned = createOffice()
+  applyRoster(transitioned, [{ path: '/w', agents: [{ paneKey: 'agent', state: 'working' }] }], 1000)
+  applyRoster(transitioned, [{ path: '/w', agents: [{ paneKey: 'agent', state: 'done' }] }], 1600)
+  assert.equal(snapshot(transitioned).agents[0].finishedAt, 1600)
+})
+
+test('does not treat first observation of an already finished agent as a finish transition', () => {
+  const office = createOffice()
+  applyStatus(office, status('done', 1234))
+  assert.equal(snapshot(office).agents[0].finishedAt, null)
+
+  const reported = createOffice()
+  applyStatus(reported, {
+    ...status('done', 1234),
+    mainAgent: { state: 'done', stateStartedAt: 1200 }
+  })
+  assert.equal(snapshot(reported).agents[0].finishedAt, 1200)
+})
+
+test('keeps reported helper state truthful, separates commands, and expires missing history', () => {
+  const office = createOffice()
+  const row = (children: NonNullable<Parameters<typeof applyRoster>[1][number]['agents']>[number]['children']) =>
+    [{ path: '/w', agents: [{ paneKey: 'parent', state: 'working' as const, children }] }]
+  const child = { id: 'child-1', kind: 'agent', state: 'working', name: 'Scout', description: 'Read callers' }
+  const command = { id: 'cmd-1', kind: 'command', state: 'working', description: 'Run tests' }
+
+  applyRoster(office, row([child, command]), 1000)
+  let parent = snapshot(office).agents[0]
+  assert.deepEqual(parent.family.map(({ id, kind, state, reported }) => [id, kind, state, reported]), [
+    ['child-1', 'agent', 'working', true]
+  ])
+  assert.deepEqual(parent.helpers.map(({ id, kind }) => [id, kind]), [['child-1', 'agent'], ['cmd-1', 'command']])
+
+  applyRoster(office, row([]), 2000)
+  parent = snapshot(office).agents[0]
+  assert.deepEqual(
+    [parent.family[0].state, parent.family[0].reported, parent.family[0].missingSince],
+    ['working', false, 2000]
+  )
+  applyRoster(office, row([]), 2000 + 10 * 60 * 1000)
+  assert.deepEqual(snapshot(office).agents[0].family, [])
+})
+
+test('keeps reported done children stable and expires them only after disappearance', () => {
+  const office = createOffice()
+  const row = (children: NonNullable<Parameters<typeof applyRoster>[1][number]['agents']>[number]['children']) =>
+    [{ path: '/w', agents: [{ paneKey: 'parent', state: 'working' as const, children }] }]
+  applyRoster(office, row([{ id: 'done-child', kind: 'agent', state: 'done', name: 'Scout' }]), 1000)
+  let child = snapshot(office).agents[0].family[0]
+  assert.equal(child.state, 'done')
+  assert.equal(child.reported, true)
+  assert.equal('outcome' in child, false)
+  applyRoster(office, row([{ id: 'done-child', kind: 'agent', state: 'done', name: 'Scout' }]), 5000)
+  applyRoster(office, row([{ id: 'done-child', kind: 'agent', state: 'done', name: 'Scout' }]), 601_000)
+  child = snapshot(office).agents[0].family[0]
+  assert.equal(child.state, 'done')
+  assert.equal(child.reported, true)
+  applyRoster(office, row([]), 602_000)
+  child = snapshot(office).agents[0].family[0]
+  assert.equal(child.state, 'done')
+  assert.equal(child.reported, false)
+  assert.equal(child.missingSince, 602_000)
+  applyRoster(office, row([]), 1_201_999)
+  assert.equal(snapshot(office).agents[0].family[0].reported, false)
+  applyRoster(office, row([]), 1_202_000)
+  assert.deepEqual(snapshot(office).agents[0].family, [])
+})
+
+test('keeps unknown child identities and states explicit', () => {
+  const office = createOffice()
+  applyRoster(office, [{ path: '/w', agents: [{
+    paneKey: 'parent', state: 'working', children: [{ kind: 'agent', state: 'paused', description: 'Unrecognized state' }]
+  }] }], 1000)
+  const [child] = snapshot(office).agents[0].family
+  assert.equal(child.id, '')
+  assert.equal(child.state, 'unknown')
+  assert.equal(child.reported, true)
+  assert.equal(child.name, 'Unidentified agent')
+})
+
+test('keeps parallel calls apart and records a call it never saw start', () => {
+  const office = createOffice()
+  applyToolBefore(office, call('Agent', { description: 'Explore' }, 'a'), 1)
+  applyToolBefore(office, call('Agent', { description: 'Review' }, 'b'), 2)
+  applyToolAfter(office, call('Agent', { description: 'Explore' }, 'a'), 3)
+  applyToolAfter(office, call('Read', { file_path: 'x.md' }), 4)
+
+  const [agent] = snapshot(office).agents
+  assert.deepEqual(
+    agent.active.map((activity) => activity.detail),
+    ['Review']
+  )
+  assert.deepEqual(
+    agent.recent.map((activity) => activity.detail),
+    ['x.md', 'Explore']
+  )
+})
+
+test('gives a call with no terminal to the only agent in its workspace', () => {
+  const office = createOffice()
+  applyStatus(office, status('working', 1))
+  applyToolBefore(office, { ...call('Bash', { command: 'ls' }), terminalId: undefined }, 2)
+  assert.equal(snapshot(office).agents[0].active.length, 1)
+
+  applyStatus(office, { ...status('working', 3), paneKey: 'pane-2', terminalId: 't2' })
+  applyToolBefore(office, { ...call('Bash', { command: 'ls' }), terminalId: undefined }, 4)
+  assert.equal(snapshot(office).agents[0].active.length, 1)
+  assert.equal(snapshot(office).agents[1].active.length, 0)
+})
+
+test('lists, closes and forgets agents', () => {
+  const office = createOffice()
+  applyListed(
+    office,
+    'w1',
+    [
+      { terminalId: 't1', title: 'One', agent: 'codex', state: 'waiting', stateStartedAt: 5 },
+      { terminalId: 't2', title: 'Two', agent: 'claude', state: 'working', stateStartedAt: 6 },
+      { terminalId: null, title: null, agent: null, state: 'done', stateStartedAt: 7 }
+    ],
+    10
+  )
+  assert.deepEqual(
+    snapshot(office).agents.map((agent) => [agent.id, agent.agent, agent.state]),
+    [
+      ['t1', 'codex', 'waiting'],
+      ['t2', 'claude', 'working']
+    ]
+  )
+
+  keepTerminals(office, 'w1', ['t2'])
+  assert.deepEqual(
+    snapshot(office).agents.map((agent) => agent.id),
+    ['t2']
+  )
+
+  // Working agents stay however long they are quiet; idle ones go home.
+  const day = 24 * 60 * 60 * 1000
+  prune(office, day)
+  assert.equal(snapshot(office).agents.length, 1)
+  applyStatus(office, { ...status('done', 20), terminalId: 't2', paneKey: 'pane-2' })
+  prune(office, day)
+  assert.equal(snapshot(office).agents.length, 0)
+})
+
+test('puts the worktrees of one checkout in one project', () => {
+  const linked = 'gitdir: /repos/folio/.git/worktrees/bridge-hardening\n'
+  assert.equal(projectRoot('/work/folio/bridge-hardening', linked), '/repos/folio')
+  assert.equal(projectRoot('/repos/folio', null), '/repos/folio')
+  assert.equal(projectRoot('/tmp/notes', 'gitdir: ../elsewhere/.git/modules/notes'), '/tmp/notes')
+
+  const office = createOffice()
+  applyStatus(office, { ...status('working', 1), workspaceId: '/work/folio/bridge-hardening' })
+  assert.equal(snapshot(office).agents[0].projectId, null)
+  placeWorkspace(office, '/work/folio/bridge-hardening', '/repos/folio')
+  assert.equal(snapshot(office).agents[0].projectId, '/repos/folio')
+  assert.deepEqual(snapshot(office).projects, { '/repos/folio': 'folio' })
+})
+
+test('restores a stored office without its running calls', () => {
+  const office = createOffice()
+  applyStatus(office, status('working', 1000))
+  applyToolBefore(office, call('Bash', { command: 'ls' }), 1100)
+  const stored = JSON.parse(JSON.stringify(snapshot(office)))
+
+  const next = createOffice()
+  restore(next, stored, 2000)
+  assert.equal(snapshot(next).agents[0].id, 't1')
+  assert.deepEqual(snapshot(next).agents[0].active, [])
+  restore(next, 'garbage', 2000)
+  restore(next, null, 2000)
+  assert.equal(snapshot(next).agents.length, 1)
+})
+
+test('restoring and snapshotting strips legacy guessed token counts and model', () => {
+  const office = createOffice()
+  applyStatus(office, status('working', 1000))
+  const stored = JSON.parse(JSON.stringify(snapshot(office))) as any
+  stored.agents[0].insight = {
+    model: 'guessed-model',
+    contextTokens: 154321,
+    contextWindowTokens: 200000,
+    todos: [{ text: 'Keep this note', status: 'in_progress' }],
+    files: ['actual.ts']
+  }
+
+  const restored = createOffice()
+  restore(restored, stored, 2000)
+  assert.deepEqual(snapshot(restored).agents[0].insight, {
+    model: null,
+    todos: [{ text: 'Keep this note', status: 'in_progress' }],
+    files: ['actual.ts']
+  })
+})
+
+test('follows a chat from one listed call to the next', () => {
+  const office = createOffice()
+  const row = (toolName: string | null, toolInput: string | null) => [
+    { path: '/w', agents: [{ paneKey: 'chat', state: 'working' as const, toolName, toolInput }] }
+  ]
+  applyRoster(office, row('Read', 'a.ts'), 10)
+  applyRoster(office, row('Read', 'a.ts'), 20)
+  assert.equal(snapshot(office).agents[0].active[0].startedAt, 10)
+  applyRoster(office, row('Bash', 'npm test\nmore'), 30)
+  applyRoster(office, row(null, null), 40)
+
+  const [agent] = snapshot(office).agents
+  assert.deepEqual(agent.active, [])
+  assert.deepEqual(
+    agent.recent.map((call) => [call.tool, call.detail, call.endedAt]),
+    [
+      ['Bash', 'npm test', 40],
+      ['Read', 'a.ts', 30]
+    ]
+  )
+  assert.equal(agent.toolCount, 2)
+
+  // Gone from the list, gone from the office.
+  applyRoster(office, [], 50)
+  assert.deepEqual(snapshot(office).agents, [])
+})
+
+test('reads a transcript line by line', () => {
+  const into = emptyDigest()
+  const say = (record: object): void => digest(into, JSON.stringify(record))
+  const turn = (content: object[], usage: object, extra: object = {}) =>
+    say({ type: 'assistant', message: { model: 'claude-x', usage, content }, ...extra })
+
+  say({ type: 'ai-title', aiTitle: 'Fix series sort' })
+  say({ type: 'last-prompt', lastPrompt: 'ok lets start' })
+  turn(
+    [
+      { type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/a.ts' } },
+      { type: 'tool_use', name: 'Write', input: { file_path: '/repo/src/b.ts' } },
+      { type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/a.ts' } },
+      { type: 'tool_use', name: 'Read', input: { file_path: '/repo/README.md' } },
+      {
+        type: 'tool_use',
+        name: 'TodoWrite',
+        input: {
+          todos: [
+            { content: 'Find the bug', status: 'completed' },
+            { content: 'Fix it', status: 'in_progress' },
+            { content: 'Test', status: 'odd' },
+            { nothing: true }
+          ]
+        }
+      }
+    ],
+    { input_tokens: 10, cache_read_input_tokens: 9000, cache_creation_input_tokens: 990 },
+    { timestamp: '2026-11-11T08:30:00.000Z' }
+  )
+  // A subagent's turn, and a line that is not JSON, change nothing.
+  turn([], { input_tokens: 5 }, { isSidechain: true })
+  digest(into, '{"type":"assistant","mess')
+
+  assert.deepEqual(into, {
+    model: null,
+    todos: [
+      { text: 'Find the bug', status: 'completed' },
+      { text: 'Fix it', status: 'in_progress' },
+      { text: 'Test', status: 'pending' }
+    ],
+    files: ['a.ts', 'b.ts'],
+    title: 'Fix series sort',
+    lastPrompt: 'ok lets start'
+  })
+})
+
+test('tells whose transcript is whose', () => {
+  const named = { ...emptyDigest(), title: 'Fix series sort' }
+  const asked = { ...emptyDigest(), lastPrompt: 'turn the  bridge on\nplease' }
+  const other = { ...emptyDigest(), title: 'Something else' }
+  const agents = [
+    { id: 'a', title: 'Fix series sort', prompt: 'x' },
+    { id: 'b', title: 'Renamed since', prompt: 'turn the bridge on please' },
+    { id: 'c', title: 'No transcript', prompt: 'nothing like it' }
+  ]
+  const mine = assign(agents, [other, asked, named])
+  assert.equal(mine.get('a'), named)
+  assert.equal(mine.get('b'), asked)
+  assert.equal(mine.has('c'), false)
+
+  // A workspace's only agent gets its newest transcript, whatever it is called.
+  assert.equal(assign([agents[2]], [other, named]).get('c'), other)
+  assert.equal(assign([agents[2]], []).has('c'), false)
+})
+
+test('counts what git says changed', () => {
+  assert.deepEqual(parseShortstat(' 3 files changed, 120 insertions(+), 30 deletions(-)\n'), {
+    files: 3,
+    added: 120,
+    removed: 30
+  })
+  assert.deepEqual(parseShortstat(' 1 file changed, 1 deletion(-)'), {
+    files: 1,
+    added: 0,
+    removed: 1
+  })
+  assert.deepEqual(parseShortstat(''), { files: 0, added: 0, removed: 0 })
+})
+
+test("keeps each agent's history and the day's tally", () => {
+  const office = createOffice()
+  const noon = new Date(2026, 0, 5, 12).getTime()
+  const minute = 60_000
+  const at = (state: 'working' | 'blocked' | 'done', minutes: number, outcome?: 'failure') => ({
+    ...status(state, noon + minutes * minute),
+    mainAgent: { state, outcome, stateStartedAt: noon + minutes * minute }
+  })
+  applyStatus(office, at('working', 0))
+  applyStatus(office, at('working', 1))
+  applyStatus(office, at('blocked', 2))
+  applyStatus(office, at('working', 5))
+  applyStatus(office, at('done', 9, 'failure'))
+
+  const [agent] = snapshot(office).agents
+  assert.deepEqual(
+    agent.history.map((step) => [step.state, (step.at - noon) / minute]),
+    [
+      ['working', 0],
+      ['blocked', 2],
+      ['working', 5],
+      ['done', 9]
+    ]
+  )
+  assert.deepEqual(snapshot(office).today, {
+    day: new Date(noon).toDateString(),
+    finished: 1,
+    failed: 1,
+    blockedMs: 3 * minute
+  })
+
+  // An agent first seen already finished did not finish on our watch.
+  applyStatus(office, { ...at('done', 10), paneKey: 'late', terminalId: 'late' })
+  assert.equal(snapshot(office).today.finished, 1)
+
+  // A new day starts a new tally, and steps older than two hours drop out of the history.
+  applyStatus(office, at('working', 24 * 60))
+  assert.deepEqual(snapshot(office).today.finished, 0)
+  assert.deepEqual(
+    snapshot(office).agents[0].history.map((step) => step.state),
+    ['working']
+  )
+})
+
+test('reads preferences, keeping the default for anything odd', () => {
+  assert.deepEqual(readPrefs(null), { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20 })
+  assert.deepEqual(readPrefs({ notifyBlocked: false, animate: 'no', extra: 1 }), {
+    notifyBlocked: false,
+    notifyDone: true,
+    animate: true,
+    palette: 'orca',
+    layout: 'list',
+    stuckMinutes: 20
+  })
+  assert.deepEqual(readPrefs({ palette: 'dracula', animate: false, layout: 'grid' }), {
+    notifyBlocked: true,
+    notifyDone: true,
+    animate: false,
+    palette: 'dracula',
+    layout: 'grid',
+    stuckMinutes: 20
+  })
+  assert.deepEqual(readPrefs({ palette: 'unknown-theme', layout: 'tiles', stuckMinutes: 7 }), {
+    notifyBlocked: true,
+    notifyDone: true,
+    animate: true,
+    palette: 'orca',
+    layout: 'list',
+    stuckMinutes: 20
+  })
+})
+
+test('journals observed roster changes once across polls and restart', () => {
+  const office = createOffice()
+  const row = { paneKey: 'chat', state: 'done' as const, stateStartedAt: 900, lastAssistantMessage: 'result' }
+  applyRoster(office, [{ path: '/w', repoId: 'p', agents: [row] }], 1000)
+  applyRoster(office, [{ path: '/w', repoId: 'p', agents: [row] }], 1100)
+  let events = snapshot(office).journal
+  assert.deepEqual(events.map((event) => event.kind).sort(), ['observed', 'result'])
+  const first = events.find((event) => event.kind === 'observed')
+  assert.equal(first?.observedAt, 1000)
+  assert.equal(first?.sourceAt, 900)
+  const restarted = createOffice()
+  restore(restarted, JSON.parse(JSON.stringify(snapshot(office))), 1200)
+  applyRoster(restarted, [{ path: '/w', repoId: 'p', agents: [row] }], 1300)
+  assert.equal(snapshot(restarted).journal.length, 2)
+  applyRoster(restarted, [{ path: '/w', repoId: 'p', agents: [] }], 1400)
+  events = snapshot(restarted).journal
+  assert.equal(events.at(-1)?.kind, 'disappeared')
+  assert.equal(events.some((event) => event.kind === 'state'), false)
+})
+
+test('journals transitions and tool milestones without prompt transcripts', () => {
+  const office = createOffice()
+  applyStatus(office, status('working', 1000))
+  applyToolBefore(office, call('Edit', { file_path: '/repo/a.ts' }, 'c1'), 1100)
+  applyToolAfter(office, call('Edit', { file_path: '/repo/a.ts' }, 'c1'), 1200)
+  applyToolAfter(office, call('Edit', { file_path: '/repo/a.ts' }, 'c1'), 1250)
+  applyStatus(office, { ...status('done', 1400), mainAgent: { state: 'done', stateStartedAt: 1350 } })
+  const events = snapshot(office).journal
+  assert.deepEqual(events.map((event) => event.kind), ['observed', 'tool', 'state'])
+  assert.equal(events.at(-1)?.sourceAt, 1350)
+  assert.equal(events.at(-1)?.observedAt, 1400)
+  assert.equal(JSON.stringify(events).includes('prompt'), false)
+})
+
+test('prunes journal deterministically to 24 hours and 5000 entries', () => {
+  const office = createOffice()
+  for (let i = 0; i < 5002; i++) {
+    applyStatus(office, { ...status(i % 2 ? 'waiting' : 'working', 100000000 + i), paneKey: 'pane-1' })
+  }
+  assert.equal(snapshot(office).journal.length, 5000)
+  office.rostered = true
+  prune(office, 100000000 + 5001 + 24 * 60 * 60 * 1000)
+  assert.equal(snapshot(office).journal.length, 0)
+})
+
+test('does not duplicate sampled tools across restart and clips result excerpts', () => {
+  const office = createOffice()
+  const row = { paneKey: 'chat', state: 'working' as const, toolName: 'Read', toolInput: 'file', lastAssistantMessage: 'x'.repeat(800), prompt: 'private prompt' }
+  applyRoster(office, [{ path: '/w', agents: [row] }], 1000)
+  const restarted = createOffice()
+  restore(restarted, JSON.parse(JSON.stringify(snapshot(office))), 1100)
+  applyRoster(restarted, [{ path: '/w', agents: [row] }], 1200)
+  const events = snapshot(restarted).journal
+  assert.equal(events.filter((event) => event.kind === 'tool').length, 1)
+  assert.equal(events.find((event) => event.kind === 'result')?.result?.length, 400)
+  assert.equal(JSON.stringify(events).includes('private prompt'), false)
+})
+
+test('resolves parentPaneKey to the one listed agent with that paneKey across worktrees', () => {
+  const office = createOffice()
+  applyRoster(office, [
+    { path: '/w1', agents: [{ paneKey: 'parent', state: 'done' }, { paneKey: 'self', parentPaneKey: 'self', state: 'working' }] },
+    { path: '/w2', agents: [
+      { paneKey: 'child', parentPaneKey: 'parent', state: 'working' },
+      { paneKey: 'orphan', parentPaneKey: 'gone', state: 'working' },
+      { paneKey: 'blank', parentPaneKey: '', state: 'working' },
+      { paneKey: 'typed', parentPaneKey: 7 as unknown as string, state: 'working' },
+      { paneKey: 'plain', state: 'working' }
+    ] }
+  ], 1000)
+  const byPane = Object.fromEntries(snapshot(office).agents.map((agent) => [agent.paneKey, agent]))
+  assert.equal(byPane.child.parentId, byPane.parent.id)
+  assert.equal(byPane.child.parentPaneKey, 'parent')
+  assert.deepEqual([byPane.self.parentId, byPane.self.parentPaneKey], [null, 'self'])
+  assert.deepEqual([byPane.orphan.parentId, byPane.orphan.parentPaneKey], [null, 'gone'])
+  for (const key of ['parent', 'blank', 'typed', 'plain']) assert.deepEqual([byPane[key].parentId, byPane[key].parentPaneKey], [null, null])
+})
+
+test('drops a parent link when the parent leaves the roster or the link is no longer reported', () => {
+  const office = createOffice()
+  const roster = (agents: NonNullable<Parameters<typeof applyRoster>[1][number]['agents']>) => [{ path: '/w', agents }]
+  const parent = { paneKey: 'parent', state: 'working' as const }
+  applyRoster(office, roster([parent, { paneKey: 'child', parentPaneKey: 'parent', state: 'working' }]), 1000)
+  assert.notEqual(snapshot(office).agents.find((agent) => agent.paneKey === 'child')?.parentId, null)
+  applyRoster(office, roster([{ paneKey: 'child', parentPaneKey: 'parent', state: 'working' }]), 2000)
+  const [child] = snapshot(office).agents
+  assert.deepEqual([child.parentId, child.parentPaneKey], [null, 'parent'])
+  applyRoster(office, roster([parent, { paneKey: 'child', state: 'working' }]), 3000)
+  assert.deepEqual(snapshot(office).agents.map((agent) => [agent.paneKey, agent.parentId, agent.parentPaneKey]).sort(), [['child', null, null], ['parent', null, null]])
+})
+
+test('a full day of history is trimmed to fit Orca\'s storage limit, oldest first, and never sent to the panel', () => {
+  const office = createOffice()
+  const state = snapshot(office)
+  const journal = Array.from({ length: 5000 }, (_, index) => ({
+    id: `event-${index}`, agentId: 'a', workspaceId: '/w', projectId: '/w', kind: 'result' as const, source: 'hook' as const,
+    observedAt: index, coverage: 'event' as const, result: 'x'.repeat(400)
+  }))
+  const big = { ...state, journal }
+  assert.ok(JSON.stringify(big).length > 256 * 1024)
+  const kept = storable(big)
+  assert.ok(JSON.stringify(kept).length <= STORE_BYTES)
+  assert.ok(kept.journal.length > 0)
+  assert.equal(kept.journal[kept.journal.length - 1].id, 'event-4999')
+  assert.equal(storable(state), state)
+  assert.deepEqual(forPanel(big).journal, [])
+})

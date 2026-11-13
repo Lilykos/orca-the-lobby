@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide, FAQ and troubleshooting | The Lobby</title>
+<meta name="description" content="How to install and use The Lobby, the Orca plugin that shows your agents as pixel people: shortcuts, settings, exactly what data it reads, plus FAQ and troubleshooting.">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://lilykos.github.io/orca-the-lobby/guide.html">
+<link rel="icon" type="image/png" href="images/icon.png">
+<link rel="apple-touch-icon" href="images/icon.png">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="The Lobby">
+<meta property="og:title" content="The Lobby guide, FAQ and troubleshooting">
+<meta property="og:description" content="Install, shortcuts, settings, what data is read, limits, FAQ and troubleshooting for The Lobby, an Orca plugin.">
+<meta property="og:url" content="https://lilykos.github.io/orca-the-lobby/guide.html">
+<meta property="og:image" content="https://lilykos.github.io/orca-the-lobby/images/cover.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="The Lobby, an Orca plugin: your coding agents at work in a pixel office, with Need you!, Stuck? and Failed bubbles.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The Lobby guide, FAQ and troubleshooting">
+<meta name="twitter:description" content="Install, shortcuts, settings, data and troubleshooting for The Lobby, an Orca plugin.">
+<meta name="twitter:image" content="https://lilykos.github.io/orca-the-lobby/images/cover.png">
+<meta name="twitter:image:alt" content="The Lobby, an Orca plugin: your coding agents at work in a pixel office, with Need you!, Stuck? and Failed bubbles.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;600&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header>
+  <div class="banner">
+    <div class="wrap">
+      <a href="./" aria-label="The Lobby, home">
+        <img class="title px" src="images/title.svg" width="232" height="144" alt="the lobby">
+        <img class="mascot px" src="images/orca.svg" width="128" height="140" alt="" role="presentation">
+      </a>
+    </div>
+  </div>
+  <nav class="nav" aria-label="Site">
+    <div class="wrap">
+      <a href="./#tour">Tour</a>
+      <a href="./#how">How it works</a>
+      <a href="./#permissions">Permissions</a>
+      <a href="./#limits">Limits</a>
+      <a href="guide.html" aria-current="page">Guide &amp; FAQ</a>
+      <span class="spacer"></span>
+      <a href="https://github.com/Lilykos/orca-the-lobby">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<main id="main">
+<div class="wrap">
+  <div class="page-head">
+    <p class="kicker">Guide</p>
+    <h1>Using The Lobby</h1>
+    <p class="intro">Install it, find your way around, and fix the common snags. For the picture tour, see the <a href="./#tour">home page</a>.</p>
+  </div>
+
+  <div class="layout">
+    <nav class="toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <ol>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#use">Using the panel</a></li>
+        <li><a href="#shortcuts">Shortcuts</a></li>
+        <li><a href="#settings">Settings</a></li>
+        <li><a href="#data">What it reads</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#develop">Develop</a></li>
+      </ol>
+    </nav>
+
+    <div class="doc">
+      <section id="install">
+        <h2>Install</h2>
+        <p>You need <a href="https://onorca.dev">Orca</a> 1.4.248 or newer (that is the <code>engines.orca</code> range in the plugin's manifest).</p>
+        <div class="install" style="max-width:none;margin-bottom:1em">
+          <code id="install-cmd">orca plugin install Lilykos/orca-the-lobby</code>
+          <button type="button" data-copy="#install-cmd" aria-label="Copy the install command">Copy</button>
+        </div>
+        <ol>
+          <li>Run the command above. Because the plugin runs code, Orca stops before writing anything, lists what it would be granted along with the publisher and repository, and prints the exact command to re-run with <code>--approve &lt;fingerprint&gt;</code>.</li>
+          <li>Read the capabilities (<a href="./#permissions">what each is for</a>), then re-run that command to approve. The approval is bound to this plugin, version, files and access.</li>
+          <li>Open <strong>The Lobby</strong> from Orca's right sidebar. The status bar item <strong>Lobby</strong> also counts working agents and agents that need you.</li>
+        </ol>
+        <p>The plugin is plain TypeScript and HTML that Orca loads directly; there is no build step.</p>
+        <p class="note">Update with <code>orca plugin update</code> and remove with <code>orca plugin uninstall</code>. The plugin keeps its data only in Orca's per-plugin storage.</p>
+      </section>
+
+      <section id="use">
+        <h2>Using the panel</h2>
+        <h3>Office</h3>
+        <ul>
+          <li>Click a room sign to open or close its agent area. Rooms keep a stable alphabetical order as states change.</li>
+          <li>The list leads with the conversation title, an explicitly labelled prompt excerpt, or &ldquo;Task not reported&rdquo;, and shows the provider beside a friendly name. Activity keeps the original workspace and conversation title.</li>
+          <li>Up to four finished agents stand around the coffee machine; fewer in a narrow room.</li>
+          <li>Under each room is today's token count for that workspace.</li>
+        </ul>
+        <h3>Activity</h3>
+        <ul>
+          <li>Pan wide charts with a trackpad swipe, <kbd>Shift</kbd> + wheel, <kbd>←</kbd> <kbd>→</kbd>, or by dragging the background. <strong>Reset view</strong> recentres.</li>
+          <li><strong>All / Needs attention</strong> switches the highlighting. Your selection, scroll position and collapsed branches survive the switch.</li>
+          <li>A child without an exact matching agent id opens a drawer with its reported state, operation and description, and no invented chat or workspace link. An agent whose reported parent is not in the roster stays unlinked with a short note; no parent is guessed.</li>
+        </ul>
+        <h3>The drawer</h3>
+        <ul>
+          <li><strong>Go to agent</strong> switches to the agent's terminal. For an Orca chat session it opens the workspace and says that it did.</li>
+          <li>The instruction box (terminal agents only, not for finished agents) sends your text to that terminal. If another agent resolves to the same terminal, typing is refused so it cannot reach the wrong one. Instructions can be up to 8,000 characters.</li>
+          <li><strong>Compact conversation</strong> asks for confirmation, then types <code>/compact</code>. Only for Claude Code, where it was tried.</li>
+          <li>A draft and the last result are dropped when the drawer closes.</li>
+        </ul>
+      </section>
+
+      <section id="shortcuts">
+        <h2>Shortcuts</h2>
+        <div class="table-wrap slim">
+          <table>
+            <thead><tr><th scope="col">Keys</th><th scope="col">What happens</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Mod</kbd>+<kbd>Alt</kbd>+<kbd>↑</kbd></td><td><strong>Previous agent</strong>: go to the previous agent, as Go to agent does. Also in the command palette.</td></tr>
+              <tr><td><kbd>Mod</kbd>+<kbd>Alt</kbd>+<kbd>↓</kbd></td><td><strong>Next agent</strong>. Order: agents that need you, then working, then the rest, in a steady order. It steps on from the agent in the drawer, or the last one it went to.</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Close the drawer; focus returns to where you were.</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Send the instruction.</td></tr>
+              <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>New line in the instruction box.</td></tr>
+              <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Pan a focused Activity chart.</td></tr>
+              <tr><td><kbd>Shift</kbd> + wheel</td><td>Pan an Activity chart sideways.</td></tr>
+            </tbody>
+            <caption><kbd>Mod</kbd> is <kbd>⌘</kbd> on macOS and <kbd>Ctrl</kbd> elsewhere.</caption>
+          </table>
+        </div>
+      </section>
+
+      <section id="settings">
+        <h2>Settings</h2>
+        <div class="table-wrap slim">
+          <table>
+            <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><td>Notify me when an agent needs me</td><td>Desktop notification when an agent becomes blocked.</td></tr>
+              <tr><td>Notify me when a long turn ends</td><td>Desktop notification when a long working turn finishes.</td></tr>
+              <tr><td>Animate the office</td><td>Bubbles pop and bob and the office moves. Off, or if your system asks for reduced motion, everything still shows without the movement.</td></tr>
+              <tr><td>Notify me when an agent seems stuck</td><td>Off, or after 10, 20, 30 or 60 minutes (20 by default). One notification per quiet spell, for an agent working with no status, tool call or roster update, or still needing you.</td></tr>
+              <tr><td>Palette</td><td>Orca default (follows the app theme), Catppuccin Mocha / Latte, Dracula, GitHub Dark / Light. Changes surfaces, text, accents and room art; state colours keep their meaning.</td></tr>
+              <tr><td>List / Grid</td><td>On Office and Activity. Two projects per line at 400px or wider; saved with your settings.</td></tr>
+              <tr><td>Clear local activity history</td><td>Empties the local observation journal. Does not change Orca's unread flags.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:1em">Palette colours are adapted from the official <a href="https://catppuccin.com/palette/">Catppuccin palette</a>, the <a href="https://draculatheme.com/spec">Dracula specification</a> and <a href="https://github.com/primer/primitives">GitHub Primer primitives</a>.</p>
+      </section>
+
+      <section id="data">
+        <h2>What it reads, exactly</h2>
+        <div class="note"><strong>Nothing leaves your machine.</strong> The plugin sends no data to any server.</div>
+        <h3>Roster and events (from Orca)</h3>
+        <p>The worker uses <code>orca worktree ps --json</code> for the cross-worktree roster: workspace and project names, state, prompt, current operation, helpers and linked items. It also asks Orca's <code>agents.list</code> for the focused workspace when focus changes, and listens for status changes and tool calls. It polls every three seconds while an agent is working and every twenty seconds when idle.</p>
+        <h3>Tokens today (from local logs)</h3>
+        <p>Claude Code session files under <code>~/.claude/projects/&lt;workspace&gt;/</code> and Codex session files under <code>~/.codex/sessions/</code> (matched by their recorded working folder). Only usage numbers and model ids are read. Each file is read once, then only what is appended. Counts are per workspace and project for the local day.</p>
+        <h3>Per-agent context (an exact id chain)</h3>
+        <p>Never from titles, times or folders:</p>
+        <ol>
+          <li>A chat agent's pane key is <code>structured-agent-session-&lt;Orca session id&gt;:&lt;leaf&gt;</code>.</li>
+          <li>Orca's own session store (<code>agent-session-journal.db</code>), read-only through the <code>sqlite3</code> macOS ships, records that session's Claude Code session id or Codex thread id. Only the provider and the session id are selected, never prompts or messages.</li>
+          <li>That id is in the log's file name: <code>~/.claude/projects/*/&lt;id&gt;.jsonl</code> or <code>~/.codex/sessions/YYYY/MM/DD/rollout-…-&lt;id&gt;.jsonl</code>.</li>
+        </ol>
+        <p>The drawer then shows the latest request's tokens (cache included), the compactions the log records, and the session's tokens today. For Codex that is the input side of the last request; output is left out. The percentage uses the window the log states: Codex does, Claude Code does not. Tokens today count only the agent's current provider session; an earlier one before a resume or <code>/clear</code> is not added.</p>
+        <p>The store is an Orca internal, not a documented API. If a future Orca changes it, these lines simply disappear. The read runs in the background and never holds up a panel update or a notification; the store is asked at most every 30 seconds per session and not again for a minute after a failure.</p>
+        <h3>Other</h3>
+        <ul>
+          <li><strong>Claude transcripts</strong> can supplement task lists and changed-file names, matched by title and prompt similarity. Transcript model names are never attributed to an agent.</li>
+          <li><strong>Git</strong>: <code>git diff --shortstat HEAD</code> for uncommitted changes.</li>
+          <li><strong>Local journal</strong>: observed activity for up to 24 hours, oldest dropped first to fit Orca's 256 KiB storage limit, never sent to the panel. It may hold clipped result or tool details; it does not store prompts.</li>
+          <li><strong>No money estimate</strong> is ever made from tokens.</li>
+        </ul>
+      </section>
+
+      <section id="faq">
+        <h2>FAQ</h2>
+        <details>
+          <summary>Is it safe? Does it send my code or prompts anywhere?</summary>
+          <div><p>No. It has no network code. It reads local files and runs the Orca CLI and Git on your machine. Prompts are not stored in its journal. The <a href="https://github.com/Lilykos/orca-the-lobby">source</a> is public.</p></div>
+        </details>
+        <details>
+          <summary>Why can't I type into a chat agent?</summary>
+          <div><p>Orca has no way for plugins to pick or type into a chat tab. The instruction box and Compact work for agents running in a terminal. For chat agents, Go to agent opens their workspace.</p></div>
+        </details>
+        <details>
+          <summary>Can I approve or deny a blocked agent's request from the panel?</summary>
+          <div><p>No. Orca does not report what a blocked agent is asking, and plugins have no approve / deny controls. The panel says <em>Needs you</em> and takes you to the agent.</p></div>
+        </details>
+        <details>
+          <summary>Why does a Claude agent show tokens but no context percentage?</summary>
+          <div><p>Claude Code's logs do not state the context window, and The Lobby will not guess one. Codex logs do, so Codex agents show a percentage.</p></div>
+        </details>
+        <details>
+          <summary>The token total under a room differs from the number in the drawer.</summary>
+          <div><p>The room total is per workspace for the whole local day. The drawer figure is for one agent's current provider session, so earlier sessions before a resume or <code>/clear</code> are not included.</p></div>
+        </details>
+        <details>
+          <summary>Does it show which model an agent uses?</summary>
+          <div><p>No. Orca's supported agent metadata reports the provider kind (Claude, Codex, Pi, …) but not the selected model, so the label next to a name is the provider.</p></div>
+        </details>
+        <details>
+          <summary>Where do finished agents go?</summary>
+          <div><p>They stand around the coffee machine (up to four drawn) and stay in the roster and Activity. They get a <em>Done · new</em> tag until you have seen the result.</p></div>
+        </details>
+        <details>
+          <summary>What are the colours?</summary>
+          <div><p>Green is working, orange is Needs you, amber is waiting, red is failure, grey is done and blue is an unread result. Status pills appear on individual agents; there are no aggregate status chips.</p></div>
+        </details>
+        <details>
+          <summary>Does it work on Windows or Linux?</summary>
+          <div><p>The panel, roster and tokens do not depend on the OS. Per-agent context depends on the <code>sqlite3</code> that macOS ships, so it is shown on macOS only.</p></div>
+        </details>
+        <details>
+          <summary>How do I get rid of the history it keeps?</summary>
+          <div><p>Settings, then <strong>Clear local activity history</strong>. It also drops itself after 24 hours.</p></div>
+        </details>
+      </section>
+
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <details>
+          <summary>The panel says &ldquo;No agents to show yet.&rdquo;</summary>
+          <div>
+            <p>Start an agent in an Orca workspace; the roster refreshes every three seconds while something is working, every twenty seconds when idle. If agents are running and nothing shows, the Orca CLI may be unavailable to the plugin: it then falls back to status and tool-call events and the focused workspace's agent list, so only agents Orca has told it about appear, chat tool calls are unavailable, and finished agents linger for four hours.</p>
+          </div>
+        </details>
+        <details>
+          <summary>An agent has no Context line.</summary>
+          <div>
+            <p>It needs the exact id chain: a chat session (pane key <code>structured-agent-session-…</code>), Claude Code or Codex, on macOS, with <code>sqlite3</code> available and Orca's session store readable. Agents in a plain terminal tab and other providers have no verified link and show nothing. After a failure (no <code>sqlite3</code>, a locked or missing database), or if the log is not found, it retries only once a minute.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Claude agents show no percentage.</summary>
+          <div><p>Expected: Claude Code logs do not state a context window. You still get tokens.</p></div>
+        </details>
+        <details>
+          <summary>Go to agent only opens the workspace.</summary>
+          <div><p>That is what it does for Orca chat sessions, which have no terminal for a plugin to bring forward. The panel tells you when it happens.</p></div>
+        </details>
+        <details>
+          <summary>The instruction box or Compact button is missing.</summary>
+          <div><p>Controls that do not apply are left out. The box needs a terminal agent that is not finished, with its terminal found by the id or pane key Orca reports, and the <code>terminal:send</code> capability granted. If two agents resolve to one terminal, typing is refused. Compact is Claude Code only.</p></div>
+        </details>
+        <details>
+          <summary>I got no stuck or needs-you notifications.</summary>
+          <div><p>Check Settings: the switches and the stuck time (Off disables the alert), and that Orca may show notifications from the plugin. You get one stuck notification per quiet spell, not repeats.</p></div>
+        </details>
+        <details>
+          <summary>Tool calls or file changes look incomplete.</summary>
+          <div><p>Short chat tool calls can fall between polls; Orca does not yet report terminal tool calls on SSH or WSL hosts; and the changed-files count ignores new untracked files.</p></div>
+        </details>
+        <details>
+          <summary>Everything is still, nothing moves.</summary>
+          <div><p>Check <strong>Animate the office</strong> and your system's reduced-motion setting. The window still follows local time at period boundaries.</p></div>
+        </details>
+        <p>Still stuck? <a href="https://github.com/Lilykos/orca-the-lobby/issues">Open an issue</a> with your Orca version and what the panel shows. Please leave out real prompts, paths and project names.</p>
+      </section>
+
+      <section id="develop">
+        <h2>Develop</h2>
+<pre><code>orca plugin test .
+npx --yes --package typescript tsc --noEmit
+orca plugin check .
+orca plugin dev watch .    # load this checkout and reload as files change</code></pre>
+        <p>Orca transpiles the TypeScript when it loads the plugin. <code>panel/banner.ts</code> holds the fixed pixel title and mascot, so no runtime font or image assets are needed. The pixel title and orca on this site are generated from that file by <code>scripts/site/pixel-art.py</code>.</p>
+      </section>
+    </div>
+  </div>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img class="mascot px" src="images/orca.svg" width="84" height="92" alt="">
+    <div>
+      <h2>The Lobby</h2>
+      <ul>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby">Source on GitHub</a></li>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby/issues">Report an issue</a></li>
+        <li><a href="https://github.com/Lilykos/orca-the-lobby/blob/main/LICENSE">MIT license</a></li>
+        <li><a href="./">Home</a></li>
+        <li><a href="https://onorca.dev">Orca</a></li>
+      </ul>
+      <p style="margin-top:14px">Made by Lilykos. No analytics or trackers on this site; the only third-party request is the Pixelify Sans font from Google Fonts.</p>
+    </div>
+  </div>
+</footer>
+<script src="site.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>poster</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1600px; height: 1000px; overflow: hidden; background: #141a2a; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; color: #fff; }
+  .stage { position: relative; width: 1600px; height: 1000px; overflow: hidden;
+    background: #141a2a center / 100% 100% no-repeat; }
+  .copy { position: absolute; top: 50%; transform: translateY(-50%); width: var(--cw, 600px); }
+  .kicker { font-size: 24px; letter-spacing: .18em; text-transform: uppercase; color: #f2c14e; margin-bottom: 26px; font-weight: 600; }
+  h1 { text-wrap: balance; font-size: 80px; line-height: 1.03; letter-spacing: -.03em; font-weight: 700; }
+  p { text-wrap: pretty; margin-top: 30px; font-size: 32px; line-height: 1.4; color: rgba(255,255,255,.8); }
+  .frame { position: absolute; padding: 10px; border-radius: 28px; background: #0b0f1a;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.2), 0 0 0 11.5px rgba(255,255,255,.04), 0 40px 90px rgba(0,0,0,.55), 0 0 120px rgba(242,193,78,.14); }
+  .frame img { display: block; border-radius: 19px; image-rendering: auto; }
+</style></head>
+<body><div class="stage" id="stage">
+  <div class="copy" id="copy"><div class="kicker" id="k"></div><h1 id="t"></h1><p id="c"></p></div>
+  <div class="frame" id="frame"><img id="img" alt=""></div>
+</div>
+<script>
+  // ?bg=<backdrop png url>&k=kicker&t=headline&c=sentence&img=<panel png url>&side=r|l&fx&fy&fw&fh=<panel rectangle>&cw=<copy width>
+  const q = new URLSearchParams(location.search), $ = (id) => document.getElementById(id), num = (k, d) => (q.has(k) ? +q.get(k) : d);
+  $('k').textContent = q.get('k') || 'The Lobby'; $('t').textContent = q.get('t') || ''; $('c').textContent = q.get('c') || '';
+  const fx = num('fx', 800), fy = num('fy', 60), fw = num('fw', 560), fh = num('fh', 880), cw = num('cw', 600);
+  const frame = $('frame'), img = $('img');
+  Object.assign(frame.style, { left: fx - 10 + 'px', top: fy - 10 + 'px' });
+  img.style.width = fw + 'px'; img.style.height = fh + 'px';
+  const copy = $('copy'); copy.style.setProperty('--cw', cw + 'px');
+  if (q.get('side') === 'l') copy.style.right = '110px'; else copy.style.left = '110px';
+  $('stage').style.backgroundImage = `url("${q.get('bg')}")`;
+  img.src = q.get('img');
+  img.decode().then(() => document.fonts.ready).then(() => { document.body.dataset.ready = '1' });
+</script></body></html>

@@ -1,0 +1,149 @@
+"""Runs the panel fixture's check scenarios in headless Chrome: an end-to-end test of the real panel code.
+
+    python3 scripts/shots/run.py [--only linked,grid] [--shots DIR]
+
+Every scenario loads the fixture at an exact CSS width, waits for its in-page checks to report PASS and,
+for some, presses keys and wheels over the DevTools protocol. Screenshots (the inspector, the map and the
+office at each width) are only written with --shots. Exits non-zero at the first failure.
+"""
+import argparse, json, pathlib, sys, tempfile, time
+
+from cdp import Chrome, build_fixture
+
+parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+parser.add_argument('--only', help='comma-separated scenario names to run (default: all)')
+parser.add_argument('--shots', type=pathlib.Path, help='write the per-scenario screenshots to this folder')
+parser.add_argument('--fixture', type=pathlib.Path, help='use this prebuilt fixture page instead of building one')
+args = parser.parse_args()
+out = args.shots
+if out:
+    out.mkdir(parents=True, exist_ok=True)
+
+scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'), (280, 'peers'), (420, 'peers'), (900, 'peers'), (420, 'cycle'), (420, 'unknown'), (420, 'noid'), (420, 'storagefail'), (420, 'clearfail'), (420, 'light'), (420, 'reduced'), (280, 'many'), (420, 'many'), (900, 'many'), (420, 'stale'), (420, 'multiple'), (420, 'states'), (420, 'projects'), (420, 'departure'), (420, 'clearsuccess'), (280, 'attention'), (420, 'attention'), (900, 'attention'), (420, 'attentionempty'), (280, 'attentionempty'), (280, 'big'), (420, 'big'), (900, 'big'), (280, 'parentlink'), (420, 'parentlink'), (900, 'parentlink'), (280, 'parentnote'), (420, 'parentnote'), (340, 'grid'), (420, 'grid'), (900, 'grid'), (280, 'drawer'), (420, 'drawer'), (900, 'drawer')]
+# Each feature adds its own runs on its own line below.
+scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
+scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
+scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
+
+if args.only:
+    wanted = set(args.only.split(','))
+    unknown = wanted - {name for _, name in scenarios}
+    if unknown: sys.exit('unknown scenario: ' + ', '.join(sorted(unknown)))
+    scenarios = [s for s in scenarios if s[1] in wanted]
+
+with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() as chrome:
+    command = chrome.command
+    html = args.fixture.resolve() if args.fixture else build_fixture(pathlib.Path(scratch) / 'fixture.html')
+    for width, scenario in scenarios:
+        command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
+        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario == 'reduced' else 'no-preference'}]})
+        command('Page.navigate', {'url': html.as_uri() + '?scenario=' + scenario + ('&theme=light' if scenario == 'light' else '')})
+        result = command('Runtime.evaluate', {'expression': "new Promise(resolve=>{const n=setInterval(()=>{if(document.body?.dataset.fixture){clearInterval(n);resolve({result:document.body.dataset.fixture,width:innerWidth,errors:document.body.dataset.errors})}},25);setTimeout(()=>{clearInterval(n);resolve({result:'TIMEOUT'})},5000)})", 'awaitPromise': True, 'returnByValue': True})['result']['value']
+        print(width, scenario, json.dumps(result))
+        if result.get('result') != 'PASS' or result.get('width') != width or result.get('errors'): raise RuntimeError('fixture failed')
+        if scenario in ('linked', 'unknown', 'noid'):
+            selector = 'button.chart-helper' if scenario in ('unknown', 'noid') else 'button.chart-node-button:not(.chart-helper)'
+            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]')?.click();document.querySelector(" + json.dumps(selector) + ").focus({preventScroll:true})"})
+            command('Runtime.evaluate', {'expression': "window.fixtureKeys=[];document.addEventListener('keydown',e=>window.fixtureKeys.push(e.key),{once:true})"})
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            time.sleep(.1)
+            selected = command('Runtime.evaluate', {'expression': "!!document.querySelector('.sheet')", 'returnByValue': True})['result']['value']
+            if selected and scenario in ('unknown', 'noid'):
+                helper_ok = command('Runtime.evaluate', {'expression': "document.querySelector('.sheet').textContent.includes('Review keyboard access') && !document.querySelector('.sheet').textContent.includes('Open workspace')", 'returnByValue': True})['result']['value']
+                if not helper_ok: raise RuntimeError('keyboard-selected helper details incorrect')
+            if not selected:
+                debug = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.outerHTML, page:document.querySelector('#activity-page').hidden, keys:window.fixtureKeys})", 'returnByValue': True})['result']['value']
+                raise RuntimeError('keyboard selection failed: ' + str(debug))
+        if scenario in ('big', 'attention'):
+            def key(name, code, vk, text=''):
+                command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': name, 'code': code, 'windowsVirtualKeyCode': vk, **({'text': text, 'unmodifiedText': text} if text else {})})
+                command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': name, 'code': code, 'windowsVirtualKeyCode': vk})
+                time.sleep(.12)
+            def ev(expression):
+                return command('Runtime.evaluate', {'expression': expression, 'returnByValue': True})['result'].get('value')
+            ev("document.querySelector('[data-focus-key=\"filter:all\"]').focus()")
+            key('Tab', 'Tab', 9)
+            if ev("document.activeElement.dataset.focusKey") != 'filter:attention': raise RuntimeError('Tab did not reach the Needs attention toggle')
+            key('Enter', 'Enter', 13, '\r')
+            if ev("document.querySelector('[data-focus-key=\"filter:attention\"]').getAttribute('aria-pressed')+'|'+document.activeElement.dataset.focusKey") != 'true|filter:attention': raise RuntimeError('keyboard toggle did not apply or lost focus')
+            ev("document.querySelector('[data-focus-key=\"filter:all\"]').focus()")
+            key('Enter', 'Enter', 13, '\r')
+            if ev("document.querySelector('[data-focus-key=\"filter:all\"]').getAttribute('aria-pressed')+'|'+document.activeElement.dataset.focusKey") != 'true|filter:all': raise RuntimeError('keyboard return to All failed')
+            # A chart scrolls sideways only: Down belongs to the page, Right to the chart.
+            # The page must be taller than the window for Down to have anywhere to go.
+            command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 300, 'deviceScaleFactor': 1, 'mobile': False})
+            time.sleep(.15)
+            before = ev("(()=>{window.scrollTo(0,0);const v=document.querySelector('.chart-viewport');v.scrollTop=0;v.scrollLeft=0;v.focus({preventScroll:true});return 0})()")
+            for _ in range(3): key('ArrowDown', 'ArrowDown', 40)
+            for _ in range(3): key('ArrowRight', 'ArrowRight', 39)
+            moved = ev("[document.querySelector('.chart-viewport').scrollTop,document.querySelector('.chart-viewport').scrollLeft,document.scrollingElement.scrollTop]")
+            if moved[0] != 0: raise RuntimeError('arrow keys scrolled the chart vertically: ' + str(moved))
+            if scenario == 'big' and not (moved[1] > 0 and moved[2] > 0): raise RuntimeError('arrow keys did not pan the chart sideways and scroll the page: ' + str(moved))
+            print('  keyboard ok; arrow scroll [chart top, chart left, page top]', moved)
+            command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
+            ev("window.scrollTo(0,0)")
+            time.sleep(.15)
+            if scenario == 'big':
+                bars = ev("(()=>{const v=document.querySelector('.chart-viewport');return [v.offsetWidth-v.clientWidth,v.offsetHeight-v.clientHeight]})()")
+                if bars != [0, 0]: raise RuntimeError('chart still shows scrollbars: ' + str(bars))
+                box = ev("(()=>{window.scrollTo(0,0);const v=document.querySelector('.chart-viewport');v.scrollLeft=0;v.scrollTop=0;const r=v.getBoundingClientRect();return [r.left+4,r.top+4]})()")
+                command('Input.dispatchMouseEvent', {'type': 'mousePressed', 'x': box[0], 'y': box[1], 'button': 'left', 'buttons': 1, 'clickCount': 1})
+                for step in range(1, 6):
+                    command('Input.dispatchMouseEvent', {'type': 'mouseMoved', 'x': box[0] - step * 30, 'y': box[1] - step * 15, 'button': 'left', 'buttons': 1})
+                command('Input.dispatchMouseEvent', {'type': 'mouseReleased', 'x': box[0] - 150, 'y': box[1] - 75, 'button': 'left', 'buttons': 0, 'clickCount': 1})
+                panned = ev("[document.querySelector('.chart-viewport').scrollLeft,document.querySelector('.chart-viewport').scrollTop,document.querySelector('.chart-viewport').classList.contains('panning')]")
+                if not (panned[0] > 100 and panned[1] == 0 and not panned[2]): raise RuntimeError('dragging the chart did not pan it sideways only: ' + str(panned))
+                print('  hidden scrollbars; drag pans sideways only', panned[:2])
+            branch = ev("(()=>{const b=document.querySelector('.chart-branch');if(!b)return null;b.focus();return b.dataset.focusKey})()")
+            if branch:
+                before_nodes = ev("document.querySelectorAll('.chart-node').length")
+                key('Enter', 'Enter', 13, '\r')
+                after = ev("[document.querySelectorAll('.chart-node').length, document.activeElement.dataset.focusKey]")
+                if after[0] == before_nodes or after[1] != branch: raise RuntimeError('branch toggle by keyboard failed ' + str(after))
+                key('Enter', 'Enter', 13, '\r')
+                if ev("document.querySelectorAll('.chart-node').length") != before_nodes: raise RuntimeError('branch re-expand by keyboard failed')
+                print('  branch toggle by keyboard ok')
+        if scenario in ('big', 'grid'):
+            # A real wheel over a chart scrolls the page, never the chart; sideways still pans it.
+            def page(expression):
+                return command('Runtime.evaluate', {'expression': expression, 'returnByValue': True})['result'].get('value')
+            page("document.querySelector('#activity-tab').click()")
+            command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 300, 'deviceScaleFactor': 1, 'mobile': False})
+            time.sleep(.2)
+            point = page("(()=>{const se=document.scrollingElement;se.scrollTop=0;const v=document.querySelector('.chart-viewport');se.scrollTop=Math.max(0,v.getBoundingClientRect().top-60);const r=v.getBoundingClientRect();return [Math.round(r.left+r.width/2),Math.round(Math.min(Math.max(r.top+20,20),innerHeight-20)),se.scrollHeight>innerHeight+40]})()")
+            if not point[2]: raise RuntimeError('page cannot scroll at 300px high, so the wheel check proves nothing')
+            before = page("[document.scrollingElement.scrollTop,document.querySelector('.chart-viewport').scrollTop,document.querySelector('.chart-viewport').scrollLeft]")
+            for _ in range(3):
+                command('Input.dispatchMouseEvent', {'type': 'mouseWheel', 'x': point[0], 'y': point[1], 'deltaX': 0, 'deltaY': 120})
+                time.sleep(.1)
+            time.sleep(.2)
+            after = page("[document.scrollingElement.scrollTop,document.querySelector('.chart-viewport').scrollTop,document.querySelector('.chart-viewport').scrollLeft]")
+            if not (after[0] > before[0] and after[1] == before[1] == 0): raise RuntimeError(f'wheel over a chart did not scroll the page and only the page: {before} -> {after}')
+            wide = page("(()=>{const v=document.querySelector('.chart-viewport');return v.scrollWidth>v.clientWidth+40})()")
+            if wide:
+                point = page("(()=>{const se=document.scrollingElement,v=document.querySelector('.chart-viewport');se.scrollTop=Math.max(0,se.scrollTop+v.getBoundingClientRect().top-60);const r=v.getBoundingClientRect();return [Math.round(r.left+r.width/2),Math.round(Math.min(Math.max(r.top+20,20),innerHeight-20))]})()")
+                command('Input.dispatchMouseEvent', {'type': 'mouseWheel', 'x': point[0], 'y': point[1], 'deltaX': 80, 'deltaY': 0})
+                time.sleep(.2)
+                sideways = page("document.querySelector('.chart-viewport').scrollLeft")
+                if not sideways > before[2]: raise RuntimeError(f'a sideways wheel did not pan the chart: {before[2]} -> {sideways}')
+            print('  wheel scrolls the page, not the chart', before, '->', after, 'sideways ok' if wide else 'chart fits sideways')
+            command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
+            page("window.scrollTo(0,0)")
+            time.sleep(.2)
+        def shot(name):
+            if out: (out / f'{name}-{width}-{scenario}.png').write_bytes(chrome.screenshot())
+        if scenario in ('attention', 'big', 'parentlink', 'parentnote', 'attentionempty'):
+            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=\"filter:attention\"]').click(); window.scrollTo(0,0)"})
+            time.sleep(.1)
+            shot('attention')
+            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=\"filter:all\"]')?.click()"})
+            time.sleep(.1)
+        shot('inspector')
+        command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]')?.click(); document.querySelector('[data-focus-key^=chart-reset]')?.click(); window.scrollTo(0,0)"})
+        shot('map')
+        command('Runtime.evaluate', {'expression': "document.querySelector('#office-tab').click(); window.scrollTo(0,0)"})
+        time.sleep(.1)
+        shot('office')
+
+print(f'{len(scenarios)} scenarios passed')

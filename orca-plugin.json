@@ -1,0 +1,140 @@
+{
+  "manifestVersion": 2,
+  "id": "the-lobby",
+  "name": "The Lobby",
+  "version": "1.0.0",
+  "description": "See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Everything is read on your machine.",
+  "author": {
+    "name": "Lilykos",
+    "url": "https://github.com/Lilykos"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/Lilykos/orca-the-lobby",
+  "homepage": "https://lilykos.github.io/orca-the-lobby/",
+  "icon": "docs/images/icon.png",
+  "cover": {
+    "path": "docs/images/catalog/cover.png",
+    "alt": "The Lobby: the pixel title and orca mascot, a tagline, and two project rooms with Need you!, Stuck? and Failed speech bubbles"
+  },
+  "screenshots": [
+    {
+      "path": "docs/images/catalog/office.png",
+      "alt": "The Office tab in Grid: two project rooms with pixel agents at their desks, today's tokens and the first agents of each room",
+      "caption": "Every agent, every worktree, one glance",
+      "theme": "dark"
+    },
+    {
+      "path": "docs/images/catalog/attention.png",
+      "alt": "Two project rooms with Need you!, Stuck? and Failed speech bubbles over the agents, and a finished agent's reply",
+      "caption": "Know who needs you",
+      "theme": "dark"
+    },
+    {
+      "path": "docs/images/catalog/activity.png",
+      "alt": "The Activity tab: an org chart for one project, with a coordinator and the three workers it started",
+      "caption": "See who started whom",
+      "theme": "dark"
+    },
+    {
+      "path": "docs/images/catalog/drawer.png",
+      "alt": "The agent drawer over the Office: context, tokens today, Go to agent, View in Activity and an instruction box",
+      "caption": "Jump in without hunting tabs",
+      "theme": "dark"
+    },
+    {
+      "path": "docs/images/catalog/context.png",
+      "alt": "The agent drawer's context line: 81% of a 400k window, one compaction, 1.9M tokens today and the workspace's cache share",
+      "caption": "Context and tokens, per agent",
+      "theme": "dark"
+    },
+    {
+      "path": "docs/images/catalog/palettes.png",
+      "alt": "The Office tab in the light theme, with the daytime window: two project rooms in Grid",
+      "caption": "Day or night, Orca's theme or five palettes",
+      "theme": "light"
+    }
+  ],
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "office",
+        "title": "The Lobby",
+        "icon": "agent",
+        "entry": "panel/index.html"
+      }
+    ],
+    "events": [
+      {
+        "on": "agent.status.changed"
+      },
+      {
+        "on": "workspace.changed"
+      },
+      {
+        "on": "workspace.removed"
+      }
+    ],
+    "hooks": [
+      {
+        "event": "agent.tool.before"
+      },
+      {
+        "event": "agent.tool.after"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "office",
+        "icon": "agent",
+        "text": "Lobby",
+        "tooltip": "The Lobby"
+      }
+    ],
+    "commands": [
+      {
+        "id": "office.previousAgent",
+        "title": "Previous agent"
+      },
+      {
+        "id": "office.nextAgent",
+        "title": "Next agent"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "office.previousAgent",
+        "key": "Mod+Alt+ArrowUp"
+      },
+      {
+        "command": "office.nextAgent",
+        "key": "Mod+Alt+ArrowDown"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "agent:read"
+    },
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "workspace:write"
+    },
+    {
+      "kind": "notifications:show"
+    },
+    {
+      "kind": "terminal:send"
+    }
+  ]
+}
