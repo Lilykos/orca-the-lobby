@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- **Projects in your order**: rooms and charts follow Orca's sidebar order instead of the alphabet, and follow it when you reorder the sidebar. **↑** / **↓** on a room or chart set your own order, shared by Office and Activity and kept between sessions; **Use the sidebar order again** in Settings goes back.
+- **Fix**: agents who arrive in a room together walk in one behind the other instead of on top of each other, names included.
+
 ## 1.0.0
 
 First public release.

@@ -32,7 +32,7 @@ import {
   viewActivityFocusKey
 } from './navigation'
 import { assignAgentNames, readAgentNames } from './names'
-import { projectGroups, taskLabel } from './work-map'
+import { moveProject, orderProjects, projectGroups, taskLabel } from './work-map'
 import { chartLayout, needsAttention, hasAttention, attentionBranches, NODE_WIDTH, NODE_HEIGHT } from './chart'
 import { buildFamilyTree, syncFamilyExpansion, type FamilyNode } from './family'
 import { PALETTES, PALETTE_OPTIONS, paletteVariables } from './palettes'
@@ -127,6 +127,8 @@ type Section = {
   room: Room
   /** Where the speech bubbles were last drawn, to click them. */
   bubbles: PlacedBubble[]
+  /** The ↑ ↓ buttons over the sign. */
+  move: HTMLElement
 }
 const sections = new Map<string, Section>()
 let rooms: Room[] = []
@@ -304,6 +306,7 @@ function renderList(): void {
   const key = JSON.stringify([
     rows,
     rooms.map((room) => room.collapsed),
+    projectOrder(),
     office.usage?.projects,
     office.links,
     office.can,
@@ -409,6 +412,44 @@ function action(label: string, run: () => void): HTMLElement {
   const button = element('button', 'action', label)
   button.addEventListener('click', run)
   return button
+}
+
+const projectName = (id: string): string =>
+  id ? office.projects[id] ?? office.workspaces[id] ?? id.split(/[\\/]/).pop() ?? id : 'Unassigned'
+
+/** Project ids as both tabs show them: the person's own order, else Orca's sidebar. */
+function projectOrder(): string[] {
+  const ids = new Set(office.agents.map((agent) => agent.projectId ?? agent.workspaceId ?? ''))
+  return orderProjects([...ids], projectName, office.sidebar, prefs.projectOrder)
+}
+
+function moveRoom(id: string, step: -1 | 1): void {
+  slideSoon()
+  prefs = { ...prefs, projectOrder: moveProject(projectOrder(), id, step) }
+  void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+  renderSettings()
+  showOrder()
+}
+
+/** Redraws both tabs in the current project order. */
+function showOrder(): void {
+  listed = ''
+  activityRenderKey = ''
+  renderList()
+}
+
+/** ↑ and ↓ for one project; `focusKey` keeps focus on the button pressed as the project moves. */
+function moveButtons(id: string, name: string, order: readonly string[], focusKey: string): HTMLElement[] {
+  const at = order.indexOf(id)
+  return ([[-1, '↑', 'up'], [1, '↓', 'down']] as const).map(([step, mark, word]) => {
+    const button = action(mark, () => moveRoom(id, step))
+    button.classList.add('move-project')
+    button.dataset.focusKey = `${focusKey}:${word}`
+    button.setAttribute('aria-label', `Move ${name} ${word}`)
+    button.title = `Move ${word}`
+    if (!id || (step < 0 ? at <= 0 : at < 0 || !order[at + 1])) button.setAttribute('disabled', '')
+    return button
+  })
 }
 
 function appendAgentLabel(name: HTMLElement, agent: AgentView): void {
@@ -657,7 +698,8 @@ function setPage(id: string): void {
 }
 
 function renderActivity(): void {
-  const groups = projectGroups(office.agents)
+  const order = projectOrder()
+  const groups = projectGroups(office.agents).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
   if (activitySelected && !office.agents.some((agent) => agent.id === activitySelected)) activitySelected = null
   const trees = groups.map((item) => buildFamilyTree(item.agents))
   syncFamilyExpansion(trees.flat(), expandedFamilies, seenFamilyBranches)
@@ -672,7 +714,7 @@ function renderActivity(): void {
   const selectedHelper = activityHelper ? findHelper(trees.flat()) : undefined
   if (activityHelper && !selectedHelper) activityHelper = null
   drawerHelper = selectedHelper ?? null
-  const key = JSON.stringify([office.agents, office.can, office.projects, office.workspaces, office.usage, activitySelected, activityHelper, [...expandedFamilies], [...foldedCharts], activityFilter, prefs.layout, timeRefreshBucket(Date.now())])
+  const key = JSON.stringify([office.agents, office.can, office.projects, office.workspaces, office.usage, activitySelected, activityHelper, [...expandedFamilies], [...foldedCharts], activityFilter, prefs.layout, order, timeRefreshBucket(Date.now())])
   if (key === activityRenderKey) return renderDrawer()
   activityRenderKey = key
   const focused = activityList.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
@@ -698,13 +740,13 @@ function renderActivity(): void {
     children.push(element('p', 'chart-legend', 'One chart per project, like Office, with every workspace\'s agents.  ┄ in this project   ━ started by the agent above'), activityColumns)
     groups.forEach((group, index) => {
       const roots = trees[index]
-      const projectName = group.id ? office.projects[group.id] ?? office.workspaces[group.id] ?? group.id.split(/[\\/]/).pop() ?? group.id : 'Unassigned'
+      const name = projectName(group.id)
       // Needs attention keeps every project in view but folds the ones with nothing to act on.
       if (attentionOnly && !counts[index]) {
-        items.push(element('p', 'chart-quiet-project', `${projectName}: nothing blocked or failed`))
+        items.push(element('p', 'chart-quiet-project', `${name}: nothing blocked or failed`))
         return
       }
-      const block = chartView(group.id, projectName, roots, attentionOnly)
+      const block = chartView(group.id, name, roots, attentionOnly, order)
       // Live updates rerender often. Replacing a scroll container ends a scrollbar drag in
       // progress, so a chart already on screen keeps its viewport and swaps only its contents.
       const fresh = block.querySelector<HTMLElement>('.chart-viewport')!
@@ -916,7 +958,7 @@ function attentionEmpty(): HTMLElement {
   return box
 }
 
-function chartView(projectId: string, projectName: string, roots: FamilyNode[], attentionOnly: boolean): HTMLElement {
+function chartView(projectId: string, projectName: string, roots: FamilyNode[], attentionOnly: boolean, order: readonly string[]): HTMLElement {
   const key = chartKey(projectId, attentionOnly ? 'attention' : 'all')
   const isFolded = foldedCharts.has(projectId)
   const shell = element('section', `chart-shell chart-block${isFolded ? ' folded' : ''}`)
@@ -947,7 +989,10 @@ function chartView(projectId: string, projectName: string, roots: FamilyNode[], 
   })
   reset.dataset.focusKey = `chart-reset:${projectId}`
   reset.hidden = isFolded
-  toolbar.append(legend, reset)
+  const tools = element('div', 'chart-tools')
+  if (order.length > 1 && projectId) tools.append(...moveButtons(projectId, projectName, order, `chart-move:${projectId}`))
+  tools.append(reset)
+  toolbar.append(legend, tools)
   const viewport = element('div', 'chart-viewport')
   viewport.tabIndex = 0
   viewport.dataset.project = key
@@ -1518,14 +1563,21 @@ function arrange(): void {
   const ratio = window.devicePixelRatio || 1
   scale = Math.max(Math.ceil(1.5 * ratio), Math.floor((cssWidth * ratio) / TARGET_WIDTH)) / ratio
   width = Math.floor(cssWidth / scale)
-  rooms = layout(office, width, scale, folded, agentNames).rooms
+  const order = projectOrder()
+  rooms = layout(office, width, scale, folded, agentNames, order).rooms
 
   for (const [id, section] of sections) {
     if (rooms.some((room) => room.id === id)) continue
     section.root.remove()
     sections.delete(id)
   }
-  for (const room of rooms) (sections.get(room.id) ?? addSection(room)).room = room
+  for (const room of rooms) {
+    const section = sections.get(room.id) ?? addSection(room)
+    section.room = room
+    const name = projectName(room.id)
+    section.move.replaceChildren(...moveButtons(room.id, name, order, `room-move:${room.id}`))
+    section.move.hidden = rooms.length < 2 || !room.id
+  }
   placeInColumns(offices, rooms.map((room) => sections.get(room.id)!.root))
 }
 
@@ -1535,7 +1587,8 @@ function addSection(room: Room): Section {
   const list = element('ul', 'roster')
   const usage = element('p', 'room-usage')
   usage.hidden = true
-  root.append(canvas, usage, list)
+  const move = element('div', 'room-move')
+  root.append(canvas, move, usage, list)
   const section: Section = {
     root,
     canvas,
@@ -1543,7 +1596,8 @@ function addSection(room: Room): Section {
     list,
     usage,
     room,
-    bubbles: []
+    bubbles: [],
+    move
   }
   sections.set(room.id, section)
 
@@ -1772,7 +1826,7 @@ function applyPalette(): void {
 }
 
 /** Kept equal to orca-plugin.json's version. */
-const VERSION = '1.0.0'
+const VERSION = '1.1.0'
 const SITE = 'https://lilykos.github.io/orca-the-lobby/'
 const REPO = 'https://github.com/Lilykos/orca-the-lobby'
 
@@ -1802,7 +1856,7 @@ function aboutCard(): HTMLElement {
 
 /** Settings controls are created once, then synchronized in place so storage changes keep focus. */
 function renderSettings(): void {
-  const choices: [Exclude<keyof Prefs, 'palette' | 'layout' | 'stuckMinutes'>, string][] = [
+  const choices: [Exclude<keyof Prefs, 'palette' | 'layout' | 'stuckMinutes' | 'projectOrder'>, string][] = [
     ['notifyBlocked', 'Notify me when an agent needs me'],
     ['notifyDone', 'Notify me when a long turn ends'],
     ['animate', 'Animate the office']
@@ -1881,7 +1935,17 @@ function renderSettings(): void {
     void orca.storage.set(PREFS_KEY, prefs)
   })
   stuckLabel.append(stuckSelect, element('span', 'setting-hint', 'Working with no activity seen, or still needing you, for that long.'))
-  settings.replaceChildren(paletteLabel, ...controls, stuckLabel, privacy, aboutCard())
+  const orderSetting = element('section', 'history-settings')
+  orderSetting.append(element('p', '', prefs.projectOrder.length
+    ? 'Projects are in the order you set with their ↑ ↓ buttons, in both Office and Activity.'
+    : 'Projects follow the order of Orca\'s sidebar. Use the ↑ ↓ buttons on a room or chart to set your own.'))
+  if (prefs.projectOrder.length) orderSetting.append(action('Use the sidebar order again', () => {
+    prefs = { ...prefs, projectOrder: [] }
+    void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+    renderSettings()
+    showOrder()
+  }))
+  settings.replaceChildren(paletteLabel, ...controls, stuckLabel, orderSetting, privacy, aboutCard())
   applyPalette()
 }
 
@@ -1907,6 +1971,7 @@ const loadPrefs = (): void =>
       prefs = readPrefs(value)
       renderSettings()
       applyLayout()
+      showOrder()
     })
     .catch(() => {})
 orca.storage.onDidChange(({ key }) => key === PREFS_KEY && loadPrefs())

@@ -367,7 +367,9 @@ export function layout(
   scale: number,
   /** Rooms the person folded (true) or unfolded (false) themselves. */
   folded: Map<string, boolean>,
-  displayNames?: ReadonlyMap<string, string>
+  displayNames?: ReadonlyMap<string, string>,
+  /** Room ids in the order to draw them; others follow by name. */
+  order: readonly string[] = []
 ): { rooms: Room[]; height: number } {
   const byRoom = new Map<string, AgentView[]>()
   for (const agent of snap.agents) {
@@ -386,7 +388,8 @@ export function layout(
   const label = Math.ceil((NAME_PX + 3) / scale)
   const rooms: Room[] = []
   let top = 0
-  const ids = [...byRoom.keys()].sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || a.localeCompare(b))
+  const place = (id: string): number => (order.includes(id) ? order.indexOf(id) : order.length)
+  const ids = [...byRoom.keys()].sort((a, b) => place(a) - place(b) || nameOf(a).localeCompare(nameOf(b)) || a.localeCompare(b))
   for (const id of ids) {
     const agents = byRoom.get(id) ?? []
     const seated = agents.filter((agent) => agent.state !== 'done').sort((a, b) => a.id.localeCompare(b.id))
@@ -525,6 +528,9 @@ function wantedIn(room: Room, width: number, now: number): Wanted[] {
   return wanted
 }
 
+/** How far apart, in office pixels, people who arrive together walk in. */
+const QUEUE_GAP = 16
+
 /** Walking path that uses the floor aisle before approaching a desk or the coffee machine. */
 function routeTo(room: Room | undefined, from: Point, goal: Point): Point[] {
   if (!room) return [goal]
@@ -555,6 +561,14 @@ export function step(
     actor.goal = goal
     actor.route = routeTo(roomOf.get(actor.room), actor, goal)
   }
+  // People new to a room this step queue behind its door and walk in one by one, the one going
+  // furthest first, so nobody walks on top of or past another.
+  const queue = new Map<string, number>()
+  const newcomers = [...wanted.values()].filter((item) => !actors.has(item.key)).sort((a, b) => b.goal.x - a.goal.x)
+  for (const item of newcomers) {
+    const place = [...queue.keys()].filter((key) => wanted.get(key)!.room === item.room).length
+    queue.set(item.key, place)
+  }
   for (const [key, item] of wanted) {
     const actor = actors.get(key)
     if (actor) {
@@ -562,7 +576,7 @@ export function step(
       Object.assign(actor, rest, { leaving: false })
       retarget(actor, goal)
     } else {
-      const start = jump ? item.goal : item.entry
+      const start = jump ? item.goal : { x: item.entry.x - (queue.get(key) ?? 0) * QUEUE_GAP, y: item.entry.y }
       const route = jump ? [] : routeTo(roomOf.get(item.room), start, item.goal)
       actors.set(key, { ...item, ...start, route, moving: false, leaving: false })
     }
@@ -930,13 +944,15 @@ export function placeBubbles(
     .map((actor) => ({ actor, bubble: bubbles.get(actor.agentId)! }))
     .sort((a, b) => BUBBLE_RANK[a.bubble.tone] - BUBBLE_RANK[b.bubble.tone] || a.actor.agentId.localeCompare(b.actor.agentId))
   for (const { actor, bubble } of talking) {
+    // Someone still queued behind the door speaks from the doorway.
+    const x = Math.min(width - margin - 4, Math.max(margin + 4, actor.x))
     const text = fitText(bubble.text, widest - 2 * pad, measure, font)
     const size = Math.min(widest, Math.ceil(measure(text)) + 2 * pad)
     const top = Math.max(minTop, Math.round(actor.y) - 19 - height)
-    const centered = Math.min(width - margin - size, Math.max(margin, Math.round(actor.x - size / 2)))
+    const centered = Math.min(width - margin - size, Math.max(margin, Math.round(x - size / 2)))
     const lefts = [centered, ...placed.flatMap((other) => [other.left - gap - size, other.left + other.width + gap])]
       // Still over the character, so the tail points at who is speaking.
-      .filter((left) => left >= margin && left + size <= width - margin && actor.x >= left + 2 && actor.x <= left + size - 2)
+      .filter((left) => left >= margin && left + size <= width - margin && x >= left + 2 && x <= left + size - 2)
       .sort((a, b) => Math.abs(a - centered) - Math.abs(b - centered))
     const left = lefts.find((candidate) =>
       !placed.some((other) =>
@@ -953,7 +969,7 @@ export function placeBubbles(
       top,
       width: size,
       height,
-      tail: Math.min(left + size - 4, Math.max(left + 2, Math.round(actor.x) - 1))
+      tail: Math.min(left + size - 4, Math.max(left + 2, Math.round(x) - 1))
     })
   }
   return placed

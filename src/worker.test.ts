@@ -10,6 +10,7 @@ import * as main from './worker'
 let listed: RosterWorktree[] | null = null
 cli.roster = async () => listed
 cli.changes = async () => ({ files: 2, added: 12, removed: 3 })
+cli.repos = async () => null
 // Terminals the pretend Orca has open, and what was typed or switched to in them.
 let terminals: { handle: string; paneKey: string }[] | null = []
 const typed: string[] = []

@@ -1,5 +1,5 @@
 import { assert, test } from 'orca/testing'
-import { taskLabel, projectGroups, cursorFor, sinceCursor, groupToolEvents } from './work-map'
+import { taskLabel, projectGroups, orderProjects, moveProject, cursorFor, sinceCursor, groupToolEvents } from './work-map'
 import type { AgentView, JournalEvent } from '../src/protocol'
 
 const agent = (id: string, projectId: string | null, workspaceId: string | null): AgentView => ({
@@ -33,4 +33,17 @@ test('groups only consecutive matching tool observations without losing the indi
   const tool = (id: string, overrides: Partial<JournalEvent> = {}): JournalEvent => ({ id, agentId: 'a', projectId: 'p', workspaceId: '/w', kind: 'tool', source: 'roster', coverage: 'sampled', observedAt: Number(id), tool: 'Edit', detail: 'file', ...overrides })
   const events = [tool('1'), tool('2'), tool('3', { kind: 'state' }), tool('4'), tool('5', { source: 'hook' }), tool('6', { agentId: 'b' }), tool('7', { detail: 'other' }), tool('8', { kind: 'result' }), tool('9', { detail: 'other' })]
   assert.deepEqual(groupToolEvents(events).map((group) => group.map((event) => event.id)), [['1', '2'], ['3'], ['4'], ['5'], ['6'], ['7'], ['8'], ['9']])
+})
+
+test('orders projects as chosen, then by the sidebar, then by name, with no project last', () => {
+  const name = (id: string): string => id.toUpperCase()
+  assert.deepEqual(orderProjects(['', 'c', 'b', 'a', 'z'], name, { b: 0, a: 1 }), ['b', 'a', 'c', 'z', ''])
+  assert.deepEqual(orderProjects(['', 'c', 'b', 'a'], name, { b: 0, a: 1 }, ['a', 'gone']), ['a', 'b', 'c', ''])
+})
+
+test('moves a project one step, never past either end or below the room with no project', () => {
+  assert.deepEqual(moveProject(['a', 'b', 'c'], 'b', -1), ['b', 'a', 'c'])
+  assert.deepEqual(moveProject(['a', 'b', 'c'], 'c', 1), ['a', 'b', 'c'])
+  assert.deepEqual(moveProject(['a', 'b', ''], 'b', 1), ['a', 'b', ''])
+  assert.deepEqual(moveProject(['a'], 'x', 1), ['a'])
 })

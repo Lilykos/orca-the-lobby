@@ -36,6 +36,8 @@ export type Office = {
   usage: { day: string; workspaces: Map<string, Usage> } | null
   /** Whether Orca's own list of agents is in: it then decides who is in the office. */
   rostered: boolean
+  /** Each project's place in Orca's sidebar, by repo id and by path. */
+  sidebar: Map<string, number>
 }
 
 /** What `orca worktree ps --json` says of a worktree and its agents; only the fields used. */
@@ -101,7 +103,8 @@ export function createOffice(): Office {
     can: { open: false },
     today: { day: '', finished: 0, failed: 0, blockedMs: 0 },
     usage: null,
-    rostered: false
+    rostered: false,
+    sidebar: new Map()
   }
 }
 
@@ -578,6 +581,14 @@ export function projectRoot(path: string, gitFile: string | null): string {
   return /^gitdir: (.+?)[\\/]\.git[\\/]worktrees[\\/]/m.exec(gitFile ?? '')?.[1] ?? path
 }
 
+/** Orca lists its repos in sidebar order; a project is found by repo id (the roster's) or by path. */
+export function applyRepos(office: Office, repos: { id?: unknown; path?: unknown }[]): void {
+  office.sidebar.clear()
+  repos.forEach((repo, index) => {
+    for (const key of [repo.id, repo.path]) if (typeof key === 'string' && !office.sidebar.has(key)) office.sidebar.set(key, index)
+  })
+}
+
 export function placeWorkspace(office: Office, path: string, root: string): void {
   office.roots.set(path, root)
   office.projects.set(root, root.split(/[\\/]/).pop() || root)
@@ -609,6 +620,7 @@ export function snapshot(office: Office): OfficeSnapshot {
     agents: [...office.agents.values()].sort((a, b) => a.firstSeenAt - b.firstSeenAt),
     workspaces: Object.fromEntries(office.workspaces),
     projects: Object.fromEntries(office.projects),
+    ...(office.sidebar.size ? { sidebar: Object.fromEntries(office.sidebar) } : {}),
     changes: Object.fromEntries(office.changes),
     links: Object.fromEntries(office.links),
     can: office.can,

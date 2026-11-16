@@ -54,6 +54,15 @@ export const cli = {
     }
     return null
   },
+  /** Orca's repos in its sidebar's order, or null when Orca cannot be asked. */
+  repos: async (): Promise<{ id?: unknown; path?: unknown }[] | null> => {
+    try {
+      const repos = JSON.parse((await ask(['repo', 'list', '--json'])) ?? '')?.result?.repos
+      return Array.isArray(repos) ? repos : null
+    } catch {
+      return null
+    }
+  },
   /** The live terminals Orca manages, or null when Orca cannot be asked. */
   terminals: async (): Promise<TerminalRow[] | null> => parseTerminals(await ask(listArgs)),
   /** Brings a terminal's tab to the front in Orca. */

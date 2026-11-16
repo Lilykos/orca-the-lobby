@@ -464,3 +464,15 @@ test('a click on a bubble belongs to its speaker', () => {
   assert.equal(pickBubble(placed, 9, 24), null)
   assert.equal(pickBubble(placed, 15, 30), null)
 })
+
+test('people who arrive together walk in one behind the other, never on top of each other', () => {
+  const room = layout(office([agent('first', 'done'), agent('second', 'done')]), 190, 2, new Map()).rooms[0]
+  const actors = new Map<string, Actor>()
+  step(actors, [room], 190, 10, 0, false)
+  for (let tick = 0; tick < 80; tick++) {
+    const [a, b] = [...actors.values()]
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 10, `overlapping at tick ${tick}: ${a.x},${a.y} and ${b.x},${b.y}`)
+    step(actors, [room], 190, 10, 0.1, false)
+  }
+  assert.ok([...actors.values()].every((actor) => !actor.route.length), 'both reach the coffee corner')
+})

@@ -55,7 +55,8 @@ The panel itself, with demo data:
 
 ### Office
 
-- **One room per project checkout.** Worktrees of the same repository share its room. Click a room's sign to fold or unfold it; rooms keep a stable alphabetical order.
+- **One room per project checkout.** Worktrees of the same repository share its room. Click a room's sign to fold or unfold it.
+- **Projects in your order.** Rooms and charts follow the order of Orca's sidebar, and move when you reorder it there. Point at a room (or use a chart's header) and press **↑** / **↓** to set your own order instead; it is kept, shared by Office and Activity, and **Use the sidebar order again** in Settings undoes it.
 - **Working agents sit at desks** (at least three per room, more rows as needed). A small icon above them shows what Orca reports them doing: thinking, shell, web, edit, read, search, plan, a tool, or delegating to a sub-agent. Each person has a friendly name, shown under them.
 - **Finished agents stand at the coffee machine** (up to four are drawn). A window follows your local time of day, and a few decorations (plant, noticeboard, server rack, bookshelf, clock and so on) fill clear space.
 - **Speech bubbles**, one per person, in priority order: **Need you!** while an agent is blocked, **Stuck?** once a working agent has been quiet longer than your stuck setting, then for 20 seconds after an agent finishes the first line of its last reply (or **Failed**). Click a bubble to open that agent.
@@ -69,7 +70,7 @@ The panel itself, with demo data:
 - **A connected chart per project**: a project hub at the top, agents below it. Dashed lines show which agents belong to the project; solid lines show only parent/child links Orca reports (a supervised worker's parent, and agent children listed under an agent). Nothing is guessed: an agent whose reported parent is not in the roster stays unlinked with a short note.
 - **Agent boxes** show a portrait, name, provider, state and task. Click one to open its drawer. Use the branch buttons to expand reported children; a child without a matching agent opens a small drawer with the state, operation and description Orca reported.
 - **All / Needs attention.** Needs attention highlights blocked and failed agents and dims the rest, without removing anything; a project with nothing to act on folds to one line, and an empty state offers **Show all agents**.
-- **Navigation:** the page scrolls up and down; wide charts pan with a trackpad swipe, Shift+wheel, the left and right arrow keys, or dragging the background. **Reset view** recentres. Each chart folds with its ▾ button, and counts and tokens are shown in its header. List / Grid works here too.
+- **Navigation:** the page scrolls up and down; wide charts pan with a trackpad swipe, Shift+wheel, the left and right arrow keys, or dragging the background. **Reset view** recentres. Each chart folds with its ▾ button, moves with **↑** / **↓**, and counts and tokens are shown in its header. List / Grid works here too.
 
 ### Agent drawer
 
@@ -119,7 +120,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 
 **What it reads, and from where**
 
-- **Orca**: `orca worktree ps --json` (agents across worktrees, with their state, task title, a prompt and last-reply excerpt, current operation, sub-agents and linked PRs), the host's agent and workspace APIs, and `orca terminal list|switch|send` for the drawer actions. It polls every 3 s while an agent is working and every 20 s when idle.
+- **Orca**: `orca worktree ps --json` (agents across worktrees, with their state, task title, a prompt and last-reply excerpt, current operation, sub-agents and linked PRs), the host's agent and workspace APIs, `orca repo list --json` every 10 s for the sidebar's project order, and `orca terminal list|switch|send` for the drawer actions. It polls every 3 s while an agent is working and every 20 s when idle.
 - **Git**: `git diff --shortstat HEAD` in each workspace with an agent, for the uncommitted-changes count. New untracked files are not counted.
 - **Claude Code logs** (`~/.claude/projects/`) and **Codex logs** (`~/.codex/sessions/`): usage numbers and model ids for tokens today; for Claude, also task lists and changed file names for **Tasks** and **Files**. Each file is read once and then only what is appended.
 - **Orca's session store** (`~/Library/Application Support/orca/agent-session-journal.db`, read-only through the `sqlite3` macOS ships): only the provider and session id of a chat agent, to find its own log for the context line. Never prompts or messages.

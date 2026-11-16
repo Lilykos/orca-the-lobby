@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   applyListed,
+  applyRepos,
   applyRoster,
   applyStatus,
   applyToolAfter,
@@ -47,6 +48,8 @@ const LOOK_BUSY_MS = 3000
 const LOOK_IDLE_MS = 20000
 /** How often each workspace's uncommitted changes are counted. */
 const CHANGES_MS = 15000
+/** How often Orca's sidebar order is read, so a project dragged there moves here too. */
+const REPOS_MS = 10000
 /** How often today's tokens are counted from the agents' logs. */
 const USAGE_MS = 30000
 /** A turn shorter than this ends without a notification: you were probably watching. */
@@ -74,6 +77,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   const tail = createSessionTail()
   const countUsage = createUsageCounter(undefined, tail)
   let usageAt = 0
+  let reposAt = 0
   const readTranscripts = createReader()
   const readContexts = createContextReader(undefined, tail)
   let reading = false
@@ -187,6 +191,11 @@ export default function activate(orca: OrcaWorkerApi): void {
       if (fresh) agent.insight = fresh
     }
     readContext(agents)
+    if (Date.now() - reposAt >= REPOS_MS) {
+      reposAt = Date.now()
+      const repos = await cli.repos().catch(() => null)
+      if (repos) applyRepos(office, repos)
+    }
     if (Date.now() - usageAt >= USAGE_MS) {
       usageAt = Date.now()
       const paths = [...new Set([...agents.map((agent) => agent.workspaceId), ...office.workspaces.keys()])]

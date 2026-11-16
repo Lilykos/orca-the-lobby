@@ -17,6 +17,36 @@ export function projectGroups(agents: readonly AgentView[]): { id: string; agent
   return [...groups].map(([id, members]) => ({ id, agents: members }))
 }
 
+/** Projects in the order the person chose, then as Orca's sidebar lists them, then by name; the
+ *  room for agents with no project comes last. */
+export function orderProjects(
+  ids: readonly string[],
+  nameOf: (id: string) => string,
+  sidebar: Readonly<Record<string, number>> = {},
+  chosen: readonly string[] = []
+): string[] {
+  const rank = (id: string): [number, number] => {
+    if (!id) return [3, 0]
+    if (chosen.includes(id)) return [0, chosen.indexOf(id)]
+    return id in sidebar ? [1, sidebar[id]] : [2, 0]
+  }
+  return [...ids].sort((a, b) => {
+    const [ga, ia] = rank(a)
+    const [gb, ib] = rank(b)
+    return ga - gb || ia - ib || nameOf(a).localeCompare(nameOf(b)) || a.localeCompare(b)
+  })
+}
+
+/** The order after moving one project a step up (-1) or down (1); unchanged at either end. */
+export function moveProject(order: readonly string[], id: string, step: -1 | 1): string[] {
+  const next = [...order]
+  const from = next.indexOf(id)
+  const to = from + step
+  if (from < 0 || to < 0 || to >= next.length || !next[to]) return next
+  ;[next[from], next[to]] = [next[to], next[from]]
+  return next
+}
+
 export type EventCursor = { at: number; ids: string[] }
 type TimedEvent = { id: string; observedAt: number }
 

@@ -436,6 +436,7 @@
       }
       /* A room and its agents are one box: the picture on top, the list under it. */
       .office {
+        position: relative;
         overflow: hidden;
         background: var(--ui-card);
         border: 1px solid var(--ui-border);
@@ -993,6 +994,16 @@
       .chart-block.folded .chart-toolbar { border-bottom: 0; }
       .chart-quiet-project { margin: 0; padding: 6px 8px; border: 1px dashed var(--ui-border); border-radius: var(--radius); font-size: 11px; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
       .chart-toolbar .action { min-height: 26px; white-space: nowrap; }
+      .chart-tools { display: flex; align-items: center; gap: 4px; flex: none; }
+      .chart-toolbar .move-project { min-width: 26px; padding: 0; }
+      .action:disabled { opacity: 0.4; cursor: default; }
+      /* ↑ ↓ over a room's sign, in place of its count while the room is pointed at or focused. */
+      .room-move { position: absolute; top: 2px; right: 4px; display: flex; gap: 2px; padding-left: 64px; background: linear-gradient(to right, transparent, var(--ui-card) 20px); opacity: 0; transition: opacity 120ms; pointer-events: none; }
+      .room-move button { pointer-events: auto; }
+      .office:hover .room-move, .room-move:focus-within { opacity: 1; }
+      .room-move[hidden] { display: none; }
+      .room-move .move-project { min-width: 22px; min-height: 18px; padding: 0 4px; font-size: 10.5px; line-height: 1; }
+      @media (hover: none) { .room-move { opacity: 1; } }
       /* Scrolls by wheel, trackpad, keys or dragging the background; no scrollbars. */
       .chart-viewport { overflow-x: auto; overflow-y: hidden; min-height: 195px; scrollbar-width: none; cursor: grab; background: color-mix(in srgb, var(--ui-background) 65%, var(--ui-card)); }
       .chart-viewport::-webkit-scrollbar { display: none; }

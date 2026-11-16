@@ -17,10 +17,12 @@ export type Prefs = {
   layout: 'list' | 'grid'
   /** Minutes without observed progress before a notification says an agent may be stuck; 0 is off. */
   stuckMinutes: number
+  /** Project ids in the order the person put them; empty follows Orca's sidebar. */
+  projectOrder: string[]
 }
 
 export const PREFS_KEY = 'prefs'
-export const DEFAULT_PREFS: Prefs = { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20 }
+export const DEFAULT_PREFS: Prefs = { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20, projectOrder: [] }
 
 export const STUCK_CHOICES = [0, 10, 20, 30, 60]
 
@@ -42,7 +44,8 @@ export function readPrefs(value: unknown): Prefs {
     animate: pick('animate'),
     palette,
     layout: stored.layout === 'grid' ? 'grid' : 'list',
-    stuckMinutes: STUCK_CHOICES.includes(stored.stuckMinutes as number) ? stored.stuckMinutes as number : DEFAULT_PREFS.stuckMinutes
+    stuckMinutes: STUCK_CHOICES.includes(stored.stuckMinutes as number) ? stored.stuckMinutes as number : DEFAULT_PREFS.stuckMinutes,
+    projectOrder: Array.isArray(stored.projectOrder) ? stored.projectOrder.filter((id): id is string => typeof id === 'string') : []
   }
 }
 
@@ -238,6 +241,8 @@ export type OfficeSnapshot = {
   workspaces: Record<string, string>
   /** Project path (an agent's `projectId`) to the project's name. */
   projects: Record<string, string>
+  /** Each project's place in Orca's sidebar, by repo id and by path; absent without the Orca CLI. */
+  sidebar?: Record<string, number>
   /** By workspace path. */
   changes: Record<string, Change>
   links: Record<string, Link[]>

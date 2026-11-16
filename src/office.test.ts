@@ -2,6 +2,7 @@
 import { assert, test } from 'orca/testing'
 import {
   applyListed,
+  applyRepos,
   applyRoster,
   applyStatus,
   applyToolAfter,
@@ -463,14 +464,15 @@ test("keeps each agent's history and the day's tally", () => {
 })
 
 test('reads preferences, keeping the default for anything odd', () => {
-  assert.deepEqual(readPrefs(null), { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20 })
+  assert.deepEqual(readPrefs(null), { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20, projectOrder: [] })
   assert.deepEqual(readPrefs({ notifyBlocked: false, animate: 'no', extra: 1 }), {
     notifyBlocked: false,
     notifyDone: true,
     animate: true,
     palette: 'orca',
     layout: 'list',
-    stuckMinutes: 20
+    stuckMinutes: 20,
+    projectOrder: []
   })
   assert.deepEqual(readPrefs({ palette: 'dracula', animate: false, layout: 'grid' }), {
     notifyBlocked: true,
@@ -478,7 +480,8 @@ test('reads preferences, keeping the default for anything odd', () => {
     animate: false,
     palette: 'dracula',
     layout: 'grid',
-    stuckMinutes: 20
+    stuckMinutes: 20,
+    projectOrder: []
   })
   assert.deepEqual(readPrefs({ palette: 'unknown-theme', layout: 'tiles', stuckMinutes: 7 }), {
     notifyBlocked: true,
@@ -486,8 +489,21 @@ test('reads preferences, keeping the default for anything odd', () => {
     animate: true,
     palette: 'orca',
     layout: 'list',
-    stuckMinutes: 20
+    stuckMinutes: 20,
+    projectOrder: []
   })
+})
+
+test('keeps a stored project order of strings only', () => {
+  assert.deepEqual(readPrefs({ projectOrder: ['b', 3, 'a'] }).projectOrder, ['b', 'a'])
+  assert.deepEqual(readPrefs({ projectOrder: 'b' }).projectOrder, [])
+})
+
+test("places each project where Orca's sidebar lists it, by repo id and by path", () => {
+  const office = createOffice()
+  applyRepos(office, [{ id: 'r1', path: '/one' }, { id: 'r2', path: '/two' }, { path: 7 }])
+  assert.deepEqual(snapshot(office).sidebar, { r1: 0, '/one': 0, r2: 1, '/two': 1 })
+  assert.equal(snapshot(createOffice()).sidebar, undefined)
 })
 
 test('journals observed roster changes once across polls and restart', () => {

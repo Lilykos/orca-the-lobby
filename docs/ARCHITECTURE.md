@@ -52,7 +52,7 @@ The read runs in the background and never holds up a panel update or notificatio
 
 ## Rooms and bubbles
 
-Rooms are keyed by project checkout; worktrees share one. Finished agents stand in deterministic spots around the coffee machine (up to four); decorations are picked from a stable room seed and placed only in clear space. A speaker's bubble replaces its thought icon; needing you beats stuck, which beats a finished reply. Bubbles stay inside the room, slide or give way to more important ones, and cut long text with an ellipsis, never in the middle of an emoji. The window follows local time in six four-hour periods.
+Rooms are keyed by project checkout; worktrees share one. Rooms and charts share one order: the person's own (`prefs.projectOrder`, set with ↑ ↓), else Orca's sidebar (`orca repo list --json`, which lists repos in sidebar order; matched by repo id, or by path without the roster), else by name. Finished agents stand in deterministic spots around the coffee machine (up to four); decorations are picked from a stable room seed and placed only in clear space. A speaker's bubble replaces its thought icon; needing you beats stuck, which beats a finished reply. Bubbles stay inside the room, slide or give way to more important ones, and cut long text with an ellipsis, never in the middle of an emoji. The window follows local time in six four-hour periods.
 
 ## Activity chart
 
