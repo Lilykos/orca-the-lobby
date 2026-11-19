@@ -160,6 +160,7 @@
         <div class="note"><strong>No telemetry.</strong> The plugin makes no direct network requests. Orca uses its existing connections to list agents on your paired servers.</div>
         <h3>Roster and events (from Orca)</h3>
         <p>The worker uses <code>orca worktree ps --json</code> for the cross-worktree roster: workspace and project names, state, prompt, current operation, helpers and linked items. It also asks Orca's <code>agents.list</code> for the focused workspace when focus changes, and listens for status changes and tool calls. It polls every three seconds while an agent is working and every twenty seconds when idle.</p>
+        <p>Paired servers have separate rooms labeled with the server name; local rooms say <strong>local</strong>. Unreachable paired servers disappear until they reconnect. Go to agent can navigate to a remote terminal or worktree, but remote file/log details, sending instructions and Compact are unavailable.</p>
         <h3>Tokens today (from local logs)</h3>
         <p>Claude Code session files under <code>~/.claude/projects/&lt;workspace&gt;/</code> and Codex session files under <code>~/.codex/sessions/</code> (matched by their recorded working folder). Only usage numbers and model ids are read. Each file is read once, then only what is appended. Counts are per workspace and project for the local day.</p>
         <h3>Per-agent context (an exact id chain)</h3>
@@ -216,7 +217,7 @@
         </details>
         <details>
           <summary>Does it work on Windows or Linux?</summary>
-          <div><p>The panel, roster and tokens do not depend on the OS. Per-agent context depends on the <code>sqlite3</code> that macOS ships, so it is shown on macOS only.</p></div>
+          <div><p>The release is validated on macOS. Windows CLI discovery is improved in 1.2.0; independent Windows/Linux runtime checks remain outstanding. Per-agent context currently needs the macOS session-store path and <code>sqlite3</code>.</p></div>
         </details>
         <details>
           <summary>How do I get rid of the history it keeps?</summary>

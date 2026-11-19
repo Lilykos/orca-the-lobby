@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Lobby: your Orca agents as pixel people</title>
-<meta name="description" content="The Lobby is an Orca plugin that shows your coding agents as pixel-art people in one room per project: who is working, on what, who is stuck, and who needs you. Local only, MIT licensed.">
+<meta name="description" content="The Lobby is an Orca plugin that shows your coding agents as pixel-art people in one room per project: who is working, on what, who is stuck, and who needs you. Local and paired-server agents, no telemetry, MIT licensed.">
 <meta name="theme-color" content="#000000">
 <link rel="canonical" href="https://lilykos.github.io/orca-the-lobby/">
 <link rel="icon" type="image/png" href="images/icon.png">
@@ -74,7 +74,7 @@
       </div>
       <ul class="facts" aria-label="At a glance">
         <li>Orca 1.4.248+</li>
-        <li>Everything is read on your machine</li>
+        <li>Local and paired-server agents. No telemetry.</li>
         <li>MIT licensed</li>
         <li>No build step, no telemetry</li>
       </ul>
@@ -112,7 +112,7 @@
       </div>
       <div class="card">
         <h3>Private, with some charm</h3>
-        <p>Nothing leaves your machine. A day and night window, five extra palettes plus Orca's theme, and reduced motion respected.</p>
+        <p>No telemetry. Local files stay local; Orca uses its existing connections for paired-server agents. A day and night window, five extra palettes plus Orca's theme, and reduced motion respected.</p>
       </div>
     </div>
   </div>
@@ -127,7 +127,7 @@
     <article class="feature" id="office">
       <div class="text">
         <h3>Office: every agent, one room per project</h3>
-        <p>Each project checkout gets a room, and its worktrees share it. Agents that are working sit at their desks with a small thought icon for what they are doing (thinking, shell, web, edit, read, search, plan, tool or delegated work), where Orca reports it. Finished agents gather around the coffee machine.</p>
+        <p>Each project checkout gets a room per host, and its worktrees on that host share it. Room signs show local or the paired server’s name. Agents that are working sit at their desks with a small thought icon for what they are doing (thinking, shell, web, edit, read, search, plan, tool or delegated work), where Orca reports it. Finished agents gather around the coffee machine.</p>
         <p>Status colours are consistent everywhere:
           <span class="tag working">Working</span>
           <span class="tag blocked">Needs you</span>
@@ -300,7 +300,7 @@
 
     <div class="local-note">
       <span class="mark" aria-hidden="true">✓</span>
-      <p><strong>Nothing leaves your machine.</strong> The plugin sends no data anywhere. Only usage numbers and model ids are read from the agents' logs; Orca's session store is asked only for the provider and its session id, never prompts or messages. <a href="guide.html#data">Full details in the guide</a>.</p>
+      <p><strong>No telemetry.</strong> The plugin makes no direct network requests. Orca uses its existing connections to list agents on paired servers and navigate to them. Only usage numbers and model ids are read from the agents' logs; Orca's session store is asked only for the provider and its session id, never prompts or messages. <a href="guide.html#data">Full details in the guide</a>.</p>
     </div>
   </div>
 </section>
@@ -340,7 +340,8 @@
       <li><strong>No approve / deny</strong>Orca does not report what a blocked agent is asking, and offers plugins no approval controls. A blocked agent just says <em>Needs you</em> and points to Go to agent.</li>
       <li><strong>Claude shows no context %</strong>Claude Code's logs do not state the context window, so Claude agents show tokens without a percentage instead of a guessed one. Codex logs do, so Codex agents get one.</li>
       <li><strong>Per-workspace vs per-agent tokens</strong>Token totals under rooms and in chart headers are per workspace and project for the local day. Per-agent numbers exist only where the exact id chain links an agent to one log.</li>
-      <li><strong>Per-agent context: macOS chat agents only</strong>It needs Orca's internal session store and the <code>sqlite3</code> macOS ships. Agents in a terminal tab, other providers, other systems, or a future Orca that changes that store show nothing.</li>
+      <li><strong>Per-agent context: macOS chat agents only</strong>It needs Orca's internal session store (<code>agent-session-domain.db</code> on Orca 1.4.261+, the legacy store on older versions) and the <code>sqlite3</code> macOS ships. Agents in a terminal tab, other providers, other systems, or a future Orca that changes that store show nothing.</li>
+      <li><strong>Paired servers</strong>Unreachable servers disappear until they reconnect. Remote file and log enrichment, instruction sending and Compact are unavailable.</li>
       <li><strong>No model name</strong>Orca's supported metadata gives the provider (Claude, Codex, Pi, …), not the selected model, so the provider label is not a model.</li>
       <li><strong>Some tool calls are missed</strong>Short chat tool calls can fall between polls, and Orca does not yet report terminal tool calls on SSH or WSL hosts.</li>
       <li><strong>Changed files are approximate</strong><code>git diff --shortstat HEAD</code> counts uncommitted changes but not new untracked files, and matching a Claude transcript to an agent uses title and prompt similarity, which can be ambiguous.</li>

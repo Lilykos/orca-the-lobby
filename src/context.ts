@@ -62,7 +62,7 @@ export function providerSessionsQuery(ids: string[]): string {
 /** The provider ids for these Orca session ids from the first program that can be run, or null when the
  *  store cannot be read. Another program is tried only when the first is not installed (ENOENT): a
  *  database that is locked or unreadable fails the same way again, and each try can take its timeout. */
-export async function askStore(commands: string[], ids: string[], stores = STORES): Promise<Map<string, ProviderSession> | null> {
+export async function askStore(commands: string[], ids: string[], stores = STORES, execute = execFile): Promise<Map<string, ProviderSession> | null> {
   // The domain database is authoritative since Orca 1.4.261. Never use stale legacy rows
   // when it exists, even when the requested session is absent or the current store is locked.
   let store: string | undefined
@@ -79,7 +79,7 @@ export async function askStore(commands: string[], ids: string[], stores = STORE
   const path = store
   return new Promise((resolve) => {
     const run = (command: string, next: string[]): void => {
-      execFile(command, ['-readonly', '-json', path, providerSessionsQuery(ids)], { timeout: 5000, maxBuffer: 4 << 20 }, (error, stdout) => {
+      execute(command, ['-readonly', '-json', path, providerSessionsQuery(ids)], { timeout: 5000, maxBuffer: 4 << 20 }, (error, stdout) => {
         if (!error) resolve(parseProviderSessions(stdout))
         else if ((error as { code?: unknown }).code === 'ENOENT' && next.length) run(next[0], next.slice(1))
         else resolve(null)

@@ -20,10 +20,10 @@ window.DEMO = (() => {
   /** `opts.fresh`: the finished agents have only just finished (their bubbles show); `opts.only`: project folders to keep. */
   function build(now, opts = {}) {
     const projects = {
-      '/demo/atlas-web': 'Atlas web app',
-      '/demo/beacon-api': 'Beacon API',
-      '/demo/compass-docs': 'Compass docs',
-      '/demo/drift-mobile': 'Drift mobile app'
+      '/demo/atlas-web': 'Atlas web app · local',
+      '/demo/beacon-api': 'Beacon API · local',
+      '/demo/compass-docs': 'Compass docs · local',
+      '/demo/drift-mobile': 'Drift mobile app · local'
     }
     // Workspace (worktree) paths and the names Orca gives them.
     const workspaces = {

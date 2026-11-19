@@ -8,7 +8,7 @@ There is no form and no queue. The directory lists a public GitHub repository th
 
 ```sh
 gh repo edit Lilykos/orca-the-lobby --add-topic orca-plugin
-git tag v1.0.0 && git push origin v1.0.0
+git tag -a v1.2.0 -m "The Lobby 1.2.0" && git push origin v1.2.0
 ```
 
 ## Entry
@@ -18,7 +18,7 @@ git tag v1.0.0 && git push origin v1.0.0
 | Name | The Lobby |
 | Catalog id | `lilykos.the-lobby` (`<repository owner, lowercased>.<manifest id>`; manifest `id` is `the-lobby`, `publisher` is left out) |
 | Repository | <https://github.com/Lilykos/orca-the-lobby> |
-| Version | 1.0.0 (tag `v1.0.0` must match the manifest `version`) |
+| Version | 1.2.0 (tag `v1.2.0` must match the manifest `version`) |
 | License | MIT (`LICENSE`) |
 | Execution | `trusted-worker` (shown as "Full access" on the card) |
 | Requires | Orca >= 1.4.248 (`engines.orca`) |
@@ -27,9 +27,9 @@ git tag v1.0.0 && git push origin v1.0.0
 
 ### One-line description
 
-This is the manifest `description` (219 characters):
+Catalog description:
 
-> See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Everything is read on your machine.
+> See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Local and paired-server agents, with no telemetry.
 
 ### Longer description
 
@@ -41,7 +41,7 @@ Run a dozen agents in parallel worktrees and still know, at a glance, who is wor
 - **Watch the context fill.** Context and tokens per agent, and tokens today per project, are read from Claude Code and Codex logs on your machine.
 - **Charm and care.** A day and night window, five extra palettes plus Orca's own theme, and reduced motion respected.
 
-Everything is read from your machine (the Orca CLI, Git, and Claude Code and Codex session logs) and nothing leaves it: no network access, no analytics. It acts only when you press something: it opens a workspace or brings a terminal forward on **Go to agent**, and types into a terminal only on **Send** or a confirmed **Compact conversation**. Plugins cannot type into Orca chat agents, and Claude Code's logs state no context window, so Claude agents show tokens without a percentage; the README lists the other limits.
+The plugin has no telemetry or direct network requests. Orca uses its existing connections to list agents on paired servers and navigate to them; Git and Claude Code/Codex log enrichment remain local. Unreachable paired servers disappear until reconnection. It acts only when you press something: it opens a workspace or brings a terminal forward on **Go to agent**, and types into a terminal only on **Send** or a confirmed **Compact conversation**. Plugins cannot type into Orca chat agents, and Claude Code's logs state no context window, so Claude agents show tokens without a percentage; the README lists the other limits.
 
 ### Capabilities declared
 
@@ -73,7 +73,7 @@ PNG, JPEG, WebP and GIF are fine; no TTF/OTF fonts, executables, archives or sym
 
 ## Manifest fields to add before tagging
 
-The manifest does not yet have the catalog-facing fields. Add them before `v1.0.0` (this follows `palulabs/orca-tycoon`'s manifest):
+The manifest includes the catalog-facing fields below (added for `v1.0.0`) (this follows `palulabs/orca-tycoon`'s manifest):
 
 ```json
 "license": "MIT",
@@ -87,20 +87,12 @@ The manifest does not yet have the catalog-facing fields. Add them before `v1.0.
 
 Leave `publisher` out: Orca derives it from the repository owner, and a `publisher` that differs from the owner gets the plugin left out.
 
-## Checklist
+## Release checklist
 
-- [ ] Repository `Lilykos/orca-the-lobby` is public, not a fork, not archived.
-- [ ] `orca-plugin.json` at the root, manifest format 2, `license` set and a detectable `LICENSE` file.
-- [ ] No `publisher`, or one equal to the repository owner (`Lilykos`/`lilykos`); nothing starting with `orca`, `official`, `github`.
-- [ ] Catalog image fields added and files committed at the right sizes (see above); alt text on each.
-- [ ] `orca plugin test .`, `tsc --noEmit` and `orca plugin check .` pass; `git diff --check` clean.
-- [ ] No binary files, symlinks or minified/obfuscated code. Source is readable TypeScript.
-- [ ] Free to use: no paywall, license key or trial.
-- [ ] No tracking or data collection (true: no network access; stated in the README).
-- [ ] Name, icons and screenshots contain no real brand marks or explicit content; screenshots use demo data only (no real projects, prompts or paths).
-- [ ] README and CHANGELOG describe 1.0.0; `version` in the manifest is `1.0.0`.
-- [ ] Add the topic: `gh repo edit Lilykos/orca-the-lobby --add-topic orca-plugin`.
-- [ ] Tag and push: `git tag v1.0.0 && git push origin v1.0.0`.
-- [ ] Open `https://orca.dev/plugins/Lilykos/orca-the-lobby` (or use "Check status" on <https://onorca.dev/plugins/add/>) and fix whatever it lists.
-- [ ] After listing: `orca plugin install Lilykos/orca-the-lobby` works, and the plugin appears in Settings → Plugins with the community catalog added (`https://github.com/stablyai/orca-community-plugins.git`, ref `main`).
-- [ ] For later releases: bump `version`, update the CHANGELOG, push a new `vX.Y.Z` tag. A listed version never changes (first seen wins); a moved tag is refused.
+- Run plugin validation, unit tests, type checking and screenshot checks.
+- Check permissions and privacy copy against the final behavior; paired-server requests use Orca's existing connections.
+- Keep the README, guide, landing page and regenerated catalog images current.
+- Keep the manifest, About version and release tag at 1.2.0.
+- Publish the changelog and GitHub release with contributor credit.
+- Verify the public catalog status and deployed GitHub Pages site after publishing.
+- Never move a published tag; use a new version for later changes.

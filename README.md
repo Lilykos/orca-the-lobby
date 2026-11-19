@@ -31,7 +31,7 @@ Requires Orca **1.4.248 or newer**.
 orca plugin install Lilykos/orca-the-lobby
 ```
 
-Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins) once published there.
+Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins).
 
 ## Screenshots
 
@@ -153,6 +153,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **No context, tokens, tasks or files.** Context needs a macOS Orca chat session with a Claude Code or Codex agent and `sqlite3` (`/usr/bin/sqlite3`). Tokens need logs under `~/.claude/projects/` or `~/.codex/sessions/`. A missing or locked store is retried after a minute.
 - **No Send or Compact controls.** `terminal:send` was not granted, the agent is not in a terminal Orca can type into (for example a chat session), it has finished, or another agent shares its terminal. **Compact** is also hidden while an agent is blocked and for providers other than Claude Code.
 - **Go to agent only opened the workspace.** The agent is a chat session (Orca cannot pick a chat tab), or its terminal would not come forward. The drawer says which.
+- **Notification title starts with the plugin id.** Orca 1.4.264 adds this prefix itself; plugins cannot change it to their display name yet.
 - **No notifications.** Check the three switches in Settings, and that `notifications:show` was approved. A turn under a minute never triggers the "finished" notification.
 - **Agents missing or late.** The list updates every 3 to 20 seconds. Without the Orca CLI on the PATH, only status and tool events are seen.
 - **Scene looks frozen.** Check **Animate the office** in Settings and your system's reduced-motion setting.
@@ -164,13 +165,18 @@ orca plugin types .                          # once: writes the gitignored .orca
 orca plugin test .                           # unit tests
 npx --yes --package typescript tsc --noEmit  # type check
 orca plugin check .                          # validate the manifest and files
+python3 scripts/shots/run.py                 # screenshot and interaction checks
 ```
 
-Orca transpiles TypeScript when loading the plugin; there is no build step. If a dev-loaded checkout errors with "content hash mismatch", delete `.orca/` and reload.
+Orca transpiles TypeScript when loading the plugin; there is no build step. On current Orca, `orca plugin dev load .` loads this checkout as `local.the-lobby` and reloads edits. Approve the access Orca lists for that folder, and disable `lilykos.the-lobby` while testing to avoid duplicate shortcuts and notifications. Afterwards, unload the development folder with `orca plugin dev unload .` and enable your installed release again. The development copy has separate settings and history.
 
 `scripts/shots` builds an isolated fixture page from the real panel code (demo data only) and screenshots it at several panel widths in headless Chrome; see the headers of `render.cjs` and `run.py`.
 
 Layout: `src/` is the worker (Orca roster, office state, actions, context, usage) and `panel/` the UI (scene drawing, charts, drawer). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Contributors
+
+Thanks to [@titilambert (Thibault Cohen)](https://github.com/titilambert) for paired-server agents, host labels and Windows CLI discovery ([#1](https://github.com/Lilykos/orca-the-lobby/pull/1)).
 
 ## License
 

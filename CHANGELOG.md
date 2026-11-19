@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Show agents on paired Orca servers in separate rooms, labeled by host; improve Windows CLI discovery. Thanks to @titilambert ([#1](https://github.com/Lilykos/orca-the-lobby/pull/1)).
 - Hide unreachable paired-server agents until reconnection instead of showing stale working states and triggering misleading alerts.
