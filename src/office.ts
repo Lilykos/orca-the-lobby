@@ -13,6 +13,7 @@ import type {
   JournalEvent,
   Link,
   OfficeSnapshot,
+  ProjectIcon,
   Today,
   Usage
 } from './protocol'
@@ -24,6 +25,7 @@ export type Office = {
   rosterTools: Map<string, string>
   workspaces: Map<string, string>
   projects: Map<string, string>
+  projectIcons: Map<string, ProjectIcon>
   /** Workspace path to the project it belongs to, once looked up. */
   roots: Map<string, string>
   /** By workspace path: what is uncommitted there, and what Orca has linked to it. */
@@ -74,6 +76,8 @@ export type RosterWorktree = {
   }[]
 }
 
+export type RepoListRow = { id?: unknown; path?: unknown; repoIcon?: unknown }
+
 type StatusEvent = PluginEvents['agent.status.changed']
 type ToolEvent = PluginHooks['agent.tool.after']['event']
 type ListedAgent = { terminalId: string | null; title: string | null; agent: string | null }
@@ -98,6 +102,7 @@ export function createOffice(): Office {
     rosterTools: new Map(),
     workspaces: new Map(),
     projects: new Map(),
+    projectIcons: new Map(),
     roots: new Map(),
     changes: new Map(),
     links: new Map(),
@@ -582,11 +587,27 @@ export function projectRoot(path: string, gitFile: string | null): string {
   return /^gitdir: (.+?)[\\/]\.git[\\/]worktrees[\\/]/m.exec(gitFile ?? '')?.[1] ?? path
 }
 
+function projectIcon(value: unknown): ProjectIcon | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const icon = value as { type?: unknown; src?: unknown; label?: unknown }
+  if (icon.type !== 'image' || typeof icon.src !== 'string') return undefined
+  if (icon.src.length > 11_000 || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(icon.src))
+    return undefined
+  return {
+    type: 'image',
+    src: icon.src,
+    ...(typeof icon.label === 'string' ? { label: icon.label } : {})
+  }
+}
+
 /** Orca lists its repos in sidebar order; a project is found by repo id (the roster's) or by path. */
-export function applyRepos(office: Office, repos: { id?: unknown; path?: unknown }[]): void {
+export function applyRepos(office: Office, repos: RepoListRow[]): void {
   office.sidebar.clear()
+  office.projectIcons.clear()
   repos.forEach((repo, index) => {
     for (const key of [repo.id, repo.path]) if (typeof key === 'string' && !office.sidebar.has(key)) office.sidebar.set(key, index)
+    const icon = projectIcon(repo.repoIcon)
+    if (icon) for (const key of [repo.id, repo.path]) if (typeof key === 'string') office.projectIcons.set(key, icon)
   })
 }
 
@@ -621,6 +642,7 @@ export function snapshot(office: Office): OfficeSnapshot {
     agents: [...office.agents.values()].sort((a, b) => a.firstSeenAt - b.firstSeenAt),
     workspaces: Object.fromEntries(office.workspaces),
     projects: Object.fromEntries(office.projects),
+    ...(office.projectIcons.size ? { projectIcons: Object.fromEntries(office.projectIcons) } : {}),
     ...(office.sidebar.size ? { sidebar: Object.fromEntries(office.sidebar) } : {}),
     changes: Object.fromEntries(office.changes),
     links: Object.fromEntries(office.links),

@@ -21,7 +21,7 @@ import {
   STORE_BYTES
 } from './office'
 import { readPrefs } from './protocol'
-import { createRoster, parseShortstat } from './roster'
+import { createRepoReader, createRoster, parseShortstat } from './roster'
 import { assign, digest, emptyDigest } from './transcript'
 
 const status = (state: 'working' | 'blocked' | 'waiting' | 'done', receivedAt: number) => ({
@@ -68,6 +68,60 @@ test('labels paired environments and keeps identically named panes and paths dis
   assert.deepEqual((await roster())?.[0].repo, 'Lobby · local')
   local = false
   assert.equal(await roster(), null)
+})
+
+test('reads project icons from paired Orca environments', async () => {
+  const image = 'data:image/png;base64,AA=='
+  const icon = { type: 'image', src: 'https://github.com/Azure.png?size=64', label: 'Azure/AgentBaker' }
+  let reachable = true
+  let fetches = 0
+  const repos = createRepoReader(async (args) => {
+    if (args[0] === 'host') return JSON.stringify({ result: { hosts: [{ kind: 'environment', id: 'server' }] } })
+    if (args[0] === 'repo' && args.includes('--environment')) {
+      if (!reachable) return null
+      return JSON.stringify({ result: { repos: [{ id: 'agentbaker', path: '/AgentBaker', repoIcon: icon }] } })
+    }
+    return JSON.stringify({ result: { repos: [{ id: 'local', path: '/local', repoIcon: icon }] } })
+  }, async (url) => {
+    fetches++
+    assert.equal(url, icon.src)
+    return image
+  })
+  const projectId = 'environment:["server","agentbaker"]'
+  const first = await repos([projectId])
+  assert.deepEqual(first, [
+    { id: 'local', path: '/local', repoIcon: undefined },
+    {
+      id: 'environment:["server","agentbaker"]',
+      path: 'environment:["server","/AgentBaker"]',
+      repoIcon: { ...icon, src: image }
+    }
+  ])
+  const office = createOffice()
+  applyRepos(office, first ?? [])
+  assert.deepEqual(office.projectIcons.get('environment:["server","agentbaker"]'), { ...icon, src: image })
+  assert.deepEqual(office.projectIcons.get('environment:["server","/AgentBaker"]'), { ...icon, src: image })
+  reachable = false
+  assert.deepEqual(await repos([projectId]), first)
+  assert.equal(fetches, 1)
+})
+
+test('does not fetch project icons outside GitHub', async () => {
+  let fetches = 0
+  const repos = createRepoReader(async (args) => {
+    if (args[0] === 'host') return JSON.stringify({ result: { hosts: [] } })
+    return JSON.stringify({ result: { repos: [{
+      id: 'local',
+      path: '/local',
+      repoIcon: { type: 'image', src: 'https://example.com/logo.png' }
+    }] } })
+  }, async () => {
+    fetches++
+    return 'data:image/png;base64,AA=='
+  })
+  const rows = await repos(['local'])
+  assert.equal(fetches, 0)
+  assert.equal(rows?.[0].repoIcon, undefined)
 })
 
 test('sorts tools into what the character does', () => {
@@ -530,8 +584,16 @@ test('keeps a stored project order of strings only', () => {
 
 test("places each project where Orca's sidebar lists it, by repo id and by path", () => {
   const office = createOffice()
-  applyRepos(office, [{ id: 'r1', path: '/one' }, { id: 'r2', path: '/two' }, { path: 7 }])
+  applyRepos(office, [
+    { id: 'r1', path: '/one', repoIcon: { type: 'image', src: 'data:image/png;base64,AA==', label: 'R1' } },
+    { id: 'r2', path: '/two', repoIcon: { type: 'image', src: 'http://example.com/r2.png' } },
+    { path: 7 }
+  ])
   assert.deepEqual(snapshot(office).sidebar, { r1: 0, '/one': 0, r2: 1, '/two': 1 })
+  assert.deepEqual(snapshot(office).projectIcons, {
+    r1: { type: 'image', src: 'data:image/png;base64,AA==', label: 'R1' },
+    '/one': { type: 'image', src: 'data:image/png;base64,AA==', label: 'R1' }
+  })
   assert.equal(snapshot(createOffice()).sidebar, undefined)
 })
 

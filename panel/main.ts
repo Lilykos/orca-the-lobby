@@ -32,7 +32,7 @@ import {
   viewActivityFocusKey
 } from './navigation'
 import { assignAgentNames, readAgentNames } from './names'
-import { moveProject, orderProjects, projectGroups, taskLabel } from './work-map'
+import { moveProject, orderProjects, projectGroups, taskLabel, pinnedTaskLabel, pinnedIdentityLabel, PINNED_AGENTS_KEY, PINNED_ROOM_ID, PINNED_ROOM_NAME, readPinnedAgents } from './work-map'
 import { chartLayout, needsAttention, hasAttention, attentionBranches, NODE_WIDTH, NODE_HEIGHT } from './chart'
 import { buildFamilyTree, syncFamilyExpansion, type FamilyNode } from './family'
 import { PALETTES, PALETTE_OPTIONS, paletteVariables } from './palettes'
@@ -88,6 +88,7 @@ let office: OfficeSnapshot = {
   journal: [],
   workspaces: {},
   projects: {},
+  projectIcons: {},
   changes: {},
   links: {},
   can: { open: false },
@@ -141,6 +142,8 @@ let listed = ''
 let painted = ''
 let last = performance.now()
 let prefs: Prefs = readPrefs(null)
+let pinnedAgents = new Set<string>()
+let savingPin = false
 /** The agent whose whole call log is open. */
 let allCalls: string | null = null
 /** The parts of cards the person opened, as `<agent id>:<part>`: kept while the list redraws. */
@@ -202,6 +205,11 @@ function since(from: number, now: number): string {
 
 const originalNameOf = (agent: AgentView): string => agentName(office, agent)
 const nameOf = (agent: AgentView): string => agentNames.get(agent.id) ?? originalNameOf(agent)
+const worktreeNameOf = (agent: AgentView): string => {
+  const path = agent.workspaceId
+  if (!path) return ''
+  return office.workspaces[path] || path.split(/[\\/]/).filter(Boolean).at(-1) || path
+}
 /** A terminal agent's own title, shown beside its workspace's name. */
 const titleOf = (agent: AgentView): string =>
   agent.title && agent.title !== originalNameOf(agent) ? agent.title : ''
@@ -295,6 +303,7 @@ function renderList(): void {
     agent.finishedAt,
     changeOf(agent),
     agent.id,
+    worktreeNameOf(agent),
     nameOf(agent),
     titleOf(agent),
     stateOf(agent),
@@ -307,6 +316,8 @@ function renderList(): void {
     rows,
     rooms.map((room) => room.collapsed),
     projectOrder(),
+    [...pinnedAgents],
+    office.projectIcons,
     office.usage?.projects,
     office.links,
     office.can,
@@ -384,9 +395,55 @@ function listItem(agent: AgentView, now: number): HTMLElement {
   const status = currentStatus(agent.state, agent.outcome, false)
   const state = element('span', `state status-${status.tone}`)
   state.append(element('i', 'dot'), status.label)
-  const task = element('span', 'task-title', taskLabel(agent))
-  task.title = taskLabel(agent)
-  const identity = element('span', 'agent-meta', nameOf(agent))
+  const label = pinnedAgents.has(agent.id) ? pinnedTaskLabel(agent) : taskLabel(agent)
+  const task = element('span', 'task-title', label)
+  task.title = label
+  const identity = element('span', 'agent-meta')
+  if (pinnedAgents.has(agent.id)) {
+    const workspaceId = agent.workspaceId
+    const workspaceName = worktreeNameOf(agent)
+    const project = agent.projectId ? office.projects[agent.projectId] ?? projectName(agent.projectId) : ''
+    const fallbackMark = (): HTMLElement | null => {
+      const markName = workspaceName || project
+      if (!markName) return null
+      const parts = markName.match(/[A-Za-z0-9]+/g) ?? []
+      const monogram = (parts.length > 1
+        ? parts.slice(0, 2).map((part) => part[0]).join('')
+        : Array.from(markName.trim()).slice(0, 2).join('')).toUpperCase() || 'WT'
+      const seed = workspaceId || agent.projectId || markName
+      let hue = 2166136261
+      for (let index = 0; index < seed.length; index++)
+        hue = Math.imul(hue ^ seed.charCodeAt(index), 16777619)
+      const mark = element('span', 'worktree-mark', monogram)
+      mark.title = workspaceName ? `Worktree: ${workspaceName}` : `Project: ${project}`
+      mark.setAttribute('role', 'img')
+      mark.setAttribute('aria-label', mark.title)
+      mark.style.setProperty('--worktree-hue', String((hue >>> 0) % 360))
+      return mark
+    }
+    const icon = agent.projectId ? office.projectIcons?.[agent.projectId] : undefined
+    if (icon?.type === 'image') {
+      const mark = document.createElement('img')
+      mark.className = 'worktree-mark project-logo'
+      mark.src = icon.src
+      mark.alt = ''
+      mark.title = icon.label ? `Project: ${icon.label}` : `Project: ${project}`
+      mark.setAttribute('aria-hidden', 'true')
+      mark.addEventListener('error', () => {
+        const fallback = fallbackMark()
+        if (fallback) mark.replaceWith(fallback)
+        else mark.remove()
+      }, { once: true })
+      identity.append(mark)
+    } else if (workspaceId && workspaceName) {
+      const mark = fallbackMark()
+      if (mark) identity.append(mark)
+    }
+  }
+  const agentName = nameOf(agent)
+  identity.append(pinnedAgents.has(agent.id)
+    ? pinnedIdentityLabel(agent.projectId ? projectName(agent.projectId) : '', worktreeNameOf(agent), agentName)
+    : agentName)
   appendAgentLabel(identity, agent)
   if (agent.unread) identity.append(element('span', 'unread-label', 'New'))
   const line = element('span', 'doing')
@@ -817,15 +874,18 @@ const foldedCharts = new Set<string>()
 
 /** Two stacked columns. In Grid, projects alternate left and right, so folding one slides up only
  *  the projects beneath it instead of reflowing the whole page. */
-function placeInColumns(container: HTMLElement, items: HTMLElement[]): void {
+function placeInColumns(container: HTMLElement, items: HTMLElement[], fullWidthItems: readonly HTMLElement[] = []): void {
   let columns = [...container.children].filter((child) => child.classList.contains('column')) as HTMLElement[]
   if (columns.length !== 2) {
     columns = [element('div', 'column'), element('div', 'column')]
     container.replaceChildren(...columns)
   }
   const two = document.documentElement.classList.contains('grid')
-  placeChildren(columns[0], two ? items.filter((_, index) => index % 2 === 0) : items)
-  placeChildren(columns[1], two ? items.filter((_, index) => index % 2 === 1) : [])
+  const spanning = two ? new Set(fullWidthItems) : new Set<HTMLElement>()
+  const columnItems = items.filter((item) => !spanning.has(item))
+  placeChildren(columns[0], two ? columnItems.filter((_, index) => index % 2 === 0) : columnItems)
+  placeChildren(columns[1], two ? columnItems.filter((_, index) => index % 2 === 1) : [])
+  placeChildren(container, [...items.filter((item) => spanning.has(item)), ...columns])
   for (const item of items) watchHeight(item)
 }
 
@@ -1112,7 +1172,7 @@ const NO_ACTIONS: AgentActions = { goTo: null, send: false, compact: null }
 /** What the worker last said each agent allows, and when it was asked. */
 const actionsOf = new Map<string, { at: number; value: AgentActions }>()
 /** What an action is doing, or last said, for one agent; cleared when the drawer closes or moves on. */
-const acting = new Map<string, { busy?: 'go' | 'send' | 'compact'; confirm?: boolean; note?: string; error?: string }>()
+const acting = new Map<string, { busy?: 'go' | 'send' | 'compact' | 'pin'; confirm?: boolean; note?: string; error?: string }>()
 
 type Controls = {
   agentId: string
@@ -1124,6 +1184,7 @@ type Controls = {
   go: HTMLButtonElement
   goFine: HTMLElement
   activity: HTMLElement
+  pin: HTMLButtonElement
   blocked: HTMLElement
   form: HTMLElement
   field: HTMLTextAreaElement
@@ -1174,21 +1235,35 @@ function show(parent: HTMLElement, parts: [HTMLElement, boolean][]): void {
 }
 
 /** Runs one action the person asked for and shows how it went. Nothing here runs by itself. */
-async function runAction(c: Controls, kind: 'go' | 'send' | 'compact', text = ''): Promise<void> {
+async function runAction(c: Controls, kind: 'go' | 'send' | 'compact' | 'pin', text = ''): Promise<void> {
   const id = c.agentId
-  if (acting.get(id)?.busy) return
+  if (acting.get(id)?.busy || (kind === 'pin' && savingPin)) return
   const held = c.root.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null
   acting.set(id, { busy: kind })
   redrawDrawer()
   let result: ActionResult
   try {
-    result = await (kind === 'go'
+    if (kind === 'pin') {
+      savingPin = true
+      const next = readPinnedAgents(await orca.storage.get(PINNED_AGENTS_KEY))
+      const pinned = !next.has(id)
+      if (pinned) next.add(id)
+      else next.delete(id)
+      await orca.storage.set(PINNED_AGENTS_KEY, [...next])
+      pinnedAgents = next
+      listed = ''
+      renderList()
+      result = { ok: true, note: pinned ? `Pinned to ${PINNED_ROOM_NAME}.` : 'Agent unpinned.' }
+    } else result = await (kind === 'go'
       ? orca.plugin.request('office.goTo', { agentId: id })
       : kind === 'send'
         ? orca.plugin.request('office.send', { agentId: id, text })
         : orca.plugin.request('office.compact', { agentId: id }))
   } catch {
-    result = { ok: false, error: 'Orca did not answer.' }
+    result = { ok: false, error: kind === 'pin' ? 'Could not save agent pins. Try again.' : 'Orca did not answer.' }
+  } finally {
+    if (kind === 'pin') savingPin = false
+    redrawDrawer()
   }
   // The drawer was closed or moved to another agent while Orca worked: this is no longer on screen.
   if (controls !== c) return
@@ -1225,6 +1300,8 @@ function buildControls(agent: AgentView): Controls {
   const view = action('View in Activity', () => showActivity(id, false))
   view.dataset.focusKey = viewActivityFocusKey(id)
   activity.append(view)
+  const pin = element('button', 'action') as HTMLButtonElement
+  pin.dataset.focusKey = `${id}:pin`
 
   const blocked = element('p', 'drawer-fine')
 
@@ -1259,9 +1336,10 @@ function buildControls(agent: AgentView): Controls {
   compact.append(ask, confirm)
 
   const notes = element('div', '')
-  root.append(goWrap, activity, blocked, form, compact, notes)
+  root.append(goWrap, activity, pin, blocked, form, compact, notes)
 
-  const c: Controls = { agentId: id, key: '', shown: '', root, goWrap, go, goFine, activity, blocked, form, field, send, compact, ask, confirm, confirmText, yes, no, notes }
+  const c: Controls = { agentId: id, key: '', shown: '', root, goWrap, go, goFine, activity, pin, blocked, form, field, send, compact, ask, confirm, confirmText, yes, no, notes }
+  pin.addEventListener('click', () => void runAction(c, 'pin'))
   go.addEventListener('click', () => void runAction(c, 'go'))
   field.addEventListener('input', () => syncSend(c))
   const submit = (): void => {
@@ -1300,9 +1378,14 @@ function syncControls(c: Controls, agent: AgentView): void {
   syncSend(c)
   const reach = actionsOf.get(c.agentId)?.value ?? NO_ACTIONS
   const state = acting.get(c.agentId)
-  const key = JSON.stringify([reach, state, agent.state, currentPage])
+  const pinned = pinnedAgents.has(c.agentId)
+  const key = JSON.stringify([reach, state, agent.state, currentPage, pinned, savingPin])
   if (key === c.key) return
   c.key = key
+  c.pin.disabled = savingPin || !!state?.busy
+  setText(c.pin, pinned ? 'Unpin agent' : 'Pin agent')
+  c.pin.setAttribute('aria-pressed', String(pinned))
+  c.pin.title = pinned ? 'Return this agent to its project room' : `Move only this agent to ${PINNED_ROOM_NAME} in Office`
 
   c.go.disabled = state?.busy === 'go'
   setText(c.go, state?.busy === 'go' ? 'Going…' : 'Go to agent')
@@ -1339,6 +1422,7 @@ function syncControls(c: Controls, agent: AgentView): void {
   show(c.root, [
     [c.goWrap, !!reach.goTo],
     [c.activity, currentPage === 'office'],
+    [c.pin, true],
     [c.blocked, needsYou],
     [c.form, reach.send],
     [c.compact, !!reach.compact],
@@ -1556,15 +1640,17 @@ document.addEventListener('keydown', (event) => {
 function arrange(): void {
   if (currentPage !== 'office') return
   // One column's width, inside its section's one-pixel border.
-  const columns = document.documentElement.classList.contains('grid') ? 2 : 1
+  const grid = document.documentElement.classList.contains('grid')
+  const columns = grid ? 2 : 1
   const cssWidth = Math.floor((offices.clientWidth - (columns - 1) * GRID_GAP) / columns) - 2
   if (!cssWidth) return
   // A whole number of device pixels per office pixel keeps the art crisp.
   const ratio = window.devicePixelRatio || 1
   scale = Math.max(Math.ceil(1.5 * ratio), Math.floor((cssWidth * ratio) / TARGET_WIDTH)) / ratio
   width = Math.floor(cssWidth / scale)
+  const pinnedRoomWidth = Math.floor((grid ? offices.clientWidth - 2 : cssWidth) / scale)
   const order = projectOrder()
-  rooms = layout(office, width, scale, folded, agentNames, order).rooms
+  rooms = layout(office, width, scale, folded, agentNames, order, pinnedAgents, pinnedRoomWidth).rooms
 
   for (const [id, section] of sections) {
     if (rooms.some((room) => room.id === id)) continue
@@ -1574,11 +1660,17 @@ function arrange(): void {
   for (const room of rooms) {
     const section = sections.get(room.id) ?? addSection(room)
     section.room = room
+    section.root.classList.toggle('pinned-room', room.id === PINNED_ROOM_ID)
     const name = projectName(room.id)
     section.move.replaceChildren(...moveButtons(room.id, name, order, `room-move:${room.id}`))
-    section.move.hidden = rooms.length < 2 || !room.id
+    section.move.hidden = rooms.length < 2 || !room.id || room.id === PINNED_ROOM_ID
   }
-  placeInColumns(offices, rooms.map((room) => sections.get(room.id)!.root))
+  const fullWidth = rooms.find((room) => room.id === PINNED_ROOM_ID)
+  placeInColumns(
+    offices,
+    rooms.map((room) => sections.get(room.id)!.root),
+    fullWidth ? [sections.get(fullWidth.id)!.root] : []
+  )
 }
 
 function addSection(room: Room): Section {
@@ -1691,6 +1783,7 @@ function frame(): void {
     width,
     rooms.map((room) => [
       room.id,
+      room.width,
       room.height,
       room.labels,
       room.agents.map((agent) => [agent.id, agent.state, agent.outcome, agent.unread, observedActivity(agent, Date.now())])
@@ -1730,18 +1823,18 @@ function frame(): void {
   }
   for (const section of sections.values()) {
     const { canvas, ctx, room } = section
-    const pixels = [Math.round(width * scale * ratio), Math.round(room.height * scale * ratio)]
+    const pixels = [Math.round(room.width * scale * ratio), Math.round(room.height * scale * ratio)]
     if (canvas.width !== pixels[0] || canvas.height !== pixels[1]) {
       canvas.width = pixels[0]
       canvas.height = pixels[1]
-      canvas.style.width = `${width * scale}px`
+      canvas.style.width = `${room.width * scale}px`
       canvas.style.height = `${room.height * scale}px`
     }
     // Each canvas shows its own room's slice of the office.
     ctx.setTransform(scale * ratio, 0, 0, scale * ratio, 0, -room.top * scale * ratio)
     ctx.imageSmoothingEnabled = false
     section.bubbles = draw(ctx, {
-      width,
+      width: room.width,
       rooms: [room],
       actors,
       beat,
@@ -1980,6 +2073,19 @@ officeBar.append(layoutToggle())
 offices.before(officeBar)
 new ResizeObserver(applyLayout).observe(document.documentElement)
 loadPrefs()
+
+const loadPins = (): void => {
+  void orca.storage.get(PINNED_AGENTS_KEY).then((value) => {
+    pinnedAgents = readPinnedAgents(value)
+    listed = ''
+    renderList()
+  }).catch((error) => {
+    console.error('Could not load agent pins:', error)
+    officeMessage.textContent = 'Could not load agent pins. Reopen the panel to retry.'
+  })
+}
+orca.storage.onDidChange(({ key }) => { if (key === PINNED_AGENTS_KEY) loadPins() })
+loadPins()
 
 orca.plugin.on('office.update', (snapshot) => {
   void acceptSnapshot(snapshot)

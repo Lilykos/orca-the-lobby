@@ -193,7 +193,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     readContext(agents)
     if (Date.now() - reposAt >= REPOS_MS) {
       reposAt = Date.now()
-      const repos = await cli.repos().catch(() => null)
+      const projectIds = [...new Set(office.roots.values())]
+      const repos = await cli.repos(projectIds).catch(() => null)
       if (repos) applyRepos(office, repos)
     }
     if (Date.now() - usageAt >= USAGE_MS) {

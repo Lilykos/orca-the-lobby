@@ -241,6 +241,8 @@ export type OfficeSnapshot = {
   workspaces: Record<string, string>
   /** Project path (an agent's `projectId`) to the project's name. */
   projects: Record<string, string>
+  /** Orca's project icon, by project/repository id. */
+  projectIcons?: Record<string, ProjectIcon>
   /** Each project's place in Orca's sidebar, by repo id and by path; absent without the Orca CLI. */
   sidebar?: Record<string, number>
   /** By workspace path. */
@@ -252,6 +254,8 @@ export type OfficeSnapshot = {
   /** Today's tokens (local day), by workspace path and by project; absent until first counted. */
   usage?: { day: string; workspaces: Record<string, Usage>; projects: Record<string, Usage> }
 }
+
+export type ProjectIcon = { type: 'image'; src: string; label?: string }
 
 /** What can be done to one agent from its drawer, as far as Orca lets a plugin. Anything it cannot is
  *  null or false, and the panel leaves that control out. */

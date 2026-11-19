@@ -445,6 +445,7 @@
       /* Two stacked columns (one in List): folding a project slides up only those beneath it. */
       .columns { display: grid; gap: 10px; align-items: start; min-width: 0; }
       :root.grid .columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      :root.grid .columns > .pinned-room { grid-column: 1 / -1; }
       .column { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
       .column:empty { display: none; }
       /* List / Grid: two projects per line once the panel is wide enough (GRID_MIN_WIDTH in main.ts). */
@@ -920,7 +921,24 @@
       .agent { grid-template-columns: 24px minmax(0, 1fr) auto; gap: 2px 8px; padding: 8px; }
       .face { grid-row: 1 / 4; align-self: start; }
       .task-title { grid-column: 2 / 4; min-width: 0; font-weight: 650; overflow-wrap: anywhere; }
-      .agent-meta { grid-column: 2; color: var(--ui-muted-foreground); min-width: 0; }
+      .agent-meta { grid-column: 2; color: var(--ui-muted-foreground); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .worktree-mark {
+        display: inline-grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        margin-right: 5px;
+        border-radius: 4px;
+        background: hsl(var(--worktree-hue) 34% 25%);
+        color: hsl(var(--worktree-hue) 78% 78%);
+        font-size: 8px;
+        font-weight: 700;
+        vertical-align: middle;
+      }
+      .worktree-mark.project-logo {
+        display: inline-block;
+        object-fit: cover;
+      }
       .agent .state { grid-column: 3; grid-row: 2; justify-self: end; }
       .agent .doing { grid-column: 2 / 4; }
       .unread-label { color: var(--unread); margin-left: 6px; font-weight: 600; }

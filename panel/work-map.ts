@@ -1,9 +1,46 @@
 import type { AgentView, JournalEvent } from '../src/protocol'
 
+export const PINNED_AGENTS_KEY = 'pinned-agent-ids'
+export const PINNED_ROOM_ID = 'lobby:pinned-agents'
+export const PINNED_ROOM_NAME = '★ Employees of the month ★'
+
+export function readPinnedAgents(value: unknown): Set<string> {
+  return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id.length > 0) : [])
+}
+
 export function taskLabel(agent: AgentView): string {
   if (agent.title?.trim()) return agent.title.trim()
   if (agent.prompt?.trim()) return `Asked excerpt: ${agent.prompt.trim()}`
   return 'Task not reported'
+}
+
+const providerTitleSuffixes: Record<string, readonly string[]> = {
+  claude: ['claude code', 'claude'],
+  codex: ['openai codex', 'codex'],
+  copilot: ['github copilot', 'copilot'],
+  cursor: ['cursor'],
+  gemini: ['google gemini', 'gemini'],
+  opencode: ['open code', 'opencode']
+}
+
+export function pinnedTaskLabel(agent: AgentView): string {
+  const title = taskLabel(agent)
+  if (!agent.title?.trim()) return title
+  const match = /\s+[-–—]\s+([^–—-]+)$/.exec(title)
+  const suffixes = providerTitleSuffixes[agent.agent?.toLowerCase() ?? '']
+  return match && suffixes?.includes(match[1].trim().toLowerCase())
+    ? title.slice(0, match.index).trimEnd()
+    : title
+}
+
+export function pinnedIdentityLabel(project: string, worktree: string, agent: string): string {
+  const projectName = project.trim()
+  const worktreeName = worktree.trim()
+  const agentName = agent.trim()
+  const context = projectName && projectName !== worktreeName
+    ? [projectName, worktreeName].filter(Boolean).join(' · ')
+    : projectName || worktreeName
+  return context ? `${context} · ${agentName}` : agentName
 }
 
 export function projectGroups(agents: readonly AgentView[]): { id: string; agents: AgentView[] }[] {
