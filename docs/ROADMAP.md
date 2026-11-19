@@ -6,7 +6,7 @@ Suggested order: 1 and 2 first (small, felt every day), then 3 and 12, then whic
 
 ## Soon
 
-### Current release checklist: paired servers and Orca compatibility
+### Release 1.2.0 checklist: paired servers and Orca compatibility
 
 - [x] Fix stale paired-server states and unsuccessful navigation in the local development branch.
 - [x] Support Orca's current chat database, retaining compatibility with older versions.
@@ -17,11 +17,11 @@ Suggested order: 1 and 2 first (small, felt every day), then 3 and 12, then whic
 - [x] Finish reviewing the README, architecture notes, troubleshooting, permissions and privacy statements against the final behavior.
 - [x] Update the GitHub Pages website: landing page, guide, FAQ, screenshots and any catalog/listing copy affected by paired-server support and the database change.
 - [x] Preview the landing page and guide, check local links and anchors, and verify mobile layout without horizontal overflow.
-- [ ] Verify the live GitHub Pages site after deployment.
-- [ ] Integrate PR #1 together with the local fixes, preserving contributor credit, after final review and merge authorization.
+- [x] Verify the live GitHub Pages site after deployment (built successfully; current content, mobile layout and images checked).
+- [x] Merge PR #1 together with the local fixes, preserving @titilambert’s original commits and adding contributor credit to the README, changelog and release notes.
 - [x] Finalize the changelog for 1.2.0 and choose the release version; keep `orca-plugin.json` and `panel/main.ts` in sync.
-- [ ] After release authorization, push, tag, publish the GitHub release and verify the published version.
-- [ ] Update the installed plugin, switch back from the development copy and verify settings and runtime behavior.
+- [x] Push, tag and publish v1.2.0; verify the published GitHub release.
+- [x] Update and enable the existing installed plugin as lilykos.the-lobby 1.2.0, unload the development folder and verify the running panel and logs.
 - [ ] Track the Orca-side notification fix so the visible prefix uses **The Lobby** instead of the plugin id. Orca 1.4.264 still hard-codes the id; this remains unresolved.
 
 The checklist records remaining release work; unchecked items have not been verified or published.
