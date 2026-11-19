@@ -2,12 +2,24 @@
 // `agents.list` covers only the focused workspace) and each workspace's Git change count. Without
 // the CLI the office falls back to what events and hooks tell it.
 import { execFile } from 'node:child_process'
+import { homedir } from 'node:os'
 import { listArgs, parseOutcome, parseTerminals, sendArgs, switchArgs, type TerminalRow } from './actions'
 import type { RosterWorktree } from './office'
 import type { Change } from './protocol'
 
-/** Next to the app on macOS, else whatever `orca` is on the PATH. */
-const ORCA = [process.execPath.replace(/\/Contents\/.*$/, '/Contents/Resources/bin/orca'), 'orca']
+const ENVIRONMENT_PREFIX = 'environment:'
+
+/** The app's bundled CLI on Windows and macOS, or the CLI on the PATH. */
+const ORCA = process.platform === 'win32'
+  ? [`${process.execPath.replace(/[\\/][^\\/]+$/, '')}\\resources\\bin\\orca.exe`, 'orca.exe']
+  : process.execPath.includes('/Contents/')
+    ? [process.execPath.replace(/\/Contents\/.*$/, '/Contents/Resources/bin/orca'), 'orca']
+    : ['orca']
+
+// Orca's Windows worker omits APPDATA, but its CLI needs it to locate the desktop profile.
+const cliEnv = process.platform === 'win32' && !process.env.APPDATA
+  ? { ...process.env, APPDATA: `${homedir()}\\AppData\\Roaming` }
+  : undefined
 
 /** A program's output, or null when it failed, timed out or is not there. */
 function run(command: string, args: string[]): Promise<string | null> {
@@ -24,9 +36,10 @@ function run(command: string, args: string[]): Promise<string | null> {
 async function ask(args: string[]): Promise<string | null> {
   for (const command of ORCA) {
     const { output, missing } = await new Promise<{ output: string | null; missing: boolean }>((resolve) => {
-      execFile(command, args, { timeout: 10000, maxBuffer: 16 << 20 }, (error, stdout) =>
-        resolve({ output: stdout || (error ? null : ''), missing: (error as { code?: unknown } | null)?.code === 'ENOENT' })
-      )
+      execFile(command, args, { timeout: 10000, maxBuffer: 16 << 20, env: cliEnv }, (error, stdout) => {
+        const code = (error as { code?: unknown } | null)?.code
+        resolve({ output: stdout || (error ? null : ''), missing: code === 'ENOENT' })
+      })
     })
     if (!missing) return output
   }
@@ -39,21 +52,64 @@ export function parseShortstat(text: string): Change {
   return { files: count('file'), added: count('insertion'), removed: count('deletion') }
 }
 
+function resultArray(output: string | null, key: 'hosts' | 'worktrees'): unknown[] | null {
+  try {
+    const answer = output === null ? null : JSON.parse(output)
+    const rows = answer?.result?.[key]
+    return answer?.ok !== false && Array.isArray(rows) ? rows : null
+  } catch {
+    return null
+  }
+}
+
+/** The desktop roster includes SSH worktrees, but paired servers need their own query. */
+export function createRoster(read: (args: string[]) => Promise<string | null>) {
+  let environments: string[] = []
+  const cached = new Map<string, RosterWorktree[]>()
+  const args = ['worktree', 'ps', '--json', '--limit', '200']
+
+  return async (): Promise<RosterWorktree[] | null> => {
+    const [local, discovery] = await Promise.all([read(args), read(['host', 'list', '--json'])])
+    const localRows = resultArray(local, 'worktrees') as RosterWorktree[] | null
+    // Never serve stale local rows: the worker also checks this roster before typing.
+    if (!localRows) return null
+    const hosts = resultArray(discovery, 'hosts')
+    if (hosts) {
+      environments = hosts.flatMap((host) =>
+        host && typeof host === 'object' && 'kind' in host && host.kind === 'environment' &&
+        'id' in host && typeof host.id === 'string' && host.id ? [host.id] : []
+      )
+      for (const id of cached.keys()) if (!environments.includes(id)) cached.delete(id)
+    }
+
+    const remoteRows = await Promise.all(environments.map(async (id) => {
+      const output = await read([...args, '--environment', id])
+      const rows = resultArray(output, 'worktrees') as RosterWorktree[] | null
+      // An unreachable server does not mean every agent on it has closed.
+      if (!rows) return cached.get(id) ?? []
+      const key = (value: string): string => `${ENVIRONMENT_PREFIX}${JSON.stringify([id, value])}`
+      const qualified = rows.filter((row) => typeof row?.path === 'string').map((row) => ({
+        ...row,
+        path: key(row.path),
+        repoId: key(row.repoId ?? row.path),
+        repo: row.repo || row.displayName || row.path,
+        agents: row.agents?.filter((agent) => typeof agent?.paneKey === 'string').map((agent) => ({
+          ...agent,
+          paneKey: key(agent.paneKey),
+          parentPaneKey: agent.parentPaneKey ? key(agent.parentPaneKey) : agent.parentPaneKey
+        }))
+      }))
+      cached.set(id, qualified)
+      return qualified
+    }))
+    return [...localRows, ...remoteRows.flat()]
+  }
+}
+
 /** Tests replace these, so they never run a real program. */
 export const cli = {
   /** Orca's worktrees with their agents, or null when Orca cannot be asked. */
-  roster: async (): Promise<RosterWorktree[] | null> => {
-    for (const command of ORCA) {
-      const output = await run(command, ['worktree', 'ps', '--json', '--limit', '200'])
-      try {
-        const worktrees = output === null ? null : JSON.parse(output)?.result?.worktrees
-        if (Array.isArray(worktrees)) return worktrees
-      } catch {
-        // Not JSON: try the next way of reaching Orca.
-      }
-    }
-    return null
-  },
+  roster: createRoster(ask),
   /** Orca's repos in its sidebar's order, or null when Orca cannot be asked. */
   repos: async (): Promise<{ id?: unknown; path?: unknown }[] | null> => {
     try {
@@ -71,6 +127,7 @@ export const cli = {
   send: async (handle: string, text: string) => parseOutcome(await ask(sendArgs(handle, text)), 'send'),
   /** What is uncommitted in a workspace, or null when it is not a Git checkout. */
   changes: async (path: string): Promise<Change | null> => {
+    if (path.startsWith(ENVIRONMENT_PREFIX)) return null
     const output = await run('git', ['-C', path, 'diff', '--shortstat', 'HEAD'])
     return output === null ? null : parseShortstat(output)
   }

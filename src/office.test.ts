@@ -21,7 +21,7 @@ import {
   STORE_BYTES
 } from './office'
 import { readPrefs } from './protocol'
-import { parseShortstat } from './roster'
+import { createRoster, parseShortstat } from './roster'
 import { assign, digest, emptyDigest } from './transcript'
 
 const status = (state: 'working' | 'blocked' | 'waiting' | 'done', receivedAt: number) => ({
@@ -39,6 +39,29 @@ const call = (tool: string, input: object, callId?: string) => ({
   tool,
   input: input as never,
   callId
+})
+
+test('lists paired environments without merging agents in identically named panes or paths', async () => {
+  const worktrees = [{ path: '/repo', repoId: 'repo', agents: [{ paneKey: 'pane', state: 'working' }] }]
+  let paired = true
+  let reachable = true
+  let local = true
+  const roster = createRoster(async (args) => {
+    if (args[0] === 'host') return JSON.stringify({ result: { hosts: paired ? [{ kind: 'environment', id: 'server' }] : [] } })
+    if (args.includes('--environment') ? !reachable : !local) return null
+    return JSON.stringify({ result: { worktrees } })
+  })
+  const rows = await roster()
+  const office = createOffice()
+  applyRoster(office, rows ?? [], Date.now())
+  assert.equal(office.agents.size, 2)
+  assert.equal(office.roots.size, 2)
+  reachable = false
+  assert.deepEqual(await roster(), rows)
+  paired = false
+  assert.deepEqual(await roster(), worktrees)
+  local = false
+  assert.equal(await roster(), null)
 })
 
 test('sorts tools into what the character does', () => {

@@ -17,7 +17,7 @@ An [Orca](https://onorca.dev) plugin that turns your parallel coding agents into
 - **See who started whom.** An org chart per project, drawn from the exact parent-to-worker links Orca reports, across worktrees. Nothing is guessed.
 - **Act without hunting through tabs.** Open any agent to jump to its terminal, send it an instruction (terminal agents), or compact a Claude Code conversation. `Cmd/Ctrl+Alt+↑/↓` steps through the agents that need you first.
 - **Watch the context fill.** Context and tokens per agent, and tokens today per project, read from your Claude Code and Codex logs. Per-agent context needs a macOS chat session; see the [limits](#honest-limits).
-- **Private and tidy.** Nothing leaves your machine and there is no telemetry. A day and night window, five extra palettes plus Orca's own theme, and reduced motion respected.
+- **Private and tidy.** No telemetry. A day and night window, five extra palettes plus Orca's own theme, and reduced motion respected.
 
 <p align="center">
   <img src="docs/images/catalog/office.png" alt="The Office: a pixel room per project with agents at their desks" width="100%">
@@ -116,7 +116,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 
 ## Data and privacy
 
-**Nothing leaves your machine.** The plugin makes no network requests, has no analytics and sends nothing to a server.
+**No telemetry.** The plugin makes no direct network requests. Orca uses its existing connections to list agents on your paired servers.
 
 **What it reads, and from where**
 
@@ -142,6 +142,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **Observation is sampled.** Short chat tool calls can fall between roster polls, and Orca does not report terminal tool calls on SSH or WSL hosts yet. Uncommitted changes ignore untracked files.
 - **Charts show only what Orca reports.** The chart does not imply agents talk to each other, and a missing child link does not prove an agent has no parent.
 - **Without the Orca CLI**, the plugin falls back to status and tool events plus the focused workspace's agents. Chat calls are then unavailable, and finished agents linger for four hours.
+- **Paired Orca servers** appear in the roster when the CLI supports `host list`. The Lobby does not read their files or logs, or offer terminal actions for those agents.
 - **"Compact conversation" is only offered for Claude Code**, where `/compact` typed into its terminal is known to work.
 - Developed and used on macOS. Context details need macOS; the rest only needs the `orca` CLI.
 
