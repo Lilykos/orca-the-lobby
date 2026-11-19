@@ -486,6 +486,38 @@ test('acts on an agent only where it has a terminal, and only on request', async
   }
 })
 
+test('opens paired agents on their own server without enabling remote typing', async () => {
+  const key = (value: string): string => `environment:${JSON.stringify(['paired-server', value])}`
+  const pane = key('tab:leaf')
+  const chat = key('structured-agent-session-remote:leaf')
+  listed = [{ path: key('/repo'), agents: [{ paneKey: pane, state: 'working' }, { paneKey: chat, state: 'working' }] }]
+  const original = { terminals: cli.terminals, switchTo: cli.switchTo, activateWorkspace: cli.activateWorkspace }
+  const calls: string[][] = []
+  cli.terminals = async (server) => server === 'paired-server' ? [{ handle: 'remote-handle', paneKey: 'tab:leaf' }] : []
+  cli.switchTo = async (handle, server) => (calls.push([handle, server ?? 'local']), { ok: true })
+  cli.activateWorkspace = async (path, server) => (calls.push([path, server]), { ok: true })
+  const worker = await mountWorker(main, { host: mockHost() })
+  try {
+    await waitUntil('paired agents', async () => (await worker.request('office.snapshot')).agents.length === 2)
+    assert.deepEqual(await worker.request('office.actions', { agentId: pane }), { goTo: 'terminal', send: false, compact: null })
+    assert.deepEqual(await worker.request('office.goTo', { agentId: pane }), { ok: true })
+    assert.deepEqual(await worker.request('office.actions', { agentId: chat }), { goTo: 'workspace', send: false, compact: null })
+    assert.deepEqual(await worker.request('office.goTo', { agentId: chat }), {
+      ok: true,
+      note: 'Opened its workspace. Orca does not let plugins pick a chat tab.'
+    })
+    assert.deepEqual(await worker.request('office.send', { agentId: pane, text: 'do not send' }), {
+      ok: false,
+      error: 'Sending to paired servers is not supported.'
+    })
+    assert.deepEqual(calls, [['remote-handle', 'paired-server'], ['/repo', 'paired-server']])
+  } finally {
+    await worker.deactivate()
+    Object.assign(cli, original)
+    listed = null
+  }
+})
+
 test('previous and next agent go needs-you first, then working, round and round', async () => {
   listed = [
     {

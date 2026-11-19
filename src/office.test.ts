@@ -41,13 +41,13 @@ const call = (tool: string, input: object, callId?: string) => ({
   callId
 })
 
-test('lists paired environments without merging agents in identically named panes or paths', async () => {
-  const worktrees = [{ path: '/repo', repoId: 'repo', agents: [{ paneKey: 'pane', state: 'working' }] }]
+test('labels paired environments and keeps identically named panes and paths distinct', async () => {
+  const worktrees = [{ path: '/repo', repoId: 'repo', repo: 'Lobby', agents: [{ paneKey: 'pane', state: 'working' }] }]
   let paired = true
   let reachable = true
   let local = true
   const roster = createRoster(async (args) => {
-    if (args[0] === 'host') return JSON.stringify({ result: { hosts: paired ? [{ kind: 'environment', id: 'server' }] : [] } })
+    if (args[0] === 'host') return JSON.stringify({ result: { hosts: paired ? [{ kind: 'environment', id: 'server', name: 'devbox' }] : [] } })
     if (args.includes('--environment') ? !reachable : !local) return null
     return JSON.stringify({ result: { worktrees } })
   })
@@ -56,6 +56,7 @@ test('lists paired environments without merging agents in identically named pane
   applyRoster(office, rows ?? [], Date.now())
   assert.equal(office.agents.size, 2)
   assert.equal(office.roots.size, 2)
+  assert.equal(office.projects.get(rows![1].repoId!), 'Lobby · devbox')
   reachable = false
   assert.deepEqual(await roster(), rows)
   paired = false

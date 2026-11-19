@@ -9,6 +9,21 @@ import type { Change } from './protocol'
 
 const ENVIRONMENT_PREFIX = 'environment:'
 
+export function environmentTarget(key: string | null | undefined): { id: string; value: string } | null {
+  if (!key?.startsWith(ENVIRONMENT_PREFIX)) return null
+  try {
+    const pair: unknown = JSON.parse(key.slice(ENVIRONMENT_PREFIX.length))
+    if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string' && typeof pair[1] === 'string') {
+      return { id: pair[0], value: pair[1] }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+const environmentArgs = (id?: string): string[] => id ? ['--environment', id] : []
+
 /** The app's bundled CLI on Windows and macOS, or the CLI on the PATH. */
 const ORCA = process.platform === 'win32'
   ? [`${process.execPath.replace(/[\\/][^\\/]+$/, '')}\\resources\\bin\\orca.exe`, 'orca.exe']
@@ -64,7 +79,7 @@ function resultArray(output: string | null, key: 'hosts' | 'worktrees'): unknown
 
 /** The desktop roster includes SSH worktrees, but paired servers need their own query. */
 export function createRoster(read: (args: string[]) => Promise<string | null>) {
-  let environments: string[] = []
+  let environments: { id: string; name: string }[] = []
   const cached = new Map<string, RosterWorktree[]>()
   const args = ['worktree', 'ps', '--json', '--limit', '200']
 
@@ -75,14 +90,16 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
     if (!localRows) return null
     const hosts = resultArray(discovery, 'hosts')
     if (hosts) {
-      environments = hosts.flatMap((host) =>
+      environments = hosts.flatMap((host): { id: string; name: string }[] =>
         host && typeof host === 'object' && 'kind' in host && host.kind === 'environment' &&
-        'id' in host && typeof host.id === 'string' && host.id ? [host.id] : []
+        'id' in host && typeof host.id === 'string' && host.id
+          ? [{ id: host.id, name: 'name' in host && typeof host.name === 'string' && host.name ? host.name : host.id }]
+          : []
       )
-      for (const id of cached.keys()) if (!environments.includes(id)) cached.delete(id)
+      for (const id of cached.keys()) if (!environments.some((environment) => environment.id === id)) cached.delete(id)
     }
 
-    const remoteRows = await Promise.all(environments.map(async (id) => {
+    const remoteRows = await Promise.all(environments.map(async ({ id, name }) => {
       const output = await read([...args, '--environment', id])
       const rows = resultArray(output, 'worktrees') as RosterWorktree[] | null
       // An unreachable server does not mean every agent on it has closed.
@@ -92,7 +109,7 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
         ...row,
         path: key(row.path),
         repoId: key(row.repoId ?? row.path),
-        repo: row.repo || row.displayName || row.path,
+        repo: `${row.repo || row.displayName || row.path} · ${name}`,
         agents: row.agents?.filter((agent) => typeof agent?.paneKey === 'string').map((agent) => ({
           ...agent,
           paneKey: key(agent.paneKey),
@@ -120,9 +137,13 @@ export const cli = {
     }
   },
   /** The live terminals Orca manages, or null when Orca cannot be asked. */
-  terminals: async (): Promise<TerminalRow[] | null> => parseTerminals(await ask(listArgs)),
+  terminals: async (environment?: string): Promise<TerminalRow[] | null> =>
+    parseTerminals(await ask([...listArgs, ...environmentArgs(environment)])),
   /** Brings a terminal's tab to the front in Orca. */
-  switchTo: async (handle: string) => parseOutcome(await ask(switchArgs(handle)), 'switch'),
+  switchTo: async (handle: string, environment?: string) =>
+    parseOutcome(await ask([...switchArgs(handle), ...environmentArgs(environment)]), 'switch'),
+  activateWorkspace: async (path: string, environment: string) =>
+    parseOutcome(await ask(['worktree', 'activate', '--worktree', `path:${path}`, '--json', ...environmentArgs(environment)]), 'switch'),
   /** Types text into a terminal and presses Enter; Orca submits it to an agent as a pasted prompt. */
   send: async (handle: string, text: string) => parseOutcome(await ask(sendArgs(handle, text)), 'send'),
   /** What is uncommitted in a workspace, or null when it is not a Git checkout. */

@@ -35,7 +35,7 @@ import {
   type AgentState,
   type Prefs
 } from './protocol'
-import { cli } from './roster'
+import { cli, environmentTarget } from './roster'
 import { createReader } from './transcript'
 import { createUsageCounter, dayOf } from './usage'
 
@@ -372,13 +372,16 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   /** The live terminal an agent runs in, or why there is none. Chat sessions have no terminal. */
-  const terminalFor = async (agentId: string): Promise<{ handle: string } | { error: string }> => {
+  const terminalFor = async (agentId: string): Promise<{ handle: string; environment?: string } | { error: string }> => {
     const agent = office.agents.get(agentId)
     if (!agent) return { error: 'That agent has left.' }
-    const terminals = await cli.terminals()
+    const remote = environmentTarget(agent.workspaceId)
+    const pane = environmentTarget(agent.paneKey)
+    if (remote && pane?.id !== remote.id) return { error: 'Orca did not report a terminal on that server.' }
+    const terminals = await cli.terminals(remote?.id)
     if (!terminals) return { error: 'Orca could not be reached.' }
-    const handle = terminalOf(agent, terminals)
-    return handle ? { handle } : { error: 'It does not run in a terminal Orca can type into.' }
+    const handle = terminalOf(pane ? { paneKey: pane.value, terminalId: null } : agent, terminals)
+    return handle ? { handle, environment: remote?.id } : { error: 'Orca did not report a live terminal for this agent.' }
   }
 
   orca.panels.handle('office.actions', async ({ agentId }): Promise<AgentActions> => {
@@ -386,7 +389,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const none: AgentActions = { goTo: null, send: false, compact: null }
     if (!agent) return none
     const mayGo = granted('workspace:write')
-    const maySend = granted('terminal:send')
+    const maySend = granted('terminal:send') && !environmentTarget(agent.workspaceId)
     const terminal = mayGo || maySend ? 'handle' in (await terminalFor(agentId)) : false
     const send = maySend && terminal && mayType(agent)
     return {
@@ -410,13 +413,22 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (!stepping) walk = null
     const found = await terminalFor(agentId)
     if ('handle' in found) {
-      const switched = await cli.switchTo(found.handle)
+      const switched = await cli.switchTo(found.handle, found.environment)
       if (switched.ok) return { ok: true }
     }
-    if (!(await openWorkspace(agentId))) return { ok: false, error: 'Orca does not know where it is.' }
+    const agent = office.agents.get(agentId)
+    const remote = environmentTarget(agent?.workspaceId)
+    if (remote) {
+      const opened = await cli.activateWorkspace(remote.value, remote.id)
+      if (!opened.ok) return { ok: false, error: `Could not open its remote workspace: ${opened.error}` }
+    } else if (!(await openWorkspace(agentId))) {
+      return { ok: false, error: 'Orca does not know where it is.' }
+    }
     return 'handle' in found
       ? { ok: true, note: 'Opened its workspace; its terminal would not come forward.' }
-      : { ok: true, note: 'Opened its workspace. Orca does not let plugins pick a chat tab.' }
+      : (environmentTarget(agent?.paneKey)?.value ?? agent?.paneKey)?.startsWith('structured-agent-session-')
+        ? { ok: true, note: 'Opened its workspace. Orca does not let plugins pick a chat tab.' }
+        : { ok: true, note: `Opened its workspace. ${found.error}` }
   }
 
   orca.panels.handle('office.goTo', ({ agentId }) => goTo(agentId))
@@ -433,6 +445,7 @@ export default function activate(orca: OrcaWorkerApi): void {
    *  only while Orca's own list still shows that agent at work in a terminal no other agent shares. */
   const type = async (agentId: string, text: string): Promise<ActionResult> => {
     if (!granted('terminal:send')) return { ok: false, error: 'Typing into terminals is not allowed.' }
+    if (environmentTarget(office.agents.get(agentId)?.workspaceId)) return { ok: false, error: 'Sending to paired servers is not supported.' }
     if (!mayType(office.agents.get(agentId))) return { ok: false, error: 'It has finished; its terminal may be back at a shell.' }
     const listed = await cli.roster()
     const paneKey = office.agents.get(agentId)?.paneKey

@@ -55,7 +55,7 @@ The panel itself, with demo data:
 
 ### Office
 
-- **One room per project checkout.** Worktrees of the same repository share its room. Click a room's sign to fold or unfold it.
+- **One room per project checkout and host.** Worktrees of the same repository on the same host share a room; remote room signs include the host name. Click a room's sign to fold or unfold it.
 - **Projects in your order.** Rooms and charts follow the order of Orca's sidebar, and move when you reorder it there. Point at a room (or use a chart's header) and press **↑** / **↓** to set your own order instead; it is kept, shared by Office and Activity, and **Use the sidebar order again** in Settings undoes it.
 - **Working agents sit at desks** (at least three per room, more rows as needed). A small icon above them shows what Orca reports them doing: thinking, shell, web, edit, read, search, plan, a tool, or delegating to a sub-agent. Each person has a friendly name, shown under them.
 - **Finished agents stand at the coffee machine** (up to four are drawn). A window follows your local time of day, and a few decorations (plant, noticeboard, server rack, bookshelf, clock and so on) fill clear space.
@@ -142,7 +142,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **Observation is sampled.** Short chat tool calls can fall between roster polls, and Orca does not report terminal tool calls on SSH or WSL hosts yet. Uncommitted changes ignore untracked files.
 - **Charts show only what Orca reports.** The chart does not imply agents talk to each other, and a missing child link does not prove an agent has no parent.
 - **Without the Orca CLI**, the plugin falls back to status and tool events plus the focused workspace's agents. Chat calls are then unavailable, and finished agents linger for four hours.
-- **Paired Orca servers** appear in the roster when the CLI supports `host list`. The Lobby does not read their files or logs, or offer terminal actions for those agents.
+- **Paired Orca servers** appear in the roster when the CLI supports `host list`. **Go to agent** opens the remote terminal if Orca reports one, or the Git worktree otherwise. The Lobby does not read remote files or logs, or send text to remote terminals.
 - **"Compact conversation" is only offered for Claude Code**, where `/compact` typed into its terminal is known to work.
 - Developed and used on macOS. Context details need macOS; the rest only needs the `orca` CLI.
 
