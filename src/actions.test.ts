@@ -90,6 +90,8 @@ test('the terminal list gives handles and pane keys, skipping rows it cannot pla
 })
 
 test('Orca accepting a send or a switch is told apart from a refusal, in plain words', () => {
+  assert.equal(parseOutcome(JSON.stringify({ ok: true, result: { navigated: false } }), 'switch').ok, false)
+  assert.equal(parseOutcome(JSON.stringify({ ok: true, result: { focus: { navigated: false } } }), 'switch').ok, false)
   assert.deepEqual(parseOutcome(JSON.stringify({ ok: true, result: { send: { accepted: true } } }), 'send'), { ok: true })
   assert.deepEqual(parseOutcome(JSON.stringify({ ok: true, result: { focus: { navigated: true } } }), 'switch'), { ok: true })
   assert.equal(parseOutcome(JSON.stringify({ ok: true, result: { send: { accepted: false } } }), 'send').ok, false)

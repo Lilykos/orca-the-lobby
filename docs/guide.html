@@ -157,7 +157,7 @@
 
       <section id="data">
         <h2>What it reads, exactly</h2>
-        <div class="note"><strong>Nothing leaves your machine.</strong> The plugin sends no data to any server.</div>
+        <div class="note"><strong>No telemetry.</strong> The plugin makes no direct network requests. Orca uses its existing connections to list agents on your paired servers.</div>
         <h3>Roster and events (from Orca)</h3>
         <p>The worker uses <code>orca worktree ps --json</code> for the cross-worktree roster: workspace and project names, state, prompt, current operation, helpers and linked items. It also asks Orca's <code>agents.list</code> for the focused workspace when focus changes, and listens for status changes and tool calls. It polls every three seconds while an agent is working and every twenty seconds when idle.</p>
         <h3>Tokens today (from local logs)</h3>
@@ -166,7 +166,7 @@
         <p>Never from titles, times or folders:</p>
         <ol>
           <li>A chat agent's pane key is <code>structured-agent-session-&lt;Orca session id&gt;:&lt;leaf&gt;</code>.</li>
-          <li>Orca's own session store (<code>agent-session-journal.db</code>), read-only through the <code>sqlite3</code> macOS ships, records that session's Claude Code session id or Codex thread id. Only the provider and the session id are selected, never prompts or messages.</li>
+          <li>Orca's own session store (<code>agent-session-domain.db</code> on Orca 1.4.261+, or <code>agent-session-journal.db</code> on older versions), read-only through the <code>sqlite3</code> macOS ships, records that session's Claude Code session id or Codex thread id. Only the provider and the session id are selected, never prompts or messages.</li>
           <li>That id is in the log's file name: <code>~/.claude/projects/*/&lt;id&gt;.jsonl</code> or <code>~/.codex/sessions/YYYY/MM/DD/rollout-…-&lt;id&gt;.jsonl</code>.</li>
         </ol>
         <p>The drawer then shows the latest request's tokens (cache included), the compactions the log records, and the session's tokens today. For Codex that is the input side of the last request; output is left out. The percentage uses the window the log states: Codex does, Claude Code does not. Tokens today count only the agent's current provider session; an earlier one before a resume or <code>/clear</code> is not added.</p>
@@ -184,7 +184,7 @@
         <h2>FAQ</h2>
         <details>
           <summary>Is it safe? Does it send my code or prompts anywhere?</summary>
-          <div><p>No. It has no network code. It reads local files and runs the Orca CLI and Git on your machine. Prompts are not stored in its journal. The <a href="https://github.com/Lilykos/orca-the-lobby">source</a> is public.</p></div>
+          <div><p>No. It has no direct network code. It reads local files and runs the Orca CLI and Git on your machine. Orca uses its existing paired-server connections for remote roster and navigation requests. Prompts are not stored in its journal. The <a href="https://github.com/Lilykos/orca-the-lobby">source</a> is public.</p></div>
         </details>
         <details>
           <summary>Why can't I type into a chat agent?</summary>

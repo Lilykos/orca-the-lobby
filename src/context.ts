@@ -1,6 +1,6 @@
 // Per-agent context fill, compactions and tokens today. The link from an Orca agent to its log is an id
 // equality, never a guess: a chat agent's pane key is `structured-agent-session-<Orca session id>:<leaf>`;
-// Orca's own session store (`agent-session-journal.db`) records, for that session id, the provider's id
+// Orca's own session store records, for that session id, the provider's id
 // (Claude Code's session id, Codex's thread id); and that id is in the log's file name. Only usage
 // numbers, model ids and compaction markers are read from the log; nothing leaves the machine.
 import { execFile } from 'node:child_process'
@@ -9,7 +9,8 @@ import { homedir } from 'node:os'
 import { usageTotal, type AgentContext, type AgentView } from './protocol'
 import { claudeTally, codexDay, codexTally, dayOf, foldClaude, foldCodex, follow, type ClaudeTally, type CodexTally, type Followed } from './usage'
 
-const STORE = `${homedir()}/Library/Application Support/orca/agent-session-journal.db`
+const STORES = ['agent-session-domain.db', 'agent-session-journal.db']
+  .map((name) => `${homedir()}/Library/Application Support/orca/${name}`)
 const CHAT_PANE = 'structured-agent-session-'
 /** Ids end up in SQL and file names, so only these characters are accepted. */
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
@@ -61,10 +62,24 @@ export function providerSessionsQuery(ids: string[]): string {
 /** The provider ids for these Orca session ids from the first program that can be run, or null when the
  *  store cannot be read. Another program is tried only when the first is not installed (ENOENT): a
  *  database that is locked or unreadable fails the same way again, and each try can take its timeout. */
-export function askStore(commands: string[], ids: string[]): Promise<Map<string, ProviderSession> | null> {
+export async function askStore(commands: string[], ids: string[], stores = STORES): Promise<Map<string, ProviderSession> | null> {
+  // The domain database is authoritative since Orca 1.4.261. Never use stale legacy rows
+  // when it exists, even when the requested session is absent or the current store is locked.
+  let store: string | undefined
+  for (const path of stores) {
+    try {
+      await stat(path)
+      store = path
+      break
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 'ENOENT') return null
+    }
+  }
+  if (!store || !commands.length) return null
+  const path = store
   return new Promise((resolve) => {
     const run = (command: string, next: string[]): void => {
-      execFile(command, ['-readonly', '-json', STORE, providerSessionsQuery(ids)], { timeout: 5000, maxBuffer: 4 << 20 }, (error, stdout) => {
+      execFile(command, ['-readonly', '-json', path, providerSessionsQuery(ids)], { timeout: 5000, maxBuffer: 4 << 20 }, (error, stdout) => {
         if (!error) resolve(parseProviderSessions(stdout))
         else if ((error as { code?: unknown }).code === 'ENOENT' && next.length) run(next[0], next.slice(1))
         else resolve(null)

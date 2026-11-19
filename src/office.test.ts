@@ -58,6 +58,11 @@ test('labels paired environments and keeps identically named panes and paths dis
   assert.equal(office.roots.size, 2)
   assert.equal(office.projects.get(rows![1].repoId!), 'Lobby · devbox')
   reachable = false
+  const disconnected = await roster()
+  assert.deepEqual(disconnected, rows?.slice(0, 1))
+  applyRoster(office, disconnected ?? [], Date.now())
+  assert.equal(office.agents.size, 1)
+  reachable = true
   assert.deepEqual(await roster(), rows)
   paired = false
   assert.deepEqual((await roster())?.[0].repo, 'Lobby · local')

@@ -85,7 +85,6 @@ function withHostName(row: RosterWorktree, name: string): RosterWorktree {
 export function createRoster(read: (args: string[]) => Promise<string | null>) {
   let environments: { id: string; name: string }[] = []
   let hostNames = new Map<string, string>()
-  const cached = new Map<string, RosterWorktree[]>()
   const args = ['worktree', 'ps', '--json', '--limit', '200']
 
   return async (): Promise<RosterWorktree[] | null> => {
@@ -107,14 +106,13 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
           ? [{ id: host.id, name: 'name' in host && typeof host.name === 'string' && host.name ? host.name : host.id }]
           : []
       )
-      for (const id of cached.keys()) if (!environments.some((environment) => environment.id === id)) cached.delete(id)
     }
 
     const remoteRows = await Promise.all(environments.map(async ({ id, name }) => {
       const output = await read([...args, '--environment', id])
       const rows = resultArray(output, 'worktrees') as RosterWorktree[] | null
-      // An unreachable server does not mean every agent on it has closed.
-      if (!rows) return cached.get(id) ?? []
+      // Only live observations belong in the roster; stale working rows cause false alerts.
+      if (!rows) return []
       const key = (value: string): string => `${ENVIRONMENT_PREFIX}${JSON.stringify([id, value])}`
       const qualified = rows.filter((row) => typeof row?.path === 'string').map((row) => ({
         ...withHostName(row, name),
@@ -126,7 +124,6 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
           parentPaneKey: agent.parentPaneKey ? key(agent.parentPaneKey) : agent.parentPaneKey
         }))
       }))
-      cached.set(id, qualified)
       return qualified
     }))
     const namedLocalRows = localRows.map((row) => {

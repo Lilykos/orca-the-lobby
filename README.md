@@ -123,7 +123,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **Orca**: `orca worktree ps --json` (agents across worktrees, with their state, task title, a prompt and last-reply excerpt, current operation, sub-agents and linked PRs), the host's agent and workspace APIs, `orca repo list --json` every 10 s for the sidebar's project order, and `orca terminal list|switch|send` for the drawer actions. It polls every 3 s while an agent is working and every 20 s when idle.
 - **Git**: `git diff --shortstat HEAD` in each workspace with an agent, for the uncommitted-changes count. New untracked files are not counted.
 - **Claude Code logs** (`~/.claude/projects/`) and **Codex logs** (`~/.codex/sessions/`): usage numbers and model ids for tokens today; for Claude, also task lists and changed file names for **Tasks** and **Files**. Each file is read once and then only what is appended.
-- **Orca's session store** (`~/Library/Application Support/orca/agent-session-journal.db`, read-only through the `sqlite3` macOS ships): only the provider and session id of a chat agent, to find its own log for the context line. Never prompts or messages.
+- **Orca's session store** (`~/Library/Application Support/orca/agent-session-domain.db` on Orca 1.4.261+, or `agent-session-journal.db` on older versions, read-only through the `sqlite3` macOS ships): only the provider and session id of a chat agent, to find its own log for the context line. Never prompts or messages.
 
 **What it stores** (in Orca's per-plugin storage, nowhere else):
 
@@ -142,7 +142,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **Observation is sampled.** Short chat tool calls can fall between roster polls, and Orca does not report terminal tool calls on SSH or WSL hosts yet. Uncommitted changes ignore untracked files.
 - **Charts show only what Orca reports.** The chart does not imply agents talk to each other, and a missing child link does not prove an agent has no parent.
 - **Without the Orca CLI**, the plugin falls back to status and tool events plus the focused workspace's agents. Chat calls are then unavailable, and finished agents linger for four hours.
-- **Paired Orca servers** appear in the roster when the CLI supports `host list`. **Go to agent** opens the remote terminal if Orca reports one, or the Git worktree otherwise. The Lobby does not read remote files or logs, or send text to remote terminals.
+- **Paired Orca servers** appear in the roster when the CLI supports `host list`. **Go to agent** opens the remote terminal if Orca reports one, or the Git worktree otherwise. Unreachable paired servers disappear until they reconnect, so stale states cannot trigger alerts. The Lobby does not read remote files or logs, or send text to remote terminals.
 - **"Compact conversation" is only offered for Claude Code**, where `/compact` typed into its terminal is known to work.
 - Developed and used on macOS. Context details need macOS; the rest only needs the `orca` CLI.
 
