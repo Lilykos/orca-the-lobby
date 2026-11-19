@@ -55,7 +55,7 @@ The panel itself, with demo data:
 
 ### Office
 
-- **One room per project checkout and host.** Worktrees of the same repository on the same host share a room; remote room signs include the host name. Click a room's sign to fold or unfold it.
+- **One room per project checkout and host.** Worktrees of the same repository on the same host share a room; room signs show the host name (or **local**). Click a room's sign to fold or unfold it.
 - **Projects in your order.** Rooms and charts follow the order of Orca's sidebar, and move when you reorder it there. Point at a room (or use a chart's header) and press **↑** / **↓** to set your own order instead; it is kept, shared by Office and Activity, and **Use the sidebar order again** in Settings undoes it.
 - **Working agents sit at desks** (at least three per room, more rows as needed). A small icon above them shows what Orca reports them doing: thinking, shell, web, edit, read, search, plan, a tool, or delegating to a sub-agent. Each person has a friendly name, shown under them.
 - **Finished agents stand at the coffee machine** (up to four are drawn). A window follows your local time of day, and a few decorations (plant, noticeboard, server rack, bookshelf, clock and so on) fill clear space.

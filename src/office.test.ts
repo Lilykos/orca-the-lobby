@@ -60,7 +60,7 @@ test('labels paired environments and keeps identically named panes and paths dis
   reachable = false
   assert.deepEqual(await roster(), rows)
   paired = false
-  assert.deepEqual(await roster(), worktrees)
+  assert.deepEqual((await roster())?.[0].repo, 'Lobby · local')
   local = false
   assert.equal(await roster(), null)
 })

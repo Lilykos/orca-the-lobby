@@ -77,9 +77,14 @@ function resultArray(output: string | null, key: 'hosts' | 'worktrees'): unknown
   }
 }
 
+function withHostName(row: RosterWorktree, name: string): RosterWorktree {
+  return { ...row, repo: `${row.repo || row.displayName || row.path} · ${name}` }
+}
+
 /** The desktop roster includes SSH worktrees, but paired servers need their own query. */
 export function createRoster(read: (args: string[]) => Promise<string | null>) {
   let environments: { id: string; name: string }[] = []
+  let hostNames = new Map<string, string>()
   const cached = new Map<string, RosterWorktree[]>()
   const args = ['worktree', 'ps', '--json', '--limit', '200']
 
@@ -90,6 +95,12 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
     if (!localRows) return null
     const hosts = resultArray(discovery, 'hosts')
     if (hosts) {
+      hostNames = new Map(hosts.flatMap((host): [string, string][] =>
+        host && typeof host === 'object' && 'id' in host && typeof host.id === 'string' &&
+        'name' in host && typeof host.name === 'string'
+          ? [[host.id, host.name]]
+          : []
+      ))
       environments = hosts.flatMap((host): { id: string; name: string }[] =>
         host && typeof host === 'object' && 'kind' in host && host.kind === 'environment' &&
         'id' in host && typeof host.id === 'string' && host.id
@@ -106,10 +117,9 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
       if (!rows) return cached.get(id) ?? []
       const key = (value: string): string => `${ENVIRONMENT_PREFIX}${JSON.stringify([id, value])}`
       const qualified = rows.filter((row) => typeof row?.path === 'string').map((row) => ({
-        ...row,
+        ...withHostName(row, name),
         path: key(row.path),
         repoId: key(row.repoId ?? row.path),
-        repo: `${row.repo || row.displayName || row.path} · ${name}`,
         agents: row.agents?.filter((agent) => typeof agent?.paneKey === 'string').map((agent) => ({
           ...agent,
           paneKey: key(agent.paneKey),
@@ -119,7 +129,11 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
       cached.set(id, qualified)
       return qualified
     }))
-    return [...localRows, ...remoteRows.flat()]
+    const namedLocalRows = localRows.map((row) => {
+      const hostId = row.hostId || 'local'
+      return withHostName(row, hostId === 'local' ? 'local' : hostNames.get(hostId) ?? hostId)
+    })
+    return [...namedLocalRows, ...remoteRows.flat()]
   }
 }
 
