@@ -188,15 +188,44 @@ test('an unreadable store is not asked again before the interval, nor a missing 
 })
 
 test('the store is asked with another sqlite3 only when the first is not installed', async () => {
-  // /usr/bin/false is there but fails (like a locked database); echo prints and succeeds.
-  assert.equal(await askStore(['/usr/bin/false', '/bin/echo'], ['x']), null)
-  assert.equal(await askStore(['/nonexistent/sqlite3', '/usr/bin/false'], ['x']), null)
-  assert.equal((await askStore(['/nonexistent/sqlite3', '/bin/echo'], ['x']))?.size, 0)
+  const home = await mkdtemp(`${tmpdir()}/lobby-command-fallback-`)
+  const db = `${home}/store.db`
+  await writeFile(db, '')
+  const called: string[] = []
+  const execute: typeof execFile = (command, _args, _options, done) => {
+    called.push(command)
+    if (command === 'missing') done(Object.assign(new Error('missing'), { code: 'ENOENT' }), '')
+    else if (command === 'locked') done(new Error('locked'), '')
+    else done(null, '[]')
+  }
+  assert.equal(await askStore(['locked', 'available'], ['x'], [db], execute), null)
+  assert.deepEqual(called.splice(0), ['locked'])
+  assert.equal((await askStore(['missing', 'available'], ['x'], [db], execute))?.size, 0)
+  assert.deepEqual(called.splice(0), ['missing', 'available'])
+  assert.equal(await askStore(['missing'], ['x'], [db], execute), null)
+})
+
+test('prefers the current session database and falls back only when it is absent', async () => {
+  const home = await mkdtemp(`${tmpdir()}/lobby-stores-`)
+  const current = `${home}/domain.db`
+  const legacy = `${home}/journal.db`
+  const make = (db: string, id: string): Promise<boolean> => new Promise((resolve) => {
+    const record = JSON.stringify({ provider: 'codex', providerHandleChain: [{ handle: { threadId: id } }] })
+    execFile('sqlite3', [db, `create table agent_session_records (session_id text, record_json text); insert into agent_session_records values ('chat', '${record}');`],
+      { timeout: 5000, maxBuffer: 1 << 20 }, (error) => resolve(!error))
+  })
+  if (!(await make(current, 'current-thread')) || !(await make(legacy, 'legacy-thread'))) return
+  const commands = ['sqlite3']
+  assert.equal((await askStore(commands, ['chat'], [current, legacy]))?.get('chat')?.id, 'current-thread')
+  assert.equal((await askStore(commands, ['chat'], [`${home}/absent.db`, legacy]))?.get('chat')?.id, 'legacy-thread')
+  assert.equal((await askStore(commands, ['missing-chat'], [current, legacy]))?.size, 0)
+  await writeFile(`${home}/broken.db`, 'not a database')
+  assert.equal(await askStore(commands, ['chat'], [`${home}/broken.db`, legacy]), null)
 })
 
 test('one malformed record in the store does not hide the others', async () => {
   const run = (args: string[]): Promise<string | null> =>
-    new Promise((resolve) => execFile('/usr/bin/sqlite3', args, { timeout: 5000, maxBuffer: 1 << 20 }, (error, stdout) => resolve(error ? null : stdout)))
+    new Promise((resolve) => execFile('sqlite3', args, { timeout: 5000, maxBuffer: 1 << 20 }, (error, stdout) => resolve(error ? null : stdout)))
   const home = await mkdtemp(`${tmpdir()}/lobby-store-`)
   const db = `${home}/store.db`
   const good = JSON.stringify({ provider: 'claude', accountHome: { path: '/h/.claude' }, providerHandleChain: [{ handle: { sessionId: 'old' } }, { handle: { sessionId: 'new' } }] })

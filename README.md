@@ -17,7 +17,7 @@ An [Orca](https://onorca.dev) plugin that turns your parallel coding agents into
 - **See who started whom.** An org chart per project, drawn from the exact parent-to-worker links Orca reports, across worktrees. Nothing is guessed.
 - **Act without hunting through tabs.** Open any agent to jump to its terminal, send it an instruction (terminal agents), or compact a Claude Code conversation. `Cmd/Ctrl+Alt+↑/↓` steps through the agents that need you first.
 - **Watch the context fill.** Context and tokens per agent, and tokens today per project, read from your Claude Code and Codex logs. Per-agent context needs a macOS chat session; see the [limits](#honest-limits).
-- **Private and tidy.** Nothing leaves your machine and there is no telemetry. A day and night window, five extra palettes plus Orca's own theme, and reduced motion respected.
+- **Private and tidy.** No telemetry. A day and night window, five extra palettes plus Orca's own theme, and reduced motion respected.
 
 <p align="center">
   <img src="docs/images/catalog/office.png" alt="The Office: a pixel room per project with agents at their desks" width="100%">
@@ -31,7 +31,7 @@ Requires Orca **1.4.248 or newer**.
 orca plugin install Lilykos/orca-the-lobby
 ```
 
-Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins) once published there.
+Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins).
 
 ## Screenshots
 
@@ -55,7 +55,7 @@ The panel itself, with demo data:
 
 ### Office
 
-- **One room per project checkout.** Worktrees of the same repository share its room. Click a room's sign to fold or unfold it.
+- **One room per project checkout and host.** Worktrees of the same repository on the same host share a room; room signs show the host name (or **local**). Click a room's sign to fold or unfold it.
 - **Projects in your order.** Rooms and charts follow the order of Orca's sidebar, and move when you reorder it there. Point at a room (or use a chart's header) and press **↑** / **↓** to set your own order instead; it is kept, shared by Office and Activity, and **Use the sidebar order again** in Settings undoes it.
 - **Working agents sit at desks** (at least three per room, more rows as needed). A small icon above them shows what Orca reports them doing: thinking, shell, web, edit, read, search, plan, a tool, or delegating to a sub-agent. Each person has a friendly name, shown under them.
 - **Finished agents stand at the coffee machine** (up to four are drawn). A window follows your local time of day, and a few decorations (plant, noticeboard, server rack, bookshelf, clock and so on) fill clear space.
@@ -116,14 +116,14 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 
 ## Data and privacy
 
-**Nothing leaves your machine.** The plugin makes no network requests, has no analytics and sends nothing to a server.
+**No telemetry.** The plugin makes no direct network requests. Orca uses its existing connections to list agents on your paired servers.
 
 **What it reads, and from where**
 
 - **Orca**: `orca worktree ps --json` (agents across worktrees, with their state, task title, a prompt and last-reply excerpt, current operation, sub-agents and linked PRs), the host's agent and workspace APIs, `orca repo list --json` every 10 s for the sidebar's project order, and `orca terminal list|switch|send` for the drawer actions. It polls every 3 s while an agent is working and every 20 s when idle.
 - **Git**: `git diff --shortstat HEAD` in each workspace with an agent, for the uncommitted-changes count. New untracked files are not counted.
 - **Claude Code logs** (`~/.claude/projects/`) and **Codex logs** (`~/.codex/sessions/`): usage numbers and model ids for tokens today; for Claude, also task lists and changed file names for **Tasks** and **Files**. Each file is read once and then only what is appended.
-- **Orca's session store** (`~/Library/Application Support/orca/agent-session-journal.db`, read-only through the `sqlite3` macOS ships): only the provider and session id of a chat agent, to find its own log for the context line. Never prompts or messages.
+- **Orca's session store** (`~/Library/Application Support/orca/agent-session-domain.db` on Orca 1.4.261+, or `agent-session-journal.db` on older versions, read-only through the `sqlite3` macOS ships): only the provider and session id of a chat agent, to find its own log for the context line. Never prompts or messages.
 
 **What it stores** (in Orca's per-plugin storage, nowhere else):
 
@@ -142,6 +142,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **Observation is sampled.** Short chat tool calls can fall between roster polls, and Orca does not report terminal tool calls on SSH or WSL hosts yet. Uncommitted changes ignore untracked files.
 - **Charts show only what Orca reports.** The chart does not imply agents talk to each other, and a missing child link does not prove an agent has no parent.
 - **Without the Orca CLI**, the plugin falls back to status and tool events plus the focused workspace's agents. Chat calls are then unavailable, and finished agents linger for four hours.
+- **Paired Orca servers** appear in the roster when the CLI supports `host list`. **Go to agent** opens the remote terminal if Orca reports one, or the Git worktree otherwise. Unreachable paired servers disappear until they reconnect, so stale states cannot trigger alerts. The Lobby does not read remote files or logs, or send text to remote terminals.
 - **"Compact conversation" is only offered for Claude Code**, where `/compact` typed into its terminal is known to work.
 - Developed and used on macOS. Context details need macOS; the rest only needs the `orca` CLI.
 
@@ -152,6 +153,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **No context, tokens, tasks or files.** Context needs a macOS Orca chat session with a Claude Code or Codex agent and `sqlite3` (`/usr/bin/sqlite3`). Tokens need logs under `~/.claude/projects/` or `~/.codex/sessions/`. A missing or locked store is retried after a minute.
 - **No Send or Compact controls.** `terminal:send` was not granted, the agent is not in a terminal Orca can type into (for example a chat session), it has finished, or another agent shares its terminal. **Compact** is also hidden while an agent is blocked and for providers other than Claude Code.
 - **Go to agent only opened the workspace.** The agent is a chat session (Orca cannot pick a chat tab), or its terminal would not come forward. The drawer says which.
+- **Notification title starts with the plugin id.** Orca 1.4.264 adds this prefix itself; plugins cannot change it to their display name yet.
 - **No notifications.** Check the three switches in Settings, and that `notifications:show` was approved. A turn under a minute never triggers the "finished" notification.
 - **Agents missing or late.** The list updates every 3 to 20 seconds. Without the Orca CLI on the PATH, only status and tool events are seen.
 - **Scene looks frozen.** Check **Animate the office** in Settings and your system's reduced-motion setting.
@@ -163,13 +165,18 @@ orca plugin types .                          # once: writes the gitignored .orca
 orca plugin test .                           # unit tests
 npx --yes --package typescript tsc --noEmit  # type check
 orca plugin check .                          # validate the manifest and files
+python3 scripts/shots/run.py                 # screenshot and interaction checks
 ```
 
-Orca transpiles TypeScript when loading the plugin; there is no build step. If a dev-loaded checkout errors with "content hash mismatch", delete `.orca/` and reload.
+Orca transpiles TypeScript when loading the plugin; there is no build step. On current Orca, `orca plugin dev load .` loads this checkout as `local.the-lobby` and reloads edits. Approve the access Orca lists for that folder, and disable `lilykos.the-lobby` while testing to avoid duplicate shortcuts and notifications. Afterwards, unload the development folder with `orca plugin dev unload .` and enable your installed release again. The development copy has separate settings and history.
 
 `scripts/shots` builds an isolated fixture page from the real panel code (demo data only) and screenshots it at several panel widths in headless Chrome; see the headers of `render.cjs` and `run.py`.
 
 Layout: `src/` is the worker (Orca roster, office state, actions, context, usage) and `panel/` the UI (scene drawing, charts, drawer). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Contributors
+
+Thanks to [@titilambert (Thibault Cohen)](https://github.com/titilambert) for paired-server agents, host labels and Windows CLI discovery ([#1](https://github.com/Lilykos/orca-the-lobby/pull/1)).
 
 ## License
 

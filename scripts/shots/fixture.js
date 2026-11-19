@@ -170,7 +170,7 @@ failNext=true;ta=document.querySelector('.sheet textarea');enter(ta,false);await
 sheet=await open('b');must(has(sheet,'Go to agent')&&sheet.querySelector('textarea')&&!has(sheet,'Compact conversation'),'Codex terminal controls wrong');
 // A chat session can only be gone to by its workspace, and says so.
 sheet=await open('c');must(has(sheet,'Go to agent')&&!sheet.querySelector('textarea')&&!has(sheet,'Compact conversation')&&!has(sheet,'Send'),'chat session shows terminal-only controls');
-must(sheet.textContent.includes('not pick the chat tab'),'chat session does not explain what Go to agent does');
+must(sheet.textContent.includes('The Lobby cannot select this agent’s tab'),'chat session does not explain what Go to agent does');
 [...sheet.querySelectorAll('button')].find(b=>b.textContent==='Go to agent').click();await wait();
 must(document.querySelector('.sheet .action-note')?.textContent.includes('Orca does not let plugins pick a chat tab'),'workspace-only note missing');
 // Blocked: say Orca does not report the question; no compact.

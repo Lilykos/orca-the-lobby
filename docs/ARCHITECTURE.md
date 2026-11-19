@@ -37,7 +37,7 @@ Orca transpiles the TypeScript when it loads the plugin; there is no build step 
 Per-agent context never comes from titles, times or folders, only an exact id chain:
 
 1. A chat agent's pane key is `structured-agent-session-<Orca session id>:<leaf>`.
-2. Orca's session store (`agent-session-journal.db`, read-only through `sqlite3`, selecting only the provider and its session id) records that session's Claude Code session id or Codex thread id.
+2. Orca's session store (`agent-session-domain.db` on Orca 1.4.261+, with `agent-session-journal.db` used only when the new file is absent, read-only through `sqlite3`, selecting only the provider and its session id) records that session's Claude Code session id or Codex thread id.
 3. That id is in the log's file name (`~/.claude/projects/*/<id>.jsonl`, `~/.codex/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`).
 
 From that one log the drawer shows the latest request's tokens (cache included; for Codex the input side of the last request), the compactions the log records, and the session's tokens today (only the current provider session, the latest in Orca's record). The percentage uses the window the log states: Codex logs do, Claude Code logs do not.
@@ -50,9 +50,11 @@ The read runs in the background and never holds up a panel update or notificatio
 - **Typing** goes through `orca terminal send --text=… --enter` (the host's `terminal.sendText` only works for the focused workspace), and only if the agent is still shown at work, in a terminal no other agent shares. `/compact` is offered for Claude Code only, and not while the agent is blocked, since a typed command would be taken as the answer.
 - **Previous / Next agent** keep one fixed order for a run of presses (2.5 s window) even if an agent changes state meanwhile.
 
+Paired-server agents are qualified by environment id. Unreachable servers return no agents until they reconnect; old working states are never replayed as live observations. Navigation checks both command acceptance and whether Orca actually navigated.
+
 ## Rooms and bubbles
 
-Rooms are keyed by project checkout; worktrees share one. Rooms and charts share one order: the person's own (`prefs.projectOrder`, set with ↑ ↓), else Orca's sidebar (`orca repo list --json`, which lists repos in sidebar order; matched by repo id, or by path without the roster), else by name. Finished agents stand in deterministic spots around the coffee machine (up to four); decorations are picked from a stable room seed and placed only in clear space. A speaker's bubble replaces its thought icon; needing you beats stuck, which beats a finished reply. Bubbles stay inside the room, slide or give way to more important ones, and cut long text with an ellipsis, never in the middle of an emoji. The window follows local time in six four-hour periods.
+Rooms are keyed by project checkout and host; worktrees on the same host share one. Project names include the host name (or `local`) so rooms for the same project on different machines remain distinguishable. Rooms and charts share one order: the person's own (`prefs.projectOrder`, set with ↑ ↓), else Orca's sidebar (`orca repo list --json`, which lists repos in sidebar order; matched by repo id, or by path without the roster), else by name. Finished agents stand in deterministic spots around the coffee machine (up to four); decorations are picked from a stable room seed and placed only in clear space. A speaker's bubble replaces its thought icon; needing you beats stuck, which beats a finished reply. Bubbles stay inside the room, slide or give way to more important ones, and cut long text with an ellipsis, never in the middle of an emoji. The window follows local time in six four-hour periods.
 
 ## Activity chart
 

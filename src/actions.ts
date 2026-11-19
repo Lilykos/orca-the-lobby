@@ -113,6 +113,10 @@ const REASONS: Record<string, string> = {
 export function parseOutcome(output: string | null, sent: 'send' | 'switch'): { ok: true } | { ok: false; error: string } {
   const answer = envelope(output)
   if (!answer) return { ok: false, error: 'Orca did not answer.' }
+  if (sent === 'switch' && answer.ok &&
+      (answer.result?.navigated === false || answer.result?.focus?.navigated === false)) {
+    return { ok: false, error: 'Orca could not show it in this desktop window.' }
+  }
   if (answer.ok && (sent === 'switch' || answer.result?.send?.accepted === true)) return { ok: true }
   const code = typeof answer.error?.code === 'string' ? answer.error.code : ''
   return { ok: false, error: REASONS[code] ?? (code ? `Orca refused it (${code}).` : 'Orca did not accept it.') }

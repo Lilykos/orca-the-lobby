@@ -1218,7 +1218,7 @@ function buildControls(agent: AgentView): Controls {
   const goWrap = element('div', 'go-agent')
   const go = element('button', 'action primary', 'Go to agent') as HTMLButtonElement
   go.dataset.focusKey = `${id}:go`
-  const goFine = element('p', 'drawer-fine', 'It is a chat session. Orca lets plugins open its workspace but not pick the chat tab.')
+  const goFine = element('p', 'drawer-fine', 'Orca can open its workspace, but The Lobby cannot select this agent’s tab.')
   goWrap.append(go, goFine)
 
   const activity = element('div', 'detail-actions')
@@ -1826,7 +1826,7 @@ function applyPalette(): void {
 }
 
 /** Kept equal to orca-plugin.json's version. */
-const VERSION = '1.1.0'
+const VERSION = '1.2.0'
 const SITE = 'https://lilykos.github.io/orca-the-lobby/'
 const REPO = 'https://github.com/Lilykos/orca-the-lobby'
 

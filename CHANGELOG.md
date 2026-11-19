@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Show agents on paired Orca servers in separate rooms, labeled by host; improve Windows CLI discovery. Thanks to @titilambert ([#1](https://github.com/Lilykos/orca-the-lobby/pull/1)).
+- Hide unreachable paired-server agents until reconnection instead of showing stale working states and triggering misleading alerts.
+- Report failed navigation when Orca accepts a command but cannot bring the target into view.
+- Restore per-agent context and tokens on Orca 1.4.261+ by reading its current chat database, retaining support for older versions.
+
 ## 1.1.0
 
 - **Projects in your order**: rooms and charts follow Orca's sidebar order instead of the alphabet, and follow it when you reorder the sidebar. **↑** / **↓** on a room or chart set your own order, shared by Office and Activity and kept between sessions; **Use the sidebar order again** in Settings goes back.

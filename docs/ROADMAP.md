@@ -6,6 +6,26 @@ Suggested order: 1 and 2 first (small, felt every day), then 3 and 12, then whic
 
 ## Soon
 
+### Current release checklist: paired servers and Orca compatibility
+
+- [x] Fix stale paired-server states and unsuccessful navigation in the local development branch.
+- [x] Support Orca's current chat database, retaining compatibility with older versions.
+- [x] Add regression coverage; run the 145 tests, TypeScript check and plugin validation on macOS.
+- [x] Remove Unix-only binaries from the SQLite fallback test and use PATH-based SQLite discovery in database integration tests.
+- [ ] Validate on real Windows/Linux hosts and exercise a real paired server. No Windows/Linux runtime or paired server was available for this release; simulated disconnect/reconnect tests pass.
+- [x] Run all 56 screenshot scenarios and refresh affected fixtures, website images and catalog posters.
+- [x] Finish reviewing the README, architecture notes, troubleshooting, permissions and privacy statements against the final behavior.
+- [x] Update the GitHub Pages website: landing page, guide, FAQ, screenshots and any catalog/listing copy affected by paired-server support and the database change.
+- [x] Preview the landing page and guide, check local links and anchors, and verify mobile layout without horizontal overflow.
+- [ ] Verify the live GitHub Pages site after deployment.
+- [ ] Integrate PR #1 together with the local fixes, preserving contributor credit, after final review and merge authorization.
+- [x] Finalize the changelog for 1.2.0 and choose the release version; keep `orca-plugin.json` and `panel/main.ts` in sync.
+- [ ] After release authorization, push, tag, publish the GitHub release and verify the published version.
+- [ ] Update the installed plugin, switch back from the development copy and verify settings and runtime behavior.
+- [ ] Track the Orca-side notification fix so the visible prefix uses **The Lobby** instead of the plugin id. Orca 1.4.264 still hard-codes the id; this remains unresolved.
+
+The checklist records remaining release work; unchecked items have not been verified or published.
+
 ### 1. Count untracked files as changes
 
 **Why.** Agents create new files all the time; `git diff --shortstat HEAD` (`src/roster.ts:65`) ignores them, so the count looks too low.

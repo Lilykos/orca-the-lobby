@@ -21,7 +21,7 @@ import {
   STORE_BYTES
 } from './office'
 import { readPrefs } from './protocol'
-import { parseShortstat } from './roster'
+import { createRoster, parseShortstat } from './roster'
 import { assign, digest, emptyDigest } from './transcript'
 
 const status = (state: 'working' | 'blocked' | 'waiting' | 'done', receivedAt: number) => ({
@@ -39,6 +39,35 @@ const call = (tool: string, input: object, callId?: string) => ({
   tool,
   input: input as never,
   callId
+})
+
+test('labels paired environments and keeps identically named panes and paths distinct', async () => {
+  const worktrees = [{ path: '/repo', repoId: 'repo', repo: 'Lobby', agents: [{ paneKey: 'pane', state: 'working' }] }]
+  let paired = true
+  let reachable = true
+  let local = true
+  const roster = createRoster(async (args) => {
+    if (args[0] === 'host') return JSON.stringify({ result: { hosts: paired ? [{ kind: 'environment', id: 'server', name: 'devbox' }] : [] } })
+    if (args.includes('--environment') ? !reachable : !local) return null
+    return JSON.stringify({ result: { worktrees } })
+  })
+  const rows = await roster()
+  const office = createOffice()
+  applyRoster(office, rows ?? [], Date.now())
+  assert.equal(office.agents.size, 2)
+  assert.equal(office.roots.size, 2)
+  assert.equal(office.projects.get(rows![1].repoId!), 'Lobby · devbox')
+  reachable = false
+  const disconnected = await roster()
+  assert.deepEqual(disconnected, rows?.slice(0, 1))
+  applyRoster(office, disconnected ?? [], Date.now())
+  assert.equal(office.agents.size, 1)
+  reachable = true
+  assert.deepEqual(await roster(), rows)
+  paired = false
+  assert.deepEqual((await roster())?.[0].repo, 'Lobby · local')
+  local = false
+  assert.equal(await roster(), null)
 })
 
 test('sorts tools into what the character does', () => {

@@ -43,6 +43,7 @@ export type Office = {
 /** What `orca worktree ps --json` says of a worktree and its agents; only the fields used. */
 export type RosterWorktree = {
   path: string
+  hostId?: string | null
   displayName?: string | null
   repo?: string | null
   repoId?: string | null

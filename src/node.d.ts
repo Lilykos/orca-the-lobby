@@ -29,11 +29,11 @@ declare module 'node:child_process' {
   export function execFile(
     file: string,
     args: string[],
-    options: { timeout: number; maxBuffer: number },
+    options: { timeout: number; maxBuffer: number; env?: Record<string, string | undefined> },
     callback: (error: Error | null, stdout: string) => void
   ): void
 }
-declare const process: { execPath: string }
+declare const process: { execPath: string; platform: string; env: Record<string, string | undefined> }
 
 declare module 'node:crypto' {
   export function createHash(algorithm: string): { update(data: string): { digest(encoding: 'hex'): string } }
