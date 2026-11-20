@@ -78,7 +78,7 @@ function resultArray(output: string | null, key: 'hosts' | 'worktrees'): unknown
 }
 
 function withHostName(row: RosterWorktree, name: string): RosterWorktree {
-  return { ...row, repo: `${row.repo || row.displayName || row.path} · ${name}` }
+  return { ...row, hostId: row.hostId || 'local', hostName: name, repo: `${row.repo || row.displayName || row.path} · ${name}` }
 }
 
 /** The desktop roster includes SSH worktrees, but paired servers need their own query. */
@@ -116,6 +116,7 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
       const key = (value: string): string => `${ENVIRONMENT_PREFIX}${JSON.stringify([id, value])}`
       const qualified = rows.filter((row) => typeof row?.path === 'string').map((row) => ({
         ...withHostName(row, name),
+        hostId: id,
         path: key(row.path),
         repoId: key(row.repoId ?? row.path),
         agents: row.agents?.filter((agent) => typeof agent?.paneKey === 'string').map((agent) => ({

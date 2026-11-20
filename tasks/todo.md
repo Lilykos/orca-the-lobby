@@ -4,9 +4,9 @@ Implementation started, 2026-11-20. Tasks 01–03 assigned first; remaining task
 
 ## 01 — Explicit workspace context (M)
 
-- [ ] Carry project/workspace, branch and host metadata through the existing roster/office boundary; retain host-qualified identities and older payload compatibility.
-- [ ] Missing fields never produce guessed labels; known labels appear consistently in a pure presentation projection.
-- [ ] Verify mapping fixtures for local/paired agents, duplicate paths and missing metadata, plus type checking.
+- [x] Carry project/workspace, branch and host metadata through the existing roster/office boundary; retain host-qualified identities and older payload compatibility.
+- [x] Missing fields never produce guessed labels; known labels appear consistently in a pure presentation projection.
+- [x] Verify mapping fixtures for local/paired agents, duplicate paths and missing metadata, plus type checking.
 
 Dependencies: none. Likely files: src/protocol.ts, src/office.ts, src/roster.ts, src/office.test.ts. Do not change navigation in this task.
 

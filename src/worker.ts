@@ -94,7 +94,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   office.can = { open: granted('workspace:write') }
   let listing = false
   const looked = new Set<string>()
-  let listed: { id: string; name: string; path: string; branch: string | null }[] = []
+  let listed: { id: string; name: string; path: string; branch: string | null; hostId: string | null }[] = []
 
   // Events name a workspace `<project>::<path>` and `workspace.list` by another id; the path is
   // in both, so the office keys its rooms by path.
@@ -286,7 +286,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     listing = true
     try {
       listed = (await orca.host.call('workspace.list')).workspaces
-      for (const { name, path } of listed) office.workspaces.set(path, name)
+      for (const { name, path, branch, hostId } of listed) {
+        office.workspaces.set(path, name)
+        for (const agent of office.agents.values()) {
+          if (agent.workspaceId !== path) continue
+          if (typeof branch === 'string' && branch) agent.branch = branch
+          if (typeof hostId === 'string' && hostId) agent.hostId = hostId
+        }
+      }
       changed()
     } catch (error) {
       orca.log(`workspace.list: ${error}`)

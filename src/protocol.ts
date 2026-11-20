@@ -174,6 +174,10 @@ export type AgentView = {
   workspaceId: string | null
   /** The checkout its workspace is a worktree of (or the workspace itself): its room. */
   projectId: string | null
+  /** Explicit workspace branch and host, when Orca reports them. */
+  branch: string | null
+  hostId: string | null
+  hostName: string | null
   /** A terminal's title, or the name Orca gives the conversation. */
   title: string | null
   /** The last thing it was asked, and the last thing it said, when Orca knows. */
@@ -251,6 +255,21 @@ export type OfficeSnapshot = {
   today: Today
   /** Today's tokens (local day), by workspace path and by project; absent until first counted. */
   usage?: { day: string; workspaces: Record<string, Usage>; projects: Record<string, Usage> }
+}
+
+/** Labels known workspace context without deriving names from paths or identities. */
+export function workspaceContext(agent: AgentView, office: Pick<OfficeSnapshot, 'workspaces' | 'projects'>): {
+  project: string | null
+  workspace: string | null
+  branch: string | null
+  host: string | null
+} {
+  return {
+    project: agent.projectId ? office.projects[agent.projectId] ?? null : null,
+    workspace: agent.workspaceId ? office.workspaces[agent.workspaceId] ?? null : null,
+    branch: agent.branch,
+    host: agent.hostName
+  }
 }
 
 /** What can be done to one agent from its drawer, as far as Orca lets a plugin. Anything it cannot is

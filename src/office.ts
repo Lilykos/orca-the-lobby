@@ -44,7 +44,9 @@ export type Office = {
 export type RosterWorktree = {
   path: string
   hostId?: string | null
+  hostName?: string | null
   displayName?: string | null
+  branch?: string | null
   repo?: string | null
   repoId?: string | null
   linkedItems?: { type?: string; number?: number; url?: string }[] | null
@@ -197,6 +199,9 @@ function add(office: Office, id: string, now: number, fields: Partial<AgentView>
     parentId: null,
     workspaceId: null,
     projectId: null,
+    branch: null,
+    hostId: null,
+    hostName: null,
     title: null,
     prompt: null,
     reply: null,
@@ -383,6 +388,9 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
         add(office, row.paneKey, now, { paneKey: row.paneKey, state: row.state })
       const wasDone = agent.state === 'done'
       agent.workspaceId = worktree.path
+      agent.branch = typeof worktree.branch === 'string' && worktree.branch ? worktree.branch : agent.branch
+      agent.hostId = typeof worktree.hostId === 'string' && worktree.hostId ? worktree.hostId : agent.hostId
+      agent.hostName = typeof worktree.hostName === 'string' && worktree.hostName ? worktree.hostName : agent.hostName
       agent.parentPaneKey = typeof row.parentPaneKey === 'string' && row.parentPaneKey ? row.parentPaneKey : null
       agent.agent = row.agentType ?? agent.agent
       agent.title = row.conversationName ?? agent.title
@@ -670,6 +678,9 @@ export function restore(office: Office, stored: unknown, now: number): void {
     // A record stored by an older version lacks the newer fields.
     office.agents.set(agent.id, {
       ...agent,
+      branch: typeof agent.branch === 'string' ? agent.branch : null,
+      hostId: typeof agent.hostId === 'string' ? agent.hostId : null,
+      hostName: typeof agent.hostName === 'string' ? agent.hostName : null,
       parentPaneKey: null,
       parentId: null,
       prompt: agent.prompt ?? null,

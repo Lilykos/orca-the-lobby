@@ -20,7 +20,7 @@ import {
   forPanel,
   STORE_BYTES
 } from './office'
-import { readPrefs } from './protocol'
+import { readPrefs, workspaceContext } from './protocol'
 import { createRoster, parseShortstat } from './roster'
 import { assign, digest, emptyDigest } from './transcript'
 
@@ -42,7 +42,7 @@ const call = (tool: string, input: object, callId?: string) => ({
 })
 
 test('labels paired environments and keeps identically named panes and paths distinct', async () => {
-  const worktrees = [{ path: '/repo', repoId: 'repo', repo: 'Lobby', agents: [{ paneKey: 'pane', state: 'working' }] }]
+  const worktrees = [{ path: '/repo', repoId: 'repo', repo: 'Lobby', branch: 'main', agents: [{ paneKey: 'pane', state: 'working' }] }]
   let paired = true
   let reachable = true
   let local = true
@@ -57,6 +57,9 @@ test('labels paired environments and keeps identically named panes and paths dis
   assert.equal(office.agents.size, 2)
   assert.equal(office.roots.size, 2)
   assert.equal(office.projects.get(rows![1].repoId!), 'Lobby · devbox')
+  assert.equal(office.agents.get(rows![1].agents![0].paneKey)?.hostId, 'server')
+  assert.equal(office.agents.get(rows![1].agents![0].paneKey)?.hostName, 'devbox')
+  assert.equal(office.agents.get(rows![0].agents![0].paneKey)?.branch, 'main')
   reachable = false
   const disconnected = await roster()
   assert.deepEqual(disconnected, rows?.slice(0, 1))
@@ -68,6 +71,50 @@ test('labels paired environments and keeps identically named panes and paths dis
   assert.deepEqual((await roster())?.[0].repo, 'Lobby · local')
   local = false
   assert.equal(await roster(), null)
+})
+
+test('projects explicit workspace context and omits labels without reported metadata', () => {
+  const agent = {
+    id: 'environment:["host-a","pane"]',
+    terminalId: null,
+    paneKey: 'environment:["host-a","pane"]',
+    parentPaneKey: null,
+    parentId: null,
+    workspaceId: 'environment:["host-a","/repo"]',
+    projectId: 'environment:["host-a","repo"]',
+    title: null,
+    prompt: null,
+    reply: null,
+    agent: null,
+    state: 'working' as const,
+    outcome: null,
+    unread: false,
+    stateStartedAt: 1,
+    finishedAt: null,
+    firstSeenAt: 1,
+    lastSeenAt: 1,
+    active: [],
+    recent: [],
+    toolCount: 0,
+    helpers: [],
+    family: [],
+    insight: null,
+    history: [],
+    branch: 'feature/login',
+    hostId: 'host-a',
+    hostName: 'Dev server'
+  }
+  const snapshot = {
+    agents: [agent], journal: [], workspaces: { [agent.workspaceId]: 'checkout' },
+    projects: { [agent.projectId]: 'Shop' }, changes: {}, links: {}, can: { open: false },
+    today: { day: '', finished: 0, failed: 0, blockedMs: 0 }
+  }
+  assert.deepEqual(workspaceContext(agent, snapshot), {
+    project: 'Shop', workspace: 'checkout', branch: 'feature/login', host: 'Dev server'
+  })
+  assert.deepEqual(workspaceContext({ ...agent, branch: null, hostId: null, hostName: null, projectId: null, workspaceId: null }, snapshot), {
+    project: null, workspace: null, branch: null, host: null
+  })
 })
 
 test('sorts tools into what the character does', () => {
