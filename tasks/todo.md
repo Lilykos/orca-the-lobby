@@ -87,7 +87,7 @@ Verified in reviewed extraction commits `209ee38` and `e1f01f0`; unit and worker
 
 Dependencies: 03, 04, 08. Likely files: src/protocol.ts, src/notifications.ts, src/worker.ts, panel/attention.ts, src/worker.test.ts. Test policy cases in the module's existing test file as needed.
 
-Status: pure mute/snooze policy helpers are present, but worker/UI integration and review are pending in the isolated child. Do not describe these controls as available in user-facing copy yet.
+Status: the reviewed worker backend for project mute, episode snooze, persistence and shutdown draining is integrated in root commits `43ec1ae`–`ddcca2e`. Visible panel controls and the live trial remain pending, so acceptance stays unchecked and user-facing copy must not promise those controls yet.
 
 ## 10 — Burst notification grouping (M)
 
@@ -97,7 +97,7 @@ Status: pure mute/snooze policy helpers are present, but worker/UI integration a
 
 Dependencies: 08–09. Likely files: src/notifications.ts, src/notifications.test.ts, src/worker.ts, src/worker.test.ts.
 
-Status: burst-grouping helpers are not yet integrated or reviewed; do not describe grouped delivery as available in user-facing copy.
+Status: reviewed two-second burst grouping and worker dispatch backend are integrated in root commits `43ec1ae`–`ddcca2e`; final combined review and development trial remain pending. Acceptance stays unchecked; the release copy remains deferred.
 
 ### Checkpoint C
 
@@ -110,6 +110,8 @@ Status: burst-grouping helpers are not yet integrated or reviewed; do not descri
 - [ ] Exercise real paired-server disconnect/reconnect and Windows/Linux where hosts are available; record exact outcomes and remaining limitations rather than treating simulated coverage as hardware validation.
 
 Dependencies: 04–10. Likely files: scripts/shots/fixture.js, scripts/shots/run.py, scripts/shots/demo.js, src/worker.test.ts, docs/ROADMAP.md. Split any newly discovered production fix into its own tested task.
+
+Integration evidence: all seven reviewed notification commits were cherry-picked in order. Combined root checks passed: 237 plugin tests, TypeScript, plugin check and 92 existing browser scenarios. Real paired-server and non-macOS checks, Checkpoint C and the live trial remain pending.
 
 ## 12 — Docs, website and media (M)
 
