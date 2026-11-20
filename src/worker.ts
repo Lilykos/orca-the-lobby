@@ -104,6 +104,9 @@ export default function activate(orca: OrcaWorkerApi): void {
   let reviewsLoaded = false
   let reviewStorageAvailable = false
   let reviewsNeedSave = false
+  let officeStorageAvailable = false
+  let officeRetryAttempt = 0
+  let officeRetryTimer: ReturnType<typeof setTimeout> | undefined
 
   // Events name a workspace `<project>::<path>` and `workspace.list` by another id; the path is
   // in both, so the office keys its rooms by path.
@@ -116,7 +119,13 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   let writes: Promise<void> = Promise.resolve()
   const persist = (): Promise<void> => {
-    const state = storable(snapshot(office))
+    if (!officeStorageAvailable) return Promise.reject(new Error('Office storage is unavailable; saved data was left untouched.'))
+    let state
+    try {
+      state = storable(snapshot(office))
+    } catch (error) {
+      return Promise.reject(error)
+    }
     const write = writes.then(() => orca.storage.set(STORED, state))
     writes = write.catch(() => {})
     return write
@@ -130,7 +139,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     postTimer = undefined
     pruneReviews()
     prune(office, Date.now())
-    const state = forPanel(snapshot(office), [...reviewed].sort())
+    let state
+    try {
+      state = forPanel(snapshot(office), [...reviewed].sort())
+    } catch (error) {
+      orca.log(`office.update: ${error}`)
+      saveTimer ??= setTimeout(save, SAVE_MS)
+      return
+    }
     const size = new TextEncoder().encode(JSON.stringify(state)).byteLength
     if (size > STORE_BYTES) orca.log(`office.update is ${size} bytes, near Orca's 256 KiB limit`)
     orca.panels.post('office.update', state)
@@ -401,6 +417,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       ? (input as { completionId?: unknown }).completionId
       : undefined
     if (!isCompletionId(completionId)) return { ok: false, error: 'That completion cannot be reviewed.' }
+    if (!officeStorageAvailable) return { ok: false, error: 'Office storage is unavailable. Try again after its saved state is restored.' }
     if (!reviewStorageAvailable) return { ok: false, error: 'Reviewed storage is unavailable. Try again after restarting Orca.' }
     const operation = reviewWrites.then(async () => {
       const current = (): boolean => {
@@ -573,11 +590,35 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.commands.register('office.previousAgent', () => step(-1))
   orca.commands.register('office.nextAgent', () => step(1))
 
+  const retryOfficeRead = (): void => {
+    if (stopped || officeRetryTimer) return
+    const delay = Math.min(60_000, 1_000 * 2 ** Math.min(officeRetryAttempt++, 6))
+    officeRetryTimer = setTimeout(() => {
+      officeRetryTimer = undefined
+      void orca.storage.get(STORED).then((stored) => {
+          if (stopped) return
+        restore(office, stored, Date.now(), true)
+        officeStorageAvailable = true
+        officeRetryAttempt = 0
+        changed()
+      }).catch((error) => {
+          if (stopped) return
+        orca.log(`office restore retry: ${error}`)
+        retryOfficeRead()
+      })
+    }, delay)
+  }
+
   const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED)])
     .then((results) => {
       const [officeResult, reviewResult] = results
-      if (officeResult.status === 'fulfilled') restore(office, officeResult.value, Date.now())
-      else orca.log(`office restore: ${officeResult.reason}`)
+      if (officeResult.status === 'fulfilled') {
+        restore(office, officeResult.value, Date.now())
+        officeStorageAvailable = true
+      } else {
+        orca.log(`office restore: ${officeResult.reason}`)
+        retryOfficeRead()
+      }
       if (reviewResult.status === 'fulfilled') {
         const reviews = reviewResult.value
         storedReviews = readReviewed(reviews, Date.now())
@@ -594,6 +635,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   stop = () => {
     stopped = true
     clearTimeout(lookTimer)
+    clearTimeout(officeRetryTimer)
     clearTimeout(postTimer)
     if (saveTimer) {
       clearTimeout(saveTimer)

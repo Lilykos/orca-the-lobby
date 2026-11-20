@@ -139,7 +139,7 @@ export function jsonBytes(value: unknown): number {
 
 function trimPayload(value: unknown, maxText: number, key = ''): unknown {
   if (typeof value === 'string') {
-    if (/^(id|agentId|completionId|paneKey|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId)$/.test(key) || key === 'reviewedCompletions') return value
+    if (/^(id|agentId|completionId|paneKey|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
     return Array.from(value).slice(0, maxText).join('')
   }
   if (Array.isArray(value)) return value.map((item) => trimPayload(item, maxText, key))
@@ -147,31 +147,59 @@ function trimPayload(value: unknown, maxText: number, key = ''): unknown {
   return value
 }
 
-function bounded<T extends OfficeSnapshot>(input: T, limit: number): T {
+export class PayloadCapacityError extends RangeError {
+  constructor(bytes: number, limit: number) {
+    super(`Snapshot requires ${bytes} UTF-8 bytes (limit ${limit}) after optional data was trimmed; it cannot fit without trimming identity data.`)
+    this.name = 'PayloadCapacityError'
+  }
+}
+
+function bounded<T extends OfficeSnapshot>(input: T, limit: number, compactAgents: boolean): T {
   let state = input
   if (jsonBytes(state) <= limit) return state
   while (state.journal.length && jsonBytes(state) > limit) {
     state = { ...state, journal: state.journal.slice(Math.ceil(state.journal.length / 4)) }
   }
-  for (let maxText = 2000; jsonBytes(state) > limit && maxText > 16; maxText = Math.floor(maxText / 2)) {
+  for (let maxText = 2000; jsonBytes(state) > limit && maxText >= 0; maxText = maxText === 0 ? -1 : Math.floor(maxText / 2)) {
     state = trimPayload(state, maxText) as T
   }
   if (jsonBytes(state) > limit) {
-    // Keep live agent rows and review keys; drop only bounded supplementary histories.
-    state = { ...state, agents: state.agents.map((agent) => ({ ...agent, recent: [], history: [], helpers: [], family: [], active: [] })) }
+    // Discard display and activity detail before considering any identity-bearing fields.
+    state = {
+      ...state,
+      workspaces: {}, projects: {}, changes: {}, links: {}, sidebar: undefined, usage: undefined,
+      agents: state.agents.map((agent) => ({
+        ...agent, title: null, prompt: null, reply: null, branch: null, hostName: null, insight: null, context: null,
+        recent: [], history: [], helpers: [], family: [], active: []
+      }))
+    }
   }
+  if (jsonBytes(state) > limit && compactAgents) {
+    state = {
+      ...state,
+      agents: state.agents.map((agent) => ({
+        id: agent.id, terminalId: agent.terminalId, paneKey: agent.paneKey, workspaceId: agent.workspaceId,
+        projectId: agent.projectId, hostId: agent.hostId, sessionId: agent.sessionId, state: agent.state,
+        outcome: agent.outcome, unread: agent.unread, stateStartedAt: agent.stateStartedAt,
+        finishedAt: agent.finishedAt, firstSeenAt: agent.firstSeenAt, lastSeenAt: agent.lastSeenAt,
+        completionId: agent.completionId, completionTracked: agent.completionTracked
+      }))
+    }
+  }
+  const bytes = jsonBytes(state)
+  if (bytes > limit) throw new PayloadCapacityError(bytes, limit)
   return state
 }
 
 /** The state to store, with the oldest history dropped until it fits Orca's size limit. */
 export function storable(state: OfficeSnapshot, limit = STORE_BYTES): OfficeSnapshot {
-  return bounded(state, limit)
+  return bounded(state, limit, true)
 }
 
 /** What the panel gets: everything but the history, which it does not show. */
 export function forPanel(state: OfficeSnapshot, reviewedCompletions: string[] = []): OfficeSnapshot {
   const { completionIdentities: _private, ...publicState } = state
-  return bounded({ ...publicState, agents: publicState.agents.map((agent) => ({ ...agent, sessionId: null })), journal: [], reviewedCompletions: reviewedCompletions.length ? reviewedCompletions : (state.reviewedCompletions ?? []) }, STORE_BYTES)
+  return bounded({ ...publicState, agents: publicState.agents.map((agent) => ({ ...agent, sessionId: null })), journal: [], reviewedCompletions: reviewedCompletions.length ? reviewedCompletions : (state.reviewedCompletions ?? []) }, STORE_BYTES, false)
 }
 
 function record(office: Office, agent: AgentView, event: Omit<JournalEvent, 'id' | 'agentId' | 'workspaceId' | 'projectId'>, identity: string): void {
@@ -285,7 +313,8 @@ function beginCompletion(
   now: number,
   sourceAt?: number,
   turnId?: string | null,
-  allowReconnectReuse = false
+  allowReconnectReuse = false,
+  freshTransition = false
 ): void {
   const scope = completionScope(agent)
   const turn = typeof turnId === 'string' && turnId
@@ -302,13 +331,13 @@ function beginCompletion(
   }
   if (!agent.completionId) {
     // Compatible late evidence enriches an observation; absent discriminators remain ambiguous.
-    if (previous && !conflicts && (allowReconnectReuse || sourceAt !== undefined || turn !== null)) {
+    if (!freshTransition && previous && !conflicts && (allowReconnectReuse || sourceAt !== undefined || turn !== null)) {
       agent.completionId = previous.id
       agent.completionTracked = previous.tracked
       retainedPrevious = true
     } else {
       const discriminator = sourceAt !== undefined || turn !== null
-        ? `evidence:${sourceAt ?? ''}:${turn ?? ''}`
+        ? `${freshTransition ? `transition:${now}:` : 'evidence:'}${sourceAt ?? ''}:${turn ?? ''}`
         : `observed:${now}`
       agent.completionId = createHash('sha256').update(JSON.stringify([scope, discriminator])).digest('hex')
       agent.completionTracked = office.attentionTracking
@@ -396,7 +425,7 @@ export function applyStatus(office: Office, event: StatusEvent): void {
       : null
     if (typeof reportedAt === 'number' && Number.isFinite(reportedAt)) agent.finishedAt = reportedAt
     else if (transitionedToDone) agent.finishedAt = now
-    beginCompletion(office, agent, now, sourceAt, turnId, !known)
+    beginCompletion(office, agent, now, sourceAt, turnId, !known, transitionedToDone)
   } else {
     agent.finishedAt = null
     agent.completionId = null
@@ -502,6 +531,7 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
         // Born in the state it is first seen in: a turn that ended before then is not tallied.
         add(office, row.paneKey, now, { paneKey: row.paneKey, state: row.state })
       const wasDone = agent.state === 'done'
+      const transitionedToDone = known !== undefined && !wasDone && row.state === 'done'
       agent.workspaceId = worktree.path
       agent.branch = typeof worktree.branch === 'string' && worktree.branch ? worktree.branch : agent.branch
       agent.hostId = typeof worktree.hostId === 'string' && worktree.hostId ? worktree.hostId : agent.hostId
@@ -539,7 +569,7 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
       else if (typeof row.stateStartedAt === 'number' && Number.isFinite(row.stateStartedAt)) {
         agent.finishedAt = row.stateStartedAt
       } else if (!wasDone) agent.finishedAt = now
-      if (row.state === 'done') beginCompletion(office, agent, now, sourceAt, row.turnId, !known)
+      if (row.state === 'done') beginCompletion(office, agent, now, sourceAt, row.turnId, !known, transitionedToDone)
       else {
         agent.completionId = null
         agent.completionTracked = false
@@ -796,7 +826,7 @@ function safeInsight(value: unknown, clearUnverifiedModel = false): Insight | nu
 }
 
 /** Reads back what `snapshot` stored; calls that were running then are not running now. */
-export function restore(office: Office, stored: unknown, now: number): void {
+export function restore(office: Office, stored: unknown, now: number, preserveLive = false): void {
   const { agents, today, journal, completionIdentities } = (stored as Partial<OfficeSnapshot> | null) ?? {}
   if (completionIdentities && typeof completionIdentities === 'object' && !Array.isArray(completionIdentities)) {
     const identities = Object.entries(completionIdentities).filter(([key, entry]) =>
@@ -805,7 +835,8 @@ export function restore(office: Office, stored: unknown, now: number): void {
       (entry.sourceAt === null || Number.isFinite(entry.sourceAt)) &&
       (entry.turnId === null || typeof entry.turnId === 'string') && typeof entry.tracked === 'boolean'
     ).sort(([keyA, a], [keyB, b]) => a.observedAt - b.observedAt || keyA.localeCompare(keyB)).slice(-500)
-    office.completionIdentities = new Map(identities)
+    const liveIdentities = preserveLive ? office.completionIdentities : new Map()
+    office.completionIdentities = new Map([...identities, ...liveIdentities])
   }
   if (Array.isArray(journal)) {
     const entries = journal.filter((event) => event && typeof event.id === 'string' && typeof event.agentId === 'string' && typeof event.observedAt === 'number')
@@ -813,7 +844,7 @@ export function restore(office: Office, stored: unknown, now: number): void {
     pruneJournal(office, now)
   }
   if (!Array.isArray(agents)) return
-  if (today?.day === new Date(now).toDateString()) office.today = today
+  if (today?.day === new Date(now).toDateString() && (!preserveLive || office.today.day !== today.day)) office.today = today
   for (const agent of agents) {
     if (typeof agent?.id !== 'string' || office.agents.has(agent.id)) continue
     // Remember a sampled call for deduplication without restoring it as running.
@@ -832,6 +863,9 @@ export function restore(office: Office, stored: unknown, now: number): void {
       completionTracked: agent.completionTracked === true,
       parentPaneKey: null,
       parentId: null,
+      title: agent.title ?? null,
+      agent: agent.agent ?? null,
+      outcome: agent.outcome ?? null,
       prompt: agent.prompt ?? null,
       reply: agent.reply ?? null,
       unread: false,
@@ -840,6 +874,8 @@ export function restore(office: Office, stored: unknown, now: number): void {
         : null,
       insight: safeInsight(agent.insight, true),
       context: null,
+      recent: Array.isArray(agent.recent) ? agent.recent : [],
+      toolCount: Number.isFinite(agent.toolCount) ? agent.toolCount : 0,
       history: agent.history ?? [],
       active: [],
       helpers: [],

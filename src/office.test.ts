@@ -22,6 +22,7 @@ import {
   STORE_BYTES
 } from './office'
 import { readPrefs, workspaceContext } from './protocol'
+import { attentionGroups } from './attention'
 import { createRoster, parseShortstat } from './roster'
 import { assign, digest, emptyDigest } from './transcript'
 
@@ -164,6 +165,42 @@ test('completion identity keeps compatible late evidence after reconnect but cha
   assert.equal(snapshot(restarted).agents[0].completionId, first)
   applyRoster(restarted, [{ path: '/w', agents: [{ paneKey: 'p', state: 'done', stateStartedAt: 999, turnId: 'turn-b' }] }], 1400)
   assert.notEqual(snapshot(restarted).agents[0].completionId, first)
+})
+
+test('an observed working turn gets a fresh event completion when its first evidence arrives, including after restart', () => {
+  const office = createOffice()
+  office.attentionTracking = true
+  applyStatus(office, status('done', 1000))
+  const reviewedId = snapshot(office).agents[0].completionId
+  applyStatus(office, status('working', 2000))
+  const restarted = createOffice()
+  restore(restarted, JSON.parse(JSON.stringify(snapshot(office))), 2100)
+  restarted.attentionTracking = true
+  applyStatus(restarted, {
+    ...status('done', 3000),
+    mainAgent: { state: 'done', outcome: 'success', stateStartedAt: 2500 },
+    turnId: 'first-reported-turn'
+  } as never)
+  const completed = snapshot(restarted).agents[0]
+  assert.notEqual(completed.completionId, reviewedId)
+  assert.equal(completed.completionTracked, true)
+})
+
+test('an observed working turn gets a fresh roster completion when its first evidence arrives, including after restart', () => {
+  const office = createOffice()
+  office.attentionTracking = true
+  const roster = (state: 'working' | 'done', evidence: { stateStartedAt?: number; turnId?: string } = {}) =>
+    [{ path: '/w', agents: [{ paneKey: 'p', state, ...evidence }] }]
+  applyRoster(office, roster('done'), 1000)
+  const reviewedId = snapshot(office).agents[0].completionId
+  applyRoster(office, roster('working'), 2000)
+  const restarted = createOffice()
+  restore(restarted, JSON.parse(JSON.stringify(snapshot(office))), 2100)
+  restarted.attentionTracking = true
+  applyRoster(restarted, roster('done', { stateStartedAt: 2500, turnId: 'first-reported-turn' }), 3000)
+  const completed = snapshot(restarted).agents[0]
+  assert.notEqual(completed.completionId, reviewedId)
+  assert.equal(completed.completionTracked, true)
 })
 
 test('captures a roster transition time once when Orca omits its completion time', () => {
@@ -791,13 +828,44 @@ test('a full day of history is trimmed to fit Orca\'s storage limit, oldest firs
 })
 
 test('bounds complete JSON payloads by UTF-8 bytes, including live rows and review markers', () => {
-  const base = snapshot(createOffice())
-  const huge = { ...base, agents: Array.from({ length: 200 }, (_, i) => ({ ...snapshot(createOffice()).agents[0], id: `a${i}`, prompt: '💩'.repeat(5000) })) }
-  const panel = forPanel({ ...huge, reviewedCompletions: Array.from({ length: 500 }, (_, i) => i.toString(16).padStart(64, '0')) } as never)
-  const bytes = new TextEncoder().encode(JSON.stringify(storable(huge))).byteLength
+  const office = createOffice()
+  const rows = Array.from({ length: 500 }, (_, i) => ({ paneKey: `p-${i}-${'I'.repeat(32)}`, state: 'done' as const, stateStartedAt: i + 1 }))
+  applyRoster(office, [{ path: '/repo', agents: rows }], 1000)
+  const original = snapshot(office)
+  applyRoster(office, [{ path: '/repo', agents: rows.slice(0, 200) }], 1001)
+  for (const agent of office.agents.values()) {
+    agent.prompt = '💩'.repeat(10_000)
+    agent.completionTracked = true
+  }
+  const huge = snapshot(office)
+  const reviewKeys = original.agents.map((agent) => agent.completionId!).sort()
+  const panel = forPanel({ ...huge, reviewedCompletions: reviewKeys })
+  const kept = storable(huge)
+  const bytes = new TextEncoder().encode(JSON.stringify(kept)).byteLength
   const panelBytes = new TextEncoder().encode(JSON.stringify(panel)).byteLength
   assert.ok(bytes <= STORE_BYTES)
   assert.ok(panelBytes <= STORE_BYTES)
+  assert.equal(kept.agents.length, 200)
   assert.equal(panel.agents.length, 200)
   assert.equal(panel.reviewedCompletions?.length, 500)
+  assert.deepEqual(panel.reviewedCompletions, reviewKeys.slice().sort())
+  assert.equal(kept.completionIdentities && Object.keys(kept.completionIdentities).length, 500)
+  assert.equal(panel.agents[0].id.length, original.agents[0].id.length)
+  const restored = createOffice()
+  restore(restored, JSON.parse(JSON.stringify(kept)), 1002)
+  assert.deepEqual(snapshot(restored).agents.map((agent) => agent.completionId), kept.agents.map((agent) => agent.completionId))
+  assert.deepEqual(attentionGroups(snapshot(restored).agents, new Set(reviewKeys)), { needsInput: [], failedToReview: [], finishedToReview: [] })
+  const restoredAgent = restored.agents.values().next().value!
+  assert.ok(restoredAgent.prompt === null || (typeof restoredAgent.prompt === 'string' && restoredAgent.prompt.length <= 2000))
+  assert.equal(restoredAgent.state, 'done')
+  assert.equal(restoredAgent.completionTracked, true)
+})
+
+test('refuses a payload that cannot fit without changing required identity keys', () => {
+  const office = createOffice()
+  applyStatus(office, status('working', 1))
+  const state = snapshot(office)
+  const agent = state.agents[0]
+  const impossible = { ...state, agents: Array.from({ length: 2 }, (_, i) => ({ ...agent, id: `required-${i}-${'x'.repeat(100)}`, paneKey: `pane-${i}-${'y'.repeat(100)}` })) }
+  assert.throws(() => storable(impossible, 50), /cannot fit.*without trimming identity data/i)
 })

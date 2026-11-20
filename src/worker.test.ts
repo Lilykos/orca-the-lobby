@@ -1,6 +1,6 @@
 // Runs src/worker.ts's activate(orca) with the orca object Orca passes, over a mock host.
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
-import type { RosterWorktree } from './office'
+import { applyRoster, createOffice, snapshot, type RosterWorktree } from './office'
 import { sessionStore } from './context'
 import type { OfficeSnapshot } from './protocol'
 import { attentionGroups } from './attention'
@@ -541,6 +541,69 @@ test('restores each storage side independently and refuses review when review st
     const state = await worker.request('office.snapshot')
     assert.ok(state.reviewedCompletions?.includes('a'.repeat(64)), JSON.stringify({ logs: worker.logs, state, calls: failedOfficeHost.callsOf('storage.get') }))
   } finally { await worker.deactivate() }
+})
+
+test('a failed office read blocks automatic and review writes until retry restores identities, then survives restart', async () => {
+  listed = null
+  const now = Date.now()
+  const prior = createOffice()
+  applyRoster(prior, [{ path: '/prior', agents: [{ paneKey: 'prior-pane', state: 'done', stateStartedAt: now, mainAgent: { outcome: 'failure' } }] }], now)
+  const priorSnapshot = snapshot(prior)
+  const priorId = priorSnapshot.agents[0].completionId!
+  let officeValue: unknown = priorSnapshot
+  let reviewValue: unknown = { version: 1, entries: { [priorId]: now } }
+  let failOfficeRead = true
+  let officeWrites = 0
+  const host = mockHost({ storage: { office: priorSnapshot }, results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'office' && failOfficeRead) {
+        failOfficeRead = false
+        throw new Error('temporarily unavailable')
+      }
+      return { value: key === 'office' ? officeValue : key === 'attention.reviewed' ? reviewValue : null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office') {
+        officeWrites++
+        officeValue = value
+      } else if (key === 'attention.reviewed') reviewValue = value
+      return { ok: true }
+    }
+  } })
+  let worker = await mountWorker(main, { host })
+  try {
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/live', paneKey: 'live-pane', state: 'done', receivedAt: now + 1,
+      mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: now + 1 }
+    })
+    const liveId = (await worker.request('office.snapshot')).agents.find((agent) => agent.paneKey === 'live-pane')?.completionId!
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(officeWrites, 0)
+    assert.deepEqual(await worker.request('attention.review', { completionId: liveId }), {
+      ok: false, error: 'Office storage is unavailable. Try again after its saved state is restored.'
+    })
+
+    await waitUntil('office storage retry to allow review', async () => {
+      const result = await worker.request('attention.review', { completionId: liveId })
+      return result.ok
+    })
+    await waitUntil('automatic office save after recovery', () => officeWrites > 0)
+    const saved = officeValue as OfficeSnapshot
+    assert.equal(saved.agents.some((agent) => agent.completionId === priorId), true)
+    assert.equal(saved.completionIdentities && Object.values(saved.completionIdentities).some((entry) => entry.id === priorId), true)
+    assert.deepEqual(Object.keys((reviewValue as { entries: Record<string, number> }).entries).sort(), [liveId, priorId].sort())
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('recovered office and reviews after restart', async () => {
+      const state = await worker.request('office.snapshot')
+      return state.agents.some((agent) => agent.completionId === priorId) && state.reviewedCompletions?.includes(priorId) === true
+    })
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
 })
 
 test('repairs malformed review storage and keeps a later turn reviewable', async () => {
