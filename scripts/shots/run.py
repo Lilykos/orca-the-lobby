@@ -19,7 +19,7 @@ out = args.shots
 if out:
     out.mkdir(parents=True, exist_ok=True)
 
-scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'), (280, 'peers'), (420, 'peers'), (900, 'peers'), (420, 'cycle'), (420, 'unknown'), (420, 'noid'), (420, 'storagefail'), (420, 'clearfail'), (420, 'light'), (420, 'reduced'), (280, 'many'), (420, 'many'), (900, 'many'), (420, 'stale'), (420, 'multiple'), (420, 'states'), (420, 'projects'), (420, 'departure'), (420, 'clearsuccess'), (280, 'attention'), (420, 'attention'), (900, 'attention'), (420, 'attentionempty'), (280, 'attentionempty'), (280, 'big'), (420, 'big'), (900, 'big'), (280, 'parentlink'), (420, 'parentlink'), (900, 'parentlink'), (280, 'parentnote'), (420, 'parentnote'), (340, 'grid'), (420, 'grid'), (900, 'grid'), (280, 'drawer'), (420, 'drawer'), (900, 'drawer'), (420, 'drawerkeyboard'), (420, 'drawer-reduced')]
+scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'), (280, 'peers'), (420, 'peers'), (900, 'peers'), (420, 'cycle'), (420, 'unknown'), (420, 'noid'), (420, 'storagefail'), (420, 'clearfail'), (420, 'light'), (420, 'reduced'), (280, 'many'), (420, 'many'), (900, 'many'), (420, 'stale'), (420, 'multiple'), (420, 'states'), (420, 'projects'), (420, 'departure'), (420, 'clearsuccess'), (280, 'attention'), (420, 'attention'), (900, 'attention'), (420, 'attentionempty'), (280, 'attentionempty'), (280, 'big'), (420, 'big'), (900, 'big'), (280, 'parentlink'), (420, 'parentlink'), (900, 'parentlink'), (280, 'parentnote'), (420, 'parentnote'), (340, 'grid'), (420, 'grid'), (900, 'grid'), (280, 'drawer'), (420, 'drawer'), (900, 'drawer'), (420, 'drawerkeyboard'), (420, 'drawer-reduced'), (420, 'drawertab'), (420, 'drawerfocus')]
 # Each feature adds its own runs on its own line below.
 scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
@@ -70,6 +70,27 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
             returned = command('Runtime.evaluate', {'expression': "({closed:!document.querySelector('.sheet'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
             if not returned['closed'] or returned['focus'] != 'chart-node:b': raise RuntimeError('Escape did not close the drawer and return focus: ' + str(returned))
+        if scenario == 'drawertab':
+            def key_tab(shift=False):
+                command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9, **({'modifiers': 8} if shift else {})})
+                command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9, **({'modifiers': 8} if shift else {})})
+                time.sleep(.05)
+            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]').focus()"})
+            key_tab(True)
+            closed_last = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.dataset.focusKey,last:[...document.querySelector('.sheet').querySelectorAll('button,a[href],input,textarea,summary,[tabindex]')].filter(x=>!x.disabled&&x.tabIndex>=0&&x.checkVisibility()).at(-1)?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if not closed_last['last'] or closed_last['focus'] != closed_last['last']: raise RuntimeError('Shift+Tab from Close did not reach a visible enabled stop with details closed: ' + str(closed_last))
+            key_tab()
+            if command('Runtime.evaluate', {'expression': "document.activeElement?.dataset.focusKey==='drawer-close'", 'returnByValue': True})['result']['value'] is not True: raise RuntimeError('Tab from the last closed-details stop did not wrap to Close')
+            command('Runtime.evaluate', {'expression': "document.querySelector('.drawer-extra > summary').focus()"})
+            key_tab()
+            stayed = command('Runtime.evaluate', {'expression': "({inside:document.querySelector('.sheet').contains(document.activeElement),visible:document.activeElement?.checkVisibility()})", 'returnByValue': True})['result']['value']
+            if not stayed['inside'] or not stayed['visible']: raise RuntimeError('Tab from More details escaped the modal with details closed: ' + str(stayed))
+            command('Runtime.evaluate', {'expression': "document.querySelector('.drawer-extra > summary').click();document.querySelector('[data-focus-key=drawer-close]').focus()"})
+            key_tab(True)
+            open_last = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.dataset.focusKey,last:[...document.querySelector('.sheet').querySelectorAll('button,a[href],input,textarea,summary,[tabindex]')].filter(x=>!x.disabled&&x.tabIndex>=0&&x.checkVisibility()).at(-1)?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if not open_last['last'] or open_last['focus'] != open_last['last']: raise RuntimeError('Shift+Tab from Close did not reach a visible enabled stop with details open: ' + str(open_last))
+            key_tab()
+            if command('Runtime.evaluate', {'expression': "document.activeElement?.dataset.focusKey==='drawer-close'", 'returnByValue': True})['result']['value'] is not True: raise RuntimeError('Tab from the last open-details stop did not wrap to Close')
         if scenario == 'attentionarrival':
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})

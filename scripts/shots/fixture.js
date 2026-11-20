@@ -432,7 +432,7 @@ must(!scan().failed,'Failed bubble outlived its twenty seconds');must(scan().nee
 listener(window.fixture);await wait();await wait();
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
-if(['drawer','drawerkeyboard','drawer-reduced'].includes(scenario)){
+if(['drawer','drawerkeyboard','drawer-reduced','drawertab'].includes(scenario)){
 const must=(ok,m)=>{if(!ok)throw Error(m)}, btn=(k)=>document.querySelector('[data-focus-key="'+k+'"]'), esc=()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
 must(!document.querySelector('.sheet'),'drawer open before any selection');
 btn('office-row:a').click();await wait();
@@ -461,6 +461,17 @@ must(!document.querySelector('.sheet').textContent.includes('View in Activity'),
 document.querySelector('.scrim').click();await wait();must(!document.querySelector('.sheet'),'scrim click did not close the drawer');
 must(document.activeElement?.dataset.focusKey==='chart-node:b','focus did not return to the chart node');
 btn('chart-node:b').click();await wait();
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='drawerfocus'){
+const must=(ok,m)=>{if(!ok)throw Error(m)}, btn=(k)=>document.querySelector('[data-focus-key="'+k+'"]');
+btn('office-row:a').click();await wait();let sheet=document.querySelector('.sheet');
+const result=sheet.querySelector('.drawer-result');must(result,'fixture result missing');result.focus();result.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+listener({...window.fixture,agents:window.fixture.agents.map(x=>({...x,toolCount:x.id==='a'?x.toolCount+1:x.toolCount}))});await wait();sheet=document.querySelector('.sheet');
+must(document.activeElement?.dataset.focusKey==='a:replied:note'&&document.activeElement.getAttribute('aria-expanded')==='true','live update lost result focus or its expansion');
+const extra=sheet.querySelector('.drawer-extra');extra.open=true;const prompt=extra.querySelector('.note.asked');must(prompt,'fixture prompt missing');prompt.focus();prompt.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+listener({...window.fixture,agents:window.fixture.agents.map(x=>({...x,stateStartedAt:x.id==='a'?x.stateStartedAt+1:x.stateStartedAt,toolCount:x.id==='a'?x.toolCount+1:x.toolCount}))});await wait();sheet=document.querySelector('.sheet');
+must(sheet.querySelector('.drawer-extra').open&&document.activeElement?.dataset.focusKey==='a:asked:note'&&document.activeElement.getAttribute('aria-expanded')==='true','live update lost disclosed prompt focus, disclosure or expansion');
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 document.querySelector('#activity-tab').click();await wait();

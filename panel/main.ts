@@ -474,6 +474,7 @@ const clock = (at: number): string =>
 /** What an agent was asked, or said, on a slip of paper. A click shows all of it. */
 function note(id: string, kind: 'asked' | 'replied', label: string, text: string): HTMLElement {
   const slip = element('div', `note ${kind}${opened.has(id) ? ' open' : ''}`)
+  slip.dataset.focusKey = `${id}:note`
   slip.append(element('span', 'note-label', label), element('p', 'note-text', text))
   slip.title = 'Show the full available excerpt'
   slip.tabIndex = 0
@@ -1659,7 +1660,8 @@ document.addEventListener('keydown', (event) => {
     closeDrawer()
   } else if (event.key === 'Tab') {
     // Keep focus inside the drawer while it is open.
-    const stops = [...sheet.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input, textarea, [tabindex]:not([tabindex="-1"])')]
+    const stops = [...sheet.querySelectorAll<HTMLElement>('button, a[href], input, textarea, summary, [tabindex]')]
+      .filter((node) => node.tabIndex >= 0 && !node.matches(':disabled') && node.checkVisibility())
     if (!stops.length) return
     const first = stops[0], last = stops[stops.length - 1], current = document.activeElement
     if (event.shiftKey && (current === first || !sheet.contains(current))) { event.preventDefault(); last.focus() }
