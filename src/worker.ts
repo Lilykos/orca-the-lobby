@@ -30,6 +30,7 @@ import { createContextReader, createSessionTail } from './context'
 import {
   PREFS_KEY,
   INSTALLATION_KEY,
+  STUCK_CHOICES,
   readPrefs,
   type ActionResult,
   type AgentActions,
@@ -45,6 +46,26 @@ import { createUsageCounter, dayOf } from './usage'
 const STORED = 'office'
 const REVIEWED = 'attention.reviewed'
 type InstallationKind = 'fresh' | 'legacy' | 'unknown'
+const PALETTES = ['orca', 'catppuccin-mocha', 'catppuccin-latte', 'dracula', 'github-dark', 'github-light'] as const
+function checkedPrefsPatch(value: unknown): Partial<Prefs> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const patch = value as Record<string, unknown>
+  const entries = Object.entries(patch)
+  if (!entries.length) return null
+  for (const [key, item] of entries) {
+    const valid = key === 'notifyBlocked' || key === 'notifyDone' || key === 'animate'
+      ? typeof item === 'boolean'
+      : key === 'palette' ? PALETTES.includes(item as typeof PALETTES[number])
+      : key === 'layout' ? item === 'list' || item === 'grid'
+      : key === 'density' ? item === 'comfortable' || item === 'compact'
+      : key === 'selectedView' ? item === 'office' || item === 'activity' || item === 'attention'
+      : key === 'stuckMinutes' ? STUCK_CHOICES.includes(item as number)
+      : key === 'projectOrder' ? Array.isArray(item) && item.every((id) => typeof id === 'string')
+      : false
+    if (!valid) return null
+  }
+  return patch as Partial<Prefs>
+}
 /** Tool calls come in bursts and `panels.post` allows 200 per 10 s: one post per burst. */
 const POST_MS = 150
 const SAVE_MS = 3000
@@ -86,14 +107,25 @@ export default function activate(orca: OrcaWorkerApi): void {
   let reading = false
   const granted = (capability: string): boolean => orca.grantedCapabilities.includes(capability)
   let prefs: Prefs = readPrefs(null)
-  const loadPrefs = (): void =>
-    void orca.storage
-      .get(PREFS_KEY)
-      .then((value) => (prefs = readPrefs(value)))
-      .catch(() => {})
+  let prefsWriteQueue: Promise<void> = Promise.resolve()
+  let prefsRevision = 0
+  const loadPrefs = async (): Promise<void> => {
+    let revision = prefsRevision
+    try {
+      let value = await orca.storage.get(PREFS_KEY)
+      while (revision !== prefsRevision) {
+        revision = prefsRevision
+        value = await orca.storage.get(PREFS_KEY)
+      }
+      prefs = readPrefs(value)
+    } catch { /* Retain the last valid settings until storage can be read. */ }
+  }
   loadPrefs()
-  // The panel writes preference changes; hear them at once.
-  orca.storage.onDidChange(({ key }) => key === PREFS_KEY && loadPrefs())
+  orca.storage.onDidChange(({ key }) => {
+    if (key !== PREFS_KEY) return
+    prefsRevision++
+    void loadPrefs()
+  })
   office.can = { open: granted('workspace:write') }
   let listing = false
   const looked = new Set<string>()
@@ -667,6 +699,26 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('office.installation', async () => {
     await loaded
     return { kind: installationKind }
+  })
+
+  orca.panels.handle('prefs.patch', (input) => {
+    const patch = checkedPrefsPatch(input?.patch)
+    if (!patch) return { ok: false, error: 'Those Lobby settings are invalid.' }
+    const operation = prefsWriteQueue.then(async () => {
+      const stored = await orca.storage.get(PREFS_KEY)
+      const current = stored && typeof stored === 'object' && !Array.isArray(stored)
+        ? stored as Record<string, unknown>
+        : {}
+      const next = { ...current, ...patch }
+      await orca.storage.set(PREFS_KEY, next)
+      prefs = readPrefs(next, prefs.selectedView)
+      return { ok: true } as const
+    })
+    prefsWriteQueue = operation.then(() => {}, () => {})
+    return operation.catch((error) => {
+      orca.log(`preferences save: ${error}`)
+      return { ok: false, error: 'Could not save Lobby settings. Try again.' } as const
+    })
   })
 
   stop = () => {

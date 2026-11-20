@@ -2104,10 +2104,13 @@ const prefsStatus = document.getElementById('prefs-status') as HTMLElement
 let preferencesReady = false
 let prefsRevision = 0
 let installationRevision = 0
-let prefsWritable = false
 let prefsWriteActive = false
 let prefsRefreshPending = false
+let prefsRetryAttempt = 0
+let prefsRetryTimer: ReturnType<typeof setTimeout> | undefined
 let pendingPrefsPatch: Partial<Prefs> = {}
+let prefsFieldRevision: Partial<Record<keyof Prefs, number>> = {}
+let prefsIntentRevision = 0
 let officeStorageWarning = ''
 let prefsStorageWarning = ''
 let installationKind: 'fresh' | 'legacy' | 'unknown' = 'unknown'
@@ -2129,54 +2132,72 @@ function applyStoredPrefs(value: unknown): void {
 function persistPrefsPatch(patch: Partial<Prefs>): void {
   prefs = { ...prefs, ...patch }
   pendingPrefsPatch = { ...pendingPrefsPatch, ...patch }
-  if (!prefsWritable) {
-    prefsStorageWarning = 'Saved settings are unavailable; changes are waiting to merge.'
-    prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
-    return
-  }
+  for (const key of Object.keys(patch) as (keyof Prefs)[]) prefsFieldRevision[key] = ++prefsIntentRevision
+  if (prefsRetryAttempt >= 4) prefsRetryAttempt = 0
+  if (!preferencesReady) return
+  prefsStatus.textContent = 'Saving Lobby settings…'
   void flushPrefsWrites()
 }
 async function flushPrefsWrites(): Promise<void> {
-  if (prefsWriteActive || !prefsWritable || !preferencesReady) return
+  if (prefsWriteActive || !preferencesReady || !Object.keys(pendingPrefsPatch).length) return
+  clearTimeout(prefsRetryTimer)
+  prefsRetryTimer = undefined
   prefsWriteActive = true
-  while (Object.keys(pendingPrefsPatch).length) {
-    const patch = pendingPrefsPatch
-    pendingPrefsPatch = {}
-    try {
-      let stored = await orca.storage.get(PREFS_KEY)
-      let revision = prefsRevision
-      while (revision !== prefsRevision) {
-        stored = await orca.storage.get(PREFS_KEY)
-        revision = prefsRevision
+  const patch = { ...pendingPrefsPatch }
+  const revisions = { ...prefsFieldRevision }
+  let saved = false
+  try {
+    const result = await orca.plugin.request('prefs.patch', { patch })
+    if (!result.ok) throw new Error(result.error)
+    for (const key of Object.keys(patch) as (keyof Prefs)[]) {
+      if (prefsFieldRevision[key] === revisions[key]) {
+        delete pendingPrefsPatch[key]
+        delete prefsFieldRevision[key]
       }
-      await orca.storage.set(PREFS_KEY, { ...readPrefs(stored, prefs.selectedView), ...patch })
-      prefsStorageWarning = ''
-    } catch {
-      pendingPrefsPatch = { ...patch, ...pendingPrefsPatch }
-      prefsWritable = false
-      prefsStorageWarning = 'Could not save Lobby settings; changes are waiting for storage to recover.'
-      prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
-      break
     }
+    prefsStorageWarning = ''
+    prefsRetryAttempt = 0
+    saved = true
+  } catch {
+    prefsStorageWarning = 'Could not save Lobby settings; your changes are still pending.'
+    if (prefsRetryAttempt < 4) {
+      const delay = Math.min(4_000, 250 * 2 ** prefsRetryAttempt++)
+      prefsRetryTimer = setTimeout(() => {
+        prefsRetryTimer = undefined
+        void flushPrefsWrites()
+      }, delay)
+      prefsStorageWarning += ' Retrying shortly.'
+    } else prefsStorageWarning += ' Change a setting to retry.'
   }
   prefsWriteActive = false
   if (prefsRefreshPending) {
     prefsRefreshPending = false
     void refreshStoredPrefs()
-  } else if (!Object.keys(pendingPrefsPatch).length) {
-    prefsStatus.textContent = officeStorageWarning
   }
+  if (saved && Object.keys(pendingPrefsPatch).length) void flushPrefsWrites()
+  else if (!Object.keys(pendingPrefsPatch).length) {
+    prefsStatus.textContent = officeStorageWarning
+  } else prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
+}
+async function readCurrentPrefs(): Promise<unknown> {
+  let revision = prefsRevision
+  let value = await orca.storage.get(PREFS_KEY)
+  while (revision !== prefsRevision) {
+    revision = prefsRevision
+    value = await orca.storage.get(PREFS_KEY)
+  }
+  return value
 }
 async function hydratePreferences(): Promise<void> {
   let revision = prefsRevision
   let markerRevision = installationRevision
   let [prefsResult, installResult] = await Promise.allSettled([
-    orca.storage.get(PREFS_KEY),
+    readCurrentPrefs(),
     orca.plugin.request('office.installation')
   ])
   while (revision !== prefsRevision) {
     revision = prefsRevision
-    prefsResult = await Promise.resolve(orca.storage.get(PREFS_KEY)).then(
+    prefsResult = await Promise.resolve(readCurrentPrefs()).then(
       (value) => ({ status: 'fulfilled', value } as const),
       (reason) => ({ status: 'rejected', reason } as const)
     )
@@ -2196,7 +2217,6 @@ async function hydratePreferences(): Promise<void> {
   const fallbackView = installationKind === 'fresh' ? 'attention' : 'office'
   prefs = { ...(prefsLoaded ? readPrefs(savedPrefs, fallbackView) : readPrefs(null, 'office')), ...pendingPrefsPatch }
   if (userSelectedView) prefs = { ...prefs, selectedView: currentPage as Prefs['selectedView'] }
-  prefsWritable = prefsLoaded
   prefsStorageWarning = prefsResult.status === 'rejected' ? 'Could not load saved Lobby settings; keeping Office open.' : ''
   officeStorageWarning = !installLoaded || installationKind === 'unknown' ? 'Could not confirm Lobby installation state; keeping Office open.' : ''
   prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
@@ -2206,19 +2226,17 @@ async function hydratePreferences(): Promise<void> {
   setPage(prefs.selectedView, false)
   preferencesReady = true
   document.body.classList.add('prefs-ready')
-  if (prefsWritable && Object.keys(pendingPrefsPatch).length) void flushPrefsWrites()
+  if (Object.keys(pendingPrefsPatch).length) void flushPrefsWrites()
 }
 async function refreshStoredPrefs(): Promise<void> {
   if (prefsWriteActive) { prefsRefreshPending = true; return }
   try {
-    const value = await orca.storage.get(PREFS_KEY)
-    prefsWritable = true
+    const value = await readCurrentPrefs()
     prefsStorageWarning = ''
     prefsStatus.textContent = officeStorageWarning
     applyStoredPrefs(value)
     if (Object.keys(pendingPrefsPatch).length) void flushPrefsWrites()
   } catch {
-    prefsWritable = false
     prefsStorageWarning = 'Could not refresh saved Lobby settings; your current view is unchanged.'
     prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
   }

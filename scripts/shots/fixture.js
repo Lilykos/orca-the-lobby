@@ -63,7 +63,7 @@ if(['projectgone','delayedfresh'].includes(scenario))stored.office={agents:[],jo
 stored.installation={version:1,kind:['newinstall','delayedfresh'].includes(scenario)?'fresh':scenario==='installationunknown'?'unknown':'legacy'};
 if(scenario==='prefsrace')stored.prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:['/old']};
 if(scenario==='prefsreadrecover'&&!restartedPrefs)stored.prefs={notifyBlocked:true,notifyDone:false,animate:true,palette:'paper',layout:'list',density:'comfortable',stuckMinutes:30,projectOrder:['/legacy'],selectedView:'office'};
-window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;
+window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releasePrefsPatch=null;window.prefsPatchCalls=0;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;
 window.orca={
 storage:{
   get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');if(scenario==='prefsreadrecover'&&k==='prefs'&&!restartedPrefs&&!window.prefsRecovered){window.prefsRecovered=true;throw Error('temporary storage failure')}if(['installationrecover','installationrecoverchoice'].includes(scenario)&&k==='prefs')await new Promise(resolve=>window.releasePrefs=resolve);return stored[k]??null},
@@ -77,6 +77,18 @@ plugin:{
       if(['prefshydration','prefsrace'].includes(scenario))await new Promise(resolve=>window.releaseOffice=resolve);
       if(['installationrecover','installationrecoverchoice'].includes(scenario)&&++window.installRequests===1)return {kind:'unknown'};
       return {kind:stored.installation.kind};
+    }
+    if(name==='prefs.patch'){
+      if(scenario==='prefsackrace'&&++window.prefsPatchCalls===1)return new Promise(resolve=>window.releasePrefsPatch=()=>{stored.prefs={...stored.prefs,...input.patch};queueMicrotask(()=>storageListeners.forEach(fn=>fn({key:'prefs'})));resolve({ok:true})});
+      if(scenario==='prefsreadrecover'){
+        window.prefsPatchCalls++;
+        if(window.prefsPatchCalls===1)return {ok:false,error:'temporary preference read failure'};
+        if(window.prefsPatchCalls===2)return new Promise(resolve=>window.releasePrefsPatch=()=>resolve({ok:false,error:'temporary preference write failure'}));
+      }
+      stored.prefs={...stored.prefs,...input.patch};
+      if(scenario==='prefsreadrecover')localStorage.setItem('prefs-recovery',JSON.stringify(stored.prefs));
+      queueMicrotask(()=>storageListeners.forEach(fn=>fn({key:'prefs'})));
+      return {ok:true};
     }
     if(name==='office.snapshot')return window.fixture;
     if(name==='attention.review')return scenario==='attentionfail'?{ok:false,error:'Could not save the review.'}:scenario==='attentionpending'?new Promise(resolve=>window.releaseReview=()=>resolve({ok:false,error:'Completion changed while review was pending.'})):{ok:true};
@@ -286,18 +298,31 @@ if(document.body.classList.contains('prefs-ready'))throw Error('panel became vis
 }
 if(scenario==='prefsreadrecover'){
 const must=(ok,m)=>{if(!ok)throw Error(m)};
-if(restartedPrefs){await wait();must(document.querySelector('#activity-tab').getAttribute('aria-selected')==='true','restart lost the selected view');must(document.querySelector('select[name="density"]').value==='compact','restart lost the queued density');must(document.querySelector('select[name="palette"]').value==='dracula','restart lost the concurrent palette');must(document.querySelectorAll('#settings input[type="checkbox"]')[0].checked===false&&document.querySelectorAll('#settings input[type="checkbox"]')[1].checked===true,'restart lost preserved notification preferences');must(JSON.stringify(stored.prefs.projectOrder)===JSON.stringify(['/concurrent']),'restart lost the concurrent project order');localStorage.removeItem('prefs-recovery');}
+if(restartedPrefs){await wait();must(document.querySelector('#activity-tab').getAttribute('aria-selected')==='true','restart lost the selected view');must(document.querySelector('select[name="density"]').value==='comfortable','restart lost the last queued density intent');must(document.querySelector('select[name="palette"]').value==='dracula','restart lost the concurrent palette');must(document.querySelectorAll('#settings input[type="checkbox"]')[0].checked===false&&document.querySelectorAll('#settings input[type="checkbox"]')[1].checked===true,'restart lost preserved notification preferences');must(JSON.stringify(stored.prefs.projectOrder)===JSON.stringify(['/concurrent']),'restart lost the concurrent project order');localStorage.removeItem('prefs-recovery');}
 else{
 await wait();must(document.querySelector('#prefs-status').textContent.includes('Could not load saved Lobby settings'),'failed initial read was not reported');
 document.querySelector('#activity-tab').click();document.querySelector('#settings-tab').click();
 const notify=document.querySelectorAll('#settings input[type="checkbox"]')[0];notify.checked=false;notify.dispatchEvent(new Event('change',{bubbles:true}));
 const density=document.querySelector('select[name="density"]');density.value='compact';density.dispatchEvent(new Event('change',{bubbles:true}));
 must(stored.prefs.palette==='paper'&&stored.prefs.notifyDone===false&&JSON.stringify(stored.prefs.projectOrder)==='["/legacy"]','actions overwrote stored preferences before a successful reread');
-stored.prefs={...stored.prefs,palette:'dracula',layout:'grid',notifyDone:true,stuckMinutes:60,projectOrder:['/concurrent']};storageListeners.forEach(fn=>fn({key:'prefs'}));await wait();await wait();
-must(stored.prefs.selectedView==='activity'&&stored.prefs.notifyBlocked===false&&stored.prefs.density==='compact','queued user changes were not saved after recovery');
+for(let i=0;i<50&&!window.releasePrefsPatch;i++)await new Promise(resolve=>setTimeout(resolve,20));must(typeof window.releasePrefsPatch==='function','worker retry did not reach the gated write');
+density.value='comfortable';density.dispatchEvent(new Event('change',{bubbles:true}));
+stored.prefs={...stored.prefs,palette:'dracula',layout:'grid',notifyDone:true,stuckMinutes:60,projectOrder:['/concurrent']};window.releasePrefsPatch();
+await wait();must(document.querySelector('#prefs-status').textContent.includes('still pending'),'failed write did not leave visible unsaved status');
+for(let i=0;i<50&&stored.prefs.selectedView!=='activity';i++)await new Promise(resolve=>setTimeout(resolve,50));
+must(stored.prefs.selectedView==='activity'&&stored.prefs.notifyBlocked===false&&stored.prefs.density==='comfortable'&&window.prefsPatchCalls>=2,'queued user changes were not saved after automatic retry');
 must(stored.prefs.palette==='dracula'&&stored.prefs.layout==='grid'&&stored.prefs.notifyDone===true&&stored.prefs.stuckMinutes===60&&JSON.stringify(stored.prefs.projectOrder)==='["/concurrent"]','recovery overwrote unrelated or concurrent settings: '+JSON.stringify(stored.prefs));
-must(!document.querySelector('#prefs-status').textContent.includes('Could not load'),'successful recovery left the read warning in place');localStorage.setItem('prefs-recovery',JSON.stringify(stored.prefs));location.reload();return;
+must(!document.querySelector('#prefs-status').textContent.includes('Could not load')&&!document.querySelector('#prefs-status').textContent.includes('still pending'),'successful recovery left an error visible');localStorage.setItem('prefs-recovery',JSON.stringify(stored.prefs));location.reload();return;
 }
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='prefsackrace'){
+await wait();document.querySelector('#settings-tab').click();const density=document.querySelector('select[name="density"]');density.value='compact';density.dispatchEvent(new Event('change',{bubbles:true}));
+for(let i=0;i<50&&!window.releasePrefsPatch;i++)await new Promise(resolve=>setTimeout(resolve,20));if(!window.releasePrefsPatch)throw Error('first panel patch did not reach the gated write');
+density.value='comfortable';density.dispatchEvent(new Event('change',{bubbles:true}));window.releasePrefsPatch();
+for(let i=0;i<50&&(stored.prefs.density!=='comfortable'||window.prefsPatchCalls<2);i++)await new Promise(resolve=>setTimeout(resolve,20));
+if(stored.prefs.density!=='comfortable'||window.prefsPatchCalls<2)throw Error('an older successful acknowledgement discarded the newer density intent');
+if(document.querySelector('#prefs-status').textContent.includes('pending'))throw Error('successful concurrent preference writes still appear unsaved');
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(['installationrecover','installationrecoverchoice'].includes(scenario)){

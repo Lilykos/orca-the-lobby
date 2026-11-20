@@ -313,6 +313,8 @@ declare module 'orca' {
     'office.snapshot': { output: OfficeSnapshot }
     /** The worker's durable first-run or pre-1.3 migration decision. */
     'office.installation': { output: { kind: 'fresh' | 'legacy' | 'unknown' } }
+    /** Serially merges one validated panel intent into the latest saved settings. */
+    'prefs.patch': { input: { patch: Partial<Prefs> }; output: { ok: true } | { ok: false; error: string } }
     /** Clears only the plugin's local observed history. */
     'office.clearHistory': { output: { cleared: boolean } }
     /** What the drawer may offer for one agent. */

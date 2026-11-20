@@ -148,6 +148,124 @@ test('the mounted worker marks a fresh installation before its first office save
   }
 })
 
+test('serial preference patches reread latest settings and acknowledge only after durable writes', async () => {
+  let gateRead = false
+  let gateWrite = false
+  let releaseRead!: () => void
+  let releaseWrite!: () => void
+  let beganRead!: () => void
+  let beganWrite!: () => void
+  const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
+  const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const readStarted = new Promise<void>((resolve) => { beganRead = resolve })
+  const writeStarted = new Promise<void>((resolve) => { beganWrite = resolve })
+  let prefsReads = 0
+  const initialPrefs = { notifyBlocked: true, notifyDone: false, animate: true, palette: 'github-light', layout: 'list', density: 'comfortable', selectedView: 'office', stuckMinutes: 30, projectOrder: ['/base'], futureSetting: 'keep' }
+  let storedPrefs: unknown = initialPrefs
+  let host: ReturnType<typeof mockHost>
+  host = mockHost({ storage: { prefs: initialPrefs }, results: {
+    'storage.get': async (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'prefs' && gateRead) {
+        prefsReads++
+        beganRead()
+        await readGate
+      }
+      return { value: key === 'prefs' ? storedPrefs : (host.data().storage as Record<string, unknown>)[key] ?? null }
+    },
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'prefs' && gateWrite) {
+        beganWrite()
+        await writeGate
+      }
+      if (key === 'prefs') storedPrefs = value
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await worker.request('office.installation')
+    const unchanged = JSON.parse(JSON.stringify(storedPrefs))
+    assert.deepEqual(await worker.request('prefs.patch', { patch: { palette: 'purple' } as never }), { ok: false, error: 'Those Lobby settings are invalid.' })
+    assert.deepEqual(await worker.request('prefs.patch', { patch: { notifyBlocked: 'false' } as never }), { ok: false, error: 'Those Lobby settings are invalid.' })
+    assert.deepEqual(storedPrefs, unchanged)
+    gateRead = true
+    const firstReadPatch = worker.request('prefs.patch', { patch: { palette: 'dracula' } })
+    await readStarted
+    const secondReadPatch = worker.request('prefs.patch', { patch: { palette: 'github-dark', projectOrder: ['/latest'] } })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(prefsReads, 1, 'the second panel read began before the first write completed')
+    releaseRead()
+    assert.deepEqual(await Promise.all([firstReadPatch, secondReadPatch]), [{ ok: true }, { ok: true }])
+    assert.deepEqual(storedPrefs, {
+      notifyBlocked: true, notifyDone: false, animate: true, palette: 'github-dark', layout: 'list', density: 'comfortable',
+      selectedView: 'office', stuckMinutes: 30, projectOrder: ['/latest'], futureSetting: 'keep'
+    })
+
+    gateWrite = true
+    let firstSettled = false
+    const firstWritePatch = worker.request('prefs.patch', { patch: { density: 'compact' } }).then((result) => { firstSettled = true; return result })
+    await writeStarted
+    const storedBeforeRelease = JSON.parse(JSON.stringify(storedPrefs))
+    const secondWritePatch = worker.request('prefs.patch', { patch: { density: 'comfortable', notifyDone: true } })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(firstSettled, false, 'a panel reported success before its storage write completed')
+    assert.deepEqual(storedPrefs, storedBeforeRelease, 'gated storage write became visible before it completed')
+    releaseWrite()
+    assert.deepEqual(await Promise.all([firstWritePatch, secondWritePatch]), [{ ok: true }, { ok: true }])
+    assert.deepEqual(storedPrefs, {
+      notifyBlocked: true, notifyDone: true, animate: true, palette: 'github-dark', layout: 'list', density: 'comfortable',
+      selectedView: 'office', stuckMinutes: 30, projectOrder: ['/latest'], futureSetting: 'keep'
+    })
+  } finally {
+    await worker.deactivate()
+  }
+})
+
+test('preference patch failures are reported without changing saved values and retry cleanly', async () => {
+  let failRead = true
+  let failWrite = false
+  let storedPrefs: unknown = { palette: 'github-light', notifyBlocked: true, futureSetting: 'keep' }
+  let host: ReturnType<typeof mockHost>
+  host = mockHost({ results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'prefs') {
+        if (failRead) throw new Error('temporary read failure')
+        return { value: storedPrefs }
+      }
+      return { value: (host.data().storage as Record<string, unknown>)[key] ?? null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'prefs') {
+        if (failWrite) throw new Error('temporary write failure')
+        storedPrefs = value
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    assert.deepEqual(await worker.request('prefs.patch', { patch: { notifyBlocked: false } }), {
+      ok: false, error: 'Could not save Lobby settings. Try again.'
+    })
+    assert.deepEqual(storedPrefs, { palette: 'github-light', notifyBlocked: true, futureSetting: 'keep' })
+    failRead = false
+    failWrite = true
+    assert.deepEqual(await worker.request('prefs.patch', { patch: { notifyDone: false } }), {
+      ok: false, error: 'Could not save Lobby settings. Try again.'
+    })
+    assert.deepEqual(storedPrefs, { palette: 'github-light', notifyBlocked: true, futureSetting: 'keep' })
+    failWrite = false
+    assert.deepEqual(await worker.request('prefs.patch', { patch: { notifyBlocked: false } }), { ok: true })
+    assert.deepEqual(storedPrefs, { palette: 'github-light', notifyBlocked: false, futureSetting: 'keep' })
+  } finally {
+    await worker.deactivate()
+  }
+})
+
 test('a mounted worker recognizes old office data as a 1.2 installation without preferences', async () => {
   listed = null
   const host = mockHost({ storage: { office: { agents: [], journal: [] } } })
