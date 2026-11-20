@@ -85,6 +85,7 @@
           <code id="install-cmd">orca plugin install Lilykos/orca-the-lobby</code>
           <button type="button" data-copy="#install-cmd" aria-label="Copy the install command">Copy</button>
         </div>
+        <p class="note"><strong>Release note.</strong> This command installs the published 1.2.0 release. Attention, Reviewed and the other 1.3 behavior described in this guide are still in development and are not in that release.</p>
         <ol>
           <li>Run the command above. Because the plugin runs code, Orca stops before writing anything, lists what it would be granted along with the publisher and repository, and prints the exact command to re-run with <code>--approve &lt;fingerprint&gt;</code>.</li>
           <li>Read the capabilities (<a href="./#permissions">what each is for</a>), then re-run that command to approve. The approval is bound to this plugin, version, files and access.</li>
@@ -189,7 +190,7 @@
         <p>The store is an Orca internal, not a documented API. If a future Orca changes it, these lines simply disappear. The read runs in the background and never holds up a panel update or a notification; the store is asked at most every 30 seconds per session and not again for a minute after a failure.</p>
         <h3>Other</h3>
         <ul>
-          <li><strong>Claude transcripts</strong> can supplement task lists and changed-file names, matched by title and prompt similarity. Transcript model names are never attributed to an agent.</li>
+          <li><strong>Claude transcripts</strong> are read locally for titles and recent prompt text used in heuristic matching, plus TodoWrite entries and file names from edited paths for supplemental task lists and changed-file notes. Prompt text is not stored in the activity journal. Transcript model names are never attributed to an agent.</li>
           <li><strong>Git</strong>: <code>git diff --shortstat HEAD</code> for uncommitted changes.</li>
           <li><strong>Local journal</strong>: observed activity for up to 24 hours, oldest dropped first to fit the 200,000-byte serialized storage bound, never sent to the panel. It may hold clipped result or tool details; it does not store prompts.</li>
           <li><strong>Completion and review metadata</strong>: bounded identities let one completion stay reviewed across polling and restart. Reviewed keys are kept for 24 hours, capped at 500, and do not alter Orca's unread or status state.</li>

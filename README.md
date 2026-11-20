@@ -33,6 +33,8 @@ Requires Orca **1.4.248 or newer**.
 orca plugin install Lilykos/orca-the-lobby
 ```
 
+The catalog command installs the published 1.2.0 release. Attention, Reviewed and the other 1.3 changes described below are still in development and are not in that release.
+
 Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins).
 
 ## Screenshots
@@ -136,7 +138,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 
 - **Orca**: `orca worktree ps --json` (agents across worktrees, with their state, task title, a prompt and last-reply excerpt, current operation, sub-agents and linked PRs), the host's agent and workspace APIs, `orca repo list --json` every 10 s for the sidebar's project order, and `orca terminal list|switch|send` for the drawer actions. It polls every 3 s while an agent is working and every 20 s when idle.
 - **Git**: `git diff --shortstat HEAD` in each workspace with an agent, for the uncommitted-changes count. New untracked files are not counted.
-- **Claude Code logs** (`~/.claude/projects/`) and **Codex logs** (`~/.codex/sessions/`): usage numbers and model ids for tokens today; for Claude, also task lists and changed file names for **Tasks** and **Files**. Each file is read once and then only what is appended.
+- **Claude Code logs** (`~/.claude/projects/`) and **Codex logs** (`~/.codex/sessions/`): usage numbers and model ids for tokens today. Claude transcript enrichment also reads titles and recent prompt text to match a transcript heuristically, plus TodoWrite entries and file names extracted from edited paths for **Tasks** and **Files**. This stays local; prompt text is not stored in the activity journal.
 - **Orca's session store** (`~/Library/Application Support/orca/agent-session-domain.db` on Orca 1.4.261+, or `agent-session-journal.db` on older versions, read-only through the `sqlite3` macOS ships): only the provider and session id of a chat agent, to find its own log for the context line. Never prompts or messages.
 
 **What it stores** (in Orca's per-plugin storage, nowhere else):
