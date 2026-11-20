@@ -7,7 +7,7 @@ How The Lobby works inside. For what it does, see the [README](../README.md).
 Two halves, talking through Orca's plugin messages (the contract is declared once in `src/protocol.ts`):
 
 - **Worker** (`src/worker.ts`, trusted worker): asks Orca who its agents are, listens to status and tool-call events, keeps the office state, and posts `office.update` to the panel. Its status bar item keeps it running while the plugin is enabled. A restart drops memory, so the state is also kept in `orca.storage`.
-- **Panel** (`panel/index.html`, `panel/main.ts`): draws the Office, Activity and Settings tabs and the agent drawer. It asks the worker for `office.snapshot`, `office.actions`, `office.goTo`, `office.send`, `office.compact`, `office.select` and `office.clearHistory`.
+- **Panel** (`panel/index.html`, `panel/main.ts`): draws Attention, Office, Activity and Settings, the shared filters, and the agent drawer. `panel/attention.ts` renders the queue; the panel asks the worker for `office.snapshot`, `office.actions`, navigation/send/compact requests, local review, preference patches and history clearing.
 
 Orca transpiles the TypeScript when it loads the plugin; there is no build step and no runtime font or image asset. All artwork is drawn with rectangles on canvas (`panel/scene.ts`, `panel/banner.ts`).
 
@@ -18,19 +18,35 @@ Orca transpiles the TypeScript when it loads the plugin; there is no build step 
 | `src/office.ts` | The office state: one record per agent, changed only by its functions; no Orca calls, so tests run it as plain data. Bounded journal, pruning, storage shape. |
 | `src/roster.ts` | The Orca CLI (`worktree ps`, `terminal list/switch/send`) and `git diff --shortstat`. |
 | `src/actions.ts` | Pure parts of drawer actions and the previous/next agent order: terminal matching, instruction checks, CLI answers. |
+| `src/attention.ts` | Current-roster queue groups, completion review classification and bounded local Reviewed state. |
 | `src/transcript.ts` | Claude Code transcripts: tasks and changed files (heuristic). |
 | `src/usage.ts` | Tokens for the local day from Claude Code and Codex logs, per workspace and project. |
 | `src/context.ts` | Per-agent context fill, compactions and tokens via an exact id chain. |
 | `panel/scene.ts` | Room layout, people, desks, bubbles and status wording. |
 | `panel/family.ts`, `panel/chart.ts` | The Activity org chart: tree from reported parent/child links, and its geometry. |
-| `panel/palettes.ts`, `panel/names.ts`, `panel/navigation.ts`, `panel/work-map.ts` | Palettes, friendly names, tab/focus helpers, task labels. |
+| `panel/attention.ts` | Attention queue rows, action feedback and predictable review focus. |
+| `panel/search.ts`, `panel/palettes.ts`, `panel/names.ts`, `panel/navigation.ts`, `panel/work-map.ts` | Shared search/filter projection, palettes, friendly names, tab/focus helpers and task labels. |
 
 ## Data flow
 
 1. **Roster.** The worker runs `orca worktree ps --json` every 3 s while an agent is working and every 20 s when idle (soon after any status or tool event, never closer than 3 s). It also asks `agents.list` for the focused workspace when workspace focus changes, and hears `agent.status.changed`, `agent.tool.before` / `after`, `workspace.changed` and `workspace.removed`. The hooks only record the call and return at once.
 2. **Fallback.** If the CLI is unavailable, only events and the focused workspace's `agents.list` are used; chat calls are unavailable and finished agents linger for four hours. Project grouping then reads a workspace's `.git` file to find the main checkout.
 3. **Enrichment** (per roster pass, in the background): Claude transcript notes, uncommitted changes (every 15 s per workspace), tokens today (every 30 s) and per-agent context.
-4. **Publish.** Updates are batched (one post per burst; Orca allows 200 posts per 10 s) and saved to storage every few seconds. The journal is stripped from what the panel receives and trimmed to fit Orca's 256 KiB storage limit when saved.
+4. **Publish.** Updates are batched (one post per burst; Orca allows 200 posts per 10 s) and saved to storage every few seconds. The journal is stripped from panel snapshots; the complete office storage value is deterministically bounded by UTF-8 bytes before it is written.
+
+## Attention and local review
+
+Attention projects the current live roster into three mutually exclusive groups: blocked agents need input; done agents with an explicit failure outcome need failure review; other done agents appear for review only when Orca reports unread state or the worker observed a completion after tracking began. Known cancellation, interruption, unconfirmed and superseded outcomes are excluded. A done state with no outcome is labeled as unknown, not successful.
+
+The worker captures completion identity from source finish time and reported turn/session discriminators when available. When source time is missing it captures one local observation identity and persists it across polls and restart. A hidden turn transition with no reported discriminator is inherently ambiguous when the same pane and state reappear; the worker does not claim certainty in that case. `finishedAtSource` is kept through storage compaction so the panel can label a source finish as “Finished” and a local fallback as “Done observed”.
+
+Reviewed markers are SHA-256 completion keys in worker-owned plugin storage, capped at 500 entries and retained for 24 hours. A review request is validated against the current completion and committed before success is reported. It changes neither Orca's unread flag nor the agent's state. The saved office and journal are bounded to 200,000 serialized UTF-8 bytes; if required identities cannot fit, the worker refuses the write rather than truncate identity keys.
+
+## Preferences and presentation
+
+Panel preference changes are validated field patches serialized by the worker, which rereads the latest stored object before merging and acknowledging a write. Existing settings are preserved during upgrades: a confirmed 1.2 installation without an explicit selected view opens Office, while a genuinely fresh installation defaults to Attention. After startup, the last functional view (Office, Activity or Attention) is remembered; Settings is not. Comfortable density is the migration default.
+
+Search and project selection share one normalized projection across Attention, Office and Activity. Activity retains reported ancestors needed to locate matching descendants, and the Office and chart manual project order is unchanged. The drawer leads with task, state, result and available primary action, then places calls, context/tokens and other supplemental information behind a native disclosure.
 
 ## Context chain
 
@@ -59,6 +75,8 @@ Rooms are keyed by project checkout and host; worktrees on the same host share o
 ## Activity chart
 
 Dashed lines come from project membership; solid lines only from a parent reported by Orca (matched by exact agent key, also across worktrees) or children listed under an agent. A parent that is not in the roster leaves the agent unlinked with a short note. Needs attention de-emphasizes everything not blocked or failed but removes nothing, so the hierarchy stays readable.
+
+The functional views also share literal, normalized search over reported task/prompt, friendly name, provider and explicit project, workspace, branch and host fields. A selected project is applied independently of search text; if that project disappears from the live roster, the filter returns to All projects.
 
 ## Palettes
 

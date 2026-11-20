@@ -67,6 +67,7 @@
       <ol>
         <li><a href="#install">Install</a></li>
         <li><a href="#use">Using the panel</a></li>
+        <li><a href="#attention-guide">Attention and Reviewed</a></li>
         <li><a href="#shortcuts">Shortcuts</a></li>
         <li><a href="#settings">Settings</a></li>
         <li><a href="#data">What it reads</a></li>
@@ -95,12 +96,22 @@
 
       <section id="use">
         <h2>Using the panel</h2>
+        <p>The panel has four views: Attention, Office, Activity and Settings. One search box and project filter are shared by the three functional views.</p>
+        <h3 id="attention-guide">Attention and Reviewed</h3>
+        <ul>
+          <li><strong>Needs input</strong> contains currently blocked agents. <strong>Failed to review</strong> contains current completions with an explicit failure outcome. <strong>Finished to review</strong> contains unread results and completions observed after tracking began.</li>
+          <li>Waiting, quiet, cancelled, interrupted and unconfirmed states are not promoted to success or failure. Missing outcomes are labeled unknown. Use <strong>Go to agent</strong> when enabled, or <strong>Review details</strong> to open its drawer.</li>
+          <li><strong>Mark Reviewed</strong> is a local Lobby marker for that completion. It does not mark Orca's result read, change the agent or send terminal text. Opening details and navigating do not review it. Markers expire after 24 hours and storage retains at most 500 completion keys.</li>
+          <li>Search is literal and case-insensitive over reported task/prompt, friendly name, provider and known project/workspace/branch/host labels. Project selection also filters. Activity keeps the reported chart ancestors needed to locate matching agents.</li>
+        </ul>
+        <p class="note">Completion identity prefers source finish time and reported turn/session identifiers. When those are missing, The Lobby persists the identity of its local observation. If Orca omits every discriminator and an entire new turn happens while unobserved in the same pane, it cannot be distinguished reliably from the previous turn. A source finish is labeled “Finished”; a local timestamp is labeled “Done observed”.</p>
         <h3>Office</h3>
         <ul>
           <li>Click a room sign to open or close its agent area. Rooms follow the order of Orca's sidebar. Point at a room and press ↑ or ↓ to set your own order, shared with Activity; Settings has <strong>Use the sidebar order again</strong>.</li>
           <li>The list leads with the conversation title, an explicitly labelled prompt excerpt, or &ldquo;Task not reported&rdquo;, and shows the provider beside a friendly name. Activity keeps the original workspace and conversation title.</li>
           <li>Up to four finished agents stand around the coffee machine; fewer in a narrow room.</li>
           <li>Under each room is today's token count for that workspace.</li>
+          <li>Use the shared search and project filter to find an agent. Comfortable and Compact density are in Settings; Compact reduces spacing and secondary detail.</li>
         </ul>
         <h3>Activity</h3>
         <ul>
@@ -110,6 +121,7 @@
         </ul>
         <h3>The drawer</h3>
         <ul>
+          <li>The drawer puts task, state, result and available primary action first. Open <strong>More details</strong> for calls, tokens and supplemental metadata; this disclosure stays open through live updates.</li>
           <li><strong>Go to agent</strong> switches to the agent's terminal. For an Orca chat session it opens the workspace and says that it did.</li>
           <li>The instruction box (terminal agents only, not for finished agents) sends your text to that terminal. If another agent resolves to the same terminal, typing is refused so it cannot reach the wrong one. Instructions can be up to 8,000 characters.</li>
           <li><strong>Compact conversation</strong> asks for confirmation, then types <code>/compact</code>. Only for Claude Code, where it was tried.</li>
@@ -147,7 +159,10 @@
               <tr><td>Animate the office</td><td>Bubbles pop and bob and the office moves. Off, or if your system asks for reduced motion, everything still shows without the movement.</td></tr>
               <tr><td>Notify me when an agent seems stuck</td><td>Off, or after 10, 20, 30 or 60 minutes (20 by default). One notification per quiet spell, for an agent working with no status, tool call or roster update, or still needing you.</td></tr>
               <tr><td>Palette</td><td>Orca default (follows the app theme), Catppuccin Mocha / Latte, Dracula, GitHub Dark / Light. Changes surfaces, text, accents and room art; state colours keep their meaning.</td></tr>
+              <tr><td>Display density</td><td>Comfortable or Compact. Comfortable remains the migration default.</td></tr>
               <tr><td>List / Grid</td><td>On Office and Activity. Two projects per line at 400px or wider; saved with your settings.</td></tr>
+              <tr><td>Startup view</td><td>New installations start in Attention. A 1.2 upgrade starts in Office; after that the last functional view is remembered. Settings is never the remembered view.</td></tr>
+              <tr><td>Office banner</td><td>Collapse or show the Lobby title and branding; pixel rooms and palettes are unchanged.</td></tr>
               <tr><td>Clear local activity history</td><td>Empties the local observation journal. Does not change Orca's unread flags.</td></tr>
             </tbody>
           </table>
@@ -176,13 +191,26 @@
         <ul>
           <li><strong>Claude transcripts</strong> can supplement task lists and changed-file names, matched by title and prompt similarity. Transcript model names are never attributed to an agent.</li>
           <li><strong>Git</strong>: <code>git diff --shortstat HEAD</code> for uncommitted changes.</li>
-          <li><strong>Local journal</strong>: observed activity for up to 24 hours, oldest dropped first to fit Orca's 256 KiB storage limit, never sent to the panel. It may hold clipped result or tool details; it does not store prompts.</li>
+          <li><strong>Local journal</strong>: observed activity for up to 24 hours, oldest dropped first to fit the 200,000-byte serialized storage bound, never sent to the panel. It may hold clipped result or tool details; it does not store prompts.</li>
+          <li><strong>Completion and review metadata</strong>: bounded identities let one completion stay reviewed across polling and restart. Reviewed keys are kept for 24 hours, capped at 500, and do not alter Orca's unread or status state.</li>
           <li><strong>No money estimate</strong> is ever made from tokens.</li>
         </ul>
       </section>
 
       <section id="faq">
         <h2>FAQ</h2>
+        <details>
+          <summary>What does Reviewed do?</summary>
+          <div><p>It hides that completion from The Lobby's review queue after a successful local save. It does not clear Orca's unread flag or change agent status. Opening details or navigating does not review a result. Reviewed keys expire after 24 hours; at most 500 are retained.</p></div>
+        </details>
+        <details>
+          <summary>When does the panel open to Attention or Office?</summary>
+          <div><p>A genuinely new installation starts in Attention. A 1.2 upgrade, including one with existing office data but no preferences, starts in Office. The selected functional view is then remembered; Settings is not a startup view. Comfortable density is the migration default.</p></div>
+        </details>
+        <details>
+          <summary>Why can't The Lobby always tell that a result is new?</summary>
+          <div><p>It uses Orca's reported finish time and turn/session identifiers when available. Otherwise it keeps one local observation identity. If an entire new turn is hidden from observation and Orca reports no discriminator, identical pane and state data cannot prove that a new completion occurred.</p></div>
+        </details>
         <details>
           <summary>Is it safe? Does it send my code or prompts anywhere?</summary>
           <div><p>No. It has no direct network code. It reads local files and runs the Orca CLI and Git on your machine. Orca uses its existing paired-server connections for remote roster and navigation requests. Prompts are not stored in its journal. The <a href="https://github.com/Lilykos/orca-the-lobby">source</a> is public.</p></div>
@@ -209,7 +237,7 @@
         </details>
         <details>
           <summary>Where do finished agents go?</summary>
-          <div><p>They stand around the coffee machine (up to four drawn) and stay in the roster and Activity. They get a <em>Done · new</em> tag until you have seen the result.</p></div>
+          <div><p>They stand around the coffee machine (up to four drawn) and stay in the roster and Activity. Attention keeps unread or newly observed results in <em>Finished to review</em> until you mark that completion Reviewed in The Lobby. That local choice is separate from Orca's unread flag.</p></div>
         </details>
         <details>
           <summary>What are the colours?</summary>

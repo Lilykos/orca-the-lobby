@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Lobby: your Orca agents as pixel people</title>
-<meta name="description" content="The Lobby is an Orca plugin that shows your coding agents as pixel-art people in one room per project: who is working, on what, who is stuck, and who needs you. Local and paired-server agents, no telemetry, MIT licensed.">
+<title>The Lobby: Attention and pixel-art Office for Orca agents</title>
+<meta name="description" content="Find blocked agents and results to review in Attention, then return to The Lobby's pixel-art Office and Activity views. Local and paired-server agents, no telemetry, MIT licensed.">
 <meta name="theme-color" content="#000000">
 <link rel="canonical" href="https://lilykos.github.io/orca-the-lobby/">
 <link rel="icon" type="image/png" href="images/icon.png">
 <link rel="apple-touch-icon" href="images/icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="The Lobby">
-<meta property="og:title" content="The Lobby: your Orca agents as pixel people">
-<meta property="og:description" content="Every agent in every worktree in one live view: a pixel room per project, who needs you or is stuck, who started whom, and context and tokens per agent.">
+<meta property="og:title" content="The Lobby: Attention and pixel-art Office for Orca agents">
+<meta property="og:description" content="Find blocked agents and results to review in Attention, then return to the pixel-art Office and Activity views.">
 <meta property="og:url" content="https://lilykos.github.io/orca-the-lobby/">
 <meta property="og:image" content="https://lilykos.github.io/orca-the-lobby/images/cover.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
 <meta property="og:image:alt" content="The Lobby, an Orca plugin: your coding agents at work in a pixel office, with Need you!, Stuck? and Failed bubbles.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="The Lobby: your Orca agents as pixel people">
-<meta name="twitter:description" content="One pixel room per project. See who is working, who is stuck and who needs you.">
+<meta name="twitter:title" content="The Lobby: Attention and pixel-art Office for Orca agents">
+<meta name="twitter:description" content="Find blocked agents and results to review, then return to the pixel-art Office and Activity views.">
 <meta name="twitter:image" content="https://lilykos.github.io/orca-the-lobby/images/cover.png">
 <meta name="twitter:image:alt" content="The Lobby, an Orca plugin: your coding agents at work in a pixel office, with Need you!, Stuck? and Failed bubbles.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,6 +47,7 @@
     <div class="wrap">
       <a href="#why">Why</a>
       <a href="#tour">Tour</a>
+      <a href="#attention-queue">Attention</a>
       <a href="#how">How it works</a>
       <a href="#permissions">Permissions</a>
       <a href="#limits">Limits</a>
@@ -63,7 +64,7 @@
     <div class="hero-copy">
       <p class="eyebrow">A plugin for Orca</p>
       <h1>Every agent. Every worktree. One glance.</h1>
-      <p class="lead">Running a dozen agents in parallel worktrees? <strong>The Lobby</strong> turns them into pixel people in a room per project, so you can see who is working, who is stuck and who needs you, without opening a single tab.</p>
+      <p class="lead">Running a dozen agents in parallel worktrees? <strong>The Lobby</strong> gives you a live Attention queue and a pixel-art room per project, so you can find who needs you, review results locally and return to the Office without opening a single tab.</p>
       <div class="install">
         <code id="install-cmd">orca plugin install Lilykos/orca-the-lobby</code>
         <button type="button" data-copy="#install-cmd" aria-label="Copy the install command">Copy</button>
@@ -96,7 +97,7 @@
       </div>
       <div class="card">
         <h3>Know who needs you</h3>
-        <p><span class="bubble">Need you!</span> <span class="bubble">Stuck?</span> <span class="bubble">Failed</span> bubbles, a Needs attention filter and an optional stuck-agent notification.</p>
+        <p>Attention groups agents who need input, explicit failures and finished results. Mark Reviewed locally without changing Orca's unread or status state.</p>
       </div>
       <div class="card">
         <h3>See who started whom</h3>
@@ -122,7 +123,16 @@
   <div class="wrap">
     <p class="kicker">Feature tour</p>
     <h2 id="tour-h">What you get, one tab at a time</h2>
-    <p class="intro">The Lobby lives in Orca's right sidebar, in three tabs: <strong>Office</strong> to see everyone, <strong>Activity</strong> to see who started whom, and <strong>Settings</strong>. Every picture below is demo data.</p>
+    <p class="intro">The Lobby lives in Orca's right sidebar: <strong>Attention</strong> for the current queue, <strong>Office</strong> for the pixel rooms, <strong>Activity</strong> for reported parent links, and <strong>Settings</strong>. New installations open Attention; an upgrade with 1.2 data keeps Office as its first view.</p>
+
+    <article class="feature wide" id="attention-queue">
+      <div class="text">
+        <h3>Attention: the next thing to look at</h3>
+        <p>See three live groups: <strong>Needs input</strong> for blocked agents, <strong>Failed to review</strong> for explicit failures, and <strong>Finished to review</strong> for unread or newly observed completions. Waiting, cancelled, interrupted or unconfirmed work is not called successful.</p>
+        <p><strong>Go to agent</strong> is offered only when Orca reports a valid destination. <strong>Review details</strong> opens the drawer; <strong>Mark Reviewed</strong> records a Lobby-only decision. It does not clear Orca's unread flag, change status, or happen when you navigate or open the drawer. Reviewed keys are kept locally for up to 24 hours, with a 500-key cap.</p>
+        <p>Search and the project filter also apply to Office and Activity. Search is literal and case-insensitive over reported task, friendly name, provider and known project/workspace/branch/host context. A missing project resets to All projects; Activity keeps reported ancestors needed to place a matching agent.</p>
+      </div>
+    </article>
 
     <article class="feature" id="office">
       <div class="text">
@@ -136,7 +146,7 @@
           <span class="tag unread">Done · new</span>
           <span class="tag done">Done</span>
         </p>
-        <p>The big window follows your local time (night, dawn, morning, day, sunset, evening), and a <strong>List / Grid</strong> toggle puts two projects side by side once the panel is 400px wide.</p>
+        <p>The big window follows your local time (night, dawn, morning, day, sunset, evening), and a <strong>List / Grid</strong> toggle puts two projects side by side once the panel is 400px wide. Choose <strong>Comfortable</strong> or <strong>Compact</strong> density; the pixel Office and palettes remain.</p>
       </div>
       <figure class="shot narrow">
         <div class="frame tall"><a href="images/office.png" title="Open the full-size image"><img src="images/office.png" width="420" height="1263" loading="lazy" alt="The Office tab in dark theme: a list of rooms, each with a sign, pixel people at desks and a roster of agents beneath."></a></div>
@@ -158,7 +168,7 @@
     <article class="feature flip" id="activity">
       <div class="text">
         <h3>Activity: see who started whom</h3>
-        <p>Activity draws a connected chart for every project. Dashed lines from the project hub show membership; solid lines show only the parent-child links Orca actually reports, such as a supervised worker's reported parent and an agent's listed children. Boxes carry a portrait, friendly name, provider, state and task.</p>
+        <p>Activity draws a connected chart for every project. Dashed lines from the project hub show membership; solid lines show only the parent-child links Orca actually reports, such as a supervised worker's reported parent and an agent's listed children. Boxes carry a portrait, friendly name, provider, state and task. Its search and project filter are shared with Attention and Office.</p>
         <p>Folding a chart with ▾ collapses it to its title bar. Wide charts pan by swipe, <kbd>Shift</kbd> + wheel, the left and right arrow keys, or dragging the background, and <strong>Reset view</strong> recentres them. Nothing implies that agents talk to each other, and a missing link never proves an agent has no parent.</p>
       </div>
       <figure class="shot">
@@ -182,7 +192,7 @@
     <article class="feature flip" id="drawer">
       <div class="text">
         <h3>The agent drawer: act without hunting through tabs</h3>
-        <p>Click a person, a roster row or a chart box and a sheet slides up over the panel: state, asked and replied notes, calls, tasks, files and PRs, plus context and tokens. <strong>View in Activity</strong> finds the agent in its chart. <kbd>Esc</kbd>, the × button or a click outside closes it and returns focus to where you were.</p>
+        <p>Click a person, a roster row or a chart box and a sheet slides up over the panel. Task, state, result and available primary action come first; <strong>More details</strong> opens asked notes, calls, tasks, files and PRs, plus context and tokens. <strong>View in Activity</strong> finds the agent in its chart. <kbd>Esc</kbd>, the × button or a click outside closes it and returns focus to where you were.</p>
         <p>Actions happen only when you press something, and only where Orca lets a plugin:</p>
         <ul>
           <li><strong>Go to agent</strong> brings its terminal to the front. For an Orca chat session it opens the workspace and tells you so.</li>
@@ -251,7 +261,7 @@
     <article class="feature" id="settings">
       <div class="text">
         <h3>Settings and palettes: make it yours</h3>
-        <p>Switch notifications and animation on or off, choose a palette (Orca default follows the app theme; Catppuccin Mocha and Latte, Dracula, GitHub Dark and Light are built in), pick the stuck time, and clear the local activity history. State colours keep their meaning in every palette. Bubbles and animation respect your system's reduced-motion setting.</p>
+        <p>Choose a palette (Orca default follows the app theme; Catppuccin Mocha and Latte, Dracula, GitHub Dark and Light are built in), Comfortable or Compact density, and whether to show the Office banner. Existing notification switches and the stuck-time setting remain. State colours keep their meaning in every palette; motion respects the system's reduced-motion setting. After startup, the last functional view is remembered, not Settings.</p>
       </div>
       <figure class="shot narrow">
         <div class="frame tall"><a href="images/settings.png" title="Open the full-size image"><img src="images/settings.png" width="420" height="526" loading="lazy" alt="The Settings tab: notification and animation switches, palette selector, stuck-time selector and a clear history button."></a></div>
@@ -265,7 +275,7 @@
   <div class="wrap">
     <p class="kicker">How it works</p>
     <h2 id="how-h">Where the data comes from</h2>
-    <p class="intro">The Lobby is a read-mostly window onto what is already on your machine. It does not run agents, and it does not talk to any server.</p>
+    <p class="intro">The Lobby is a read-mostly window onto what is already on your machine. It does not run agents or make direct network requests; Orca handles paired-server roster and navigation calls.</p>
 
     <div class="flow" role="group" aria-label="Data flow from your machine to the panel">
       <div class="node">
@@ -291,7 +301,7 @@
       <div class="node you">
         <h3>Your sidebar</h3>
         <ul>
-          <li>Office, Activity and Settings</li>
+          <li>Attention, Office, Activity and Settings</li>
           <li>Optional desktop notifications</li>
           <li>Actions only when you press something</li>
         </ul>
@@ -314,9 +324,9 @@
       <table>
         <thead><tr><th scope="col">Capability</th><th scope="col">What it is for</th><th scope="col">When it is used</th></tr></thead>
         <tbody>
-          <tr><td data-label="Capability"><code>agent:read</code></td><td data-label="What it is for">Seeing your agents: their state, tasks, tool calls and results.</td><td data-label="When it is used">Continuously, to draw the Office and Activity. Tool-call hooks only record the call and return at once; they never deny one.</td></tr>
+          <tr><td data-label="Capability"><code>agent:read</code></td><td data-label="What it is for">Seeing your agents: their state, tasks, tool calls and results.</td><td data-label="When it is used">Continuously, to draw Attention, Office and Activity. Tool-call hooks only record the call and return at once; they never deny one.</td></tr>
           <tr><td data-label="Capability"><code>workspace:read</code></td><td data-label="What it is for">Workspace and project names, so rooms can be grouped.</td><td data-label="When it is used">When the roster changes or a workspace is added or removed.</td></tr>
-          <tr><td data-label="Capability"><code>storage:own</code></td><td data-label="What it is for">The plugin's own storage: your settings and the local activity journal (24 hours at most, no prompts).</td><td data-label="When it is used">When you change a setting, and as agents change state. Settings has a clear button.</td></tr>
+          <tr><td data-label="Capability"><code>storage:own</code></td><td data-label="What it is for">The plugin's own settings, office snapshot, bounded journal and completion/review metadata.</td><td data-label="When it is used">When settings, observed office state or a local Reviewed decision changes. The journal is at most 24 hours and does not store prompts.</td></tr>
           <tr><td data-label="Capability"><code>workspace:write</code></td><td data-label="What it is for">Opening a workspace or bringing a terminal to the front.</td><td data-label="When it is used">Only when you press <strong>Go to agent</strong> or use the previous / next agent shortcuts.</td></tr>
           <tr><td data-label="Capability"><code>terminal:send</code></td><td data-label="What it is for">Typing into an agent's terminal.</td><td data-label="When it is used">Only when you press <strong>Send</strong> in the instruction box, or confirm <strong>Compact conversation</strong>. Never by itself. Those controls are hidden if the capability is not granted.</td></tr>
           <tr><td data-label="Capability"><code>notifications:show</code></td><td data-label="What it is for">Optional desktop notifications.</td><td data-label="When it is used">When an agent starts needing you, ends a long turn, or seems stuck, if you left those switches on. All are in Settings.</td></tr>
@@ -336,6 +346,7 @@
     <p class="kicker">Honest limits</p>
     <h2 id="limits-h">What The Lobby cannot do</h2>
     <ul class="limits">
+      <li><strong>Completion identity needs reported evidence</strong>The Lobby uses Orca finish times and turn/session identifiers where present, otherwise it retains one observed identity. A pane that changes turns entirely between observations with no source discriminator is indistinguishable from the old turn.</li>
       <li><strong>No typing into chat agents</strong>Orca gives plugins no way to pick or type into a chat tab. For a chat session, <em>Go to agent</em> opens its workspace and says so; the instruction box and Compact are for agents in a terminal.</li>
       <li><strong>No approve / deny</strong>Orca does not report what a blocked agent is asking, and offers plugins no approval controls. A blocked agent just says <em>Needs you</em> and points to Go to agent.</li>
       <li><strong>Claude shows no context %</strong>Claude Code's logs do not state the context window, so Claude agents show tokens without a percentage instead of a guessed one. Codex logs do, so Codex agents get one.</li>

@@ -4,9 +4,9 @@
 
 # The Lobby
 
-**Every agent in every worktree, in one live view. See who is working, who is stuck and who needs you, without opening a single tab.**
+**Every agent in every worktree, in one live view. Find who needs you, review finished results locally, and keep the pixel-art Office in view.**
 
-An [Orca](https://onorca.dev) plugin that turns your parallel coding agents into little pixel people: one room per project, one desk per agent.
+An [Orca](https://onorca.dev) plugin with four views: Attention, Office, Activity and Settings. The Office stays true to its pixel-art roots: one room per project, one desk per agent.
 
 ### [Take the tour: lilykos.github.io/orca-the-lobby](https://lilykos.github.io/orca-the-lobby/)
 
@@ -14,7 +14,9 @@ An [Orca](https://onorca.dev) plugin that turns your parallel coding agents into
 
 - **See everything at once.** Every agent in every worktree, one room per project. Worktrees of a repo share a room, and counts show how many are working, need you, are done or failed.
 - **Know who needs you.** Speech bubbles say **Need you!**, **Stuck?** or **Failed**, **Needs attention** dims the rest, and an optional desktop notification fires when an agent has gone quiet for 10 to 60 minutes.
+- **Review results in one queue.** Attention groups blocked agents, explicit failures and finished results. Marking a result **Reviewed** is local to The Lobby; it does not clear Orca's unread flag or change agent status.
 - **See who started whom.** An org chart per project, drawn from the exact parent-to-worker links Orca reports, across worktrees. Nothing is guessed.
+- **Search across views.** One literal search and project filter apply to Attention, Office and Activity. Comfortable or Compact density keeps the roster and chart readable at different panel sizes.
 - **Act without hunting through tabs.** Open any agent to jump to its terminal, send it an instruction (terminal agents), or compact a Claude Code conversation. `Cmd/Ctrl+Alt+↑/↓` steps through the agents that need you first.
 - **Watch the context fill.** Context and tokens per agent, and tokens today per project, read from your Claude Code and Codex logs. Per-agent context needs a macOS chat session; see the [limits](#honest-limits).
 - **Private and tidy.** No telemetry. A day and night window, five extra palettes plus Orca's own theme, and reduced motion respected.
@@ -53,6 +55,14 @@ The panel itself, with demo data:
 
 ## Features
 
+### Attention
+
+Attention groups the current live roster into **Needs input** (blocked), **Failed to review** (explicit failure outcomes) and **Finished to review** (unread or newly observed completions). Waiting, cancelled, interrupted and unconfirmed work is not relabeled as a successful result. **Go to agent** follows the same validated navigation rules as the drawer; **Review details** opens the drawer; **Mark Reviewed** records a local decision only.
+
+Reviewed markers are stored in Orca's per-plugin storage for up to 24 hours and at most 500 completion keys. Opening a drawer or navigating does not mark anything Reviewed, and a later completion gets its own identity when its transition is observed or Orca reports a distinguishing turn/session value.
+
+Search and the project filter are shared with Office and Activity. Search uses reported task, prompt, friendly name, provider and project/workspace/branch/host labels; chart ancestors remain visible to keep matching agents in context.
+
 ### Office
 
 - **One room per project checkout and host.** Worktrees of the same repository on the same host share a room; room signs show the host name (or **local**). Click a room's sign to fold or unfold it.
@@ -64,21 +74,22 @@ The panel itself, with demo data:
 - **Status colors**: green working, orange **Needs you**, amber waiting, red failed, grey done, blue done with an unread result.
 - **Tokens today** per project appear under each room.
 - **List or Grid.** Grid puts two projects on each row once the panel is at least 400px wide.
+- **Comfortable or Compact density.** Compact reduces spacing and secondary detail while keeping text and controls usable. The Office banner can be collapsed; Activity and Attention use a compact header.
 
 ### Activity
 
 - **A connected chart per project**: a project hub at the top, agents below it. Dashed lines show which agents belong to the project; solid lines show only parent/child links Orca reports (a supervised worker's parent, and agent children listed under an agent). Nothing is guessed: an agent whose reported parent is not in the roster stays unlinked with a short note.
 - **Agent boxes** show a portrait, name, provider, state and task. Click one to open its drawer. Use the branch buttons to expand reported children; a child without a matching agent opens a small drawer with the state, operation and description Orca reported.
 - **All / Needs attention.** Needs attention highlights blocked and failed agents and dims the rest, without removing anything; a project with nothing to act on folds to one line, and an empty state offers **Show all agents**.
+- **Shared filters.** The same search and project filter apply here and in Attention and Office; matching descendants retain their reported chart ancestors.
 - **Navigation:** the page scrolls up and down; wide charts pan with a trackpad swipe, Shift+wheel, the left and right arrow keys, or dragging the background. **Reset view** recentres. Each chart folds with its ▾ button, moves with **↑** / **↓**, and counts and tokens are shown in its header. List / Grid works here too.
 
 ### Agent drawer
 
 Click an agent in the Office (roster or scene) or the Activity chart. The drawer slides up over the panel; Escape, the × button or a click outside closes it and returns focus.
 
-- **Status**: state, how long, observed work, and whether it is overdue.
-- **Context and tokens** (see [what is read](#data-and-privacy)): for example `Context 73% (512k of 700k) · 2 compactions · 1.2M tokens today`, plus the workspace's tokens for the day by model, split into input, output, cache read and cache write.
-- **Details**: asked and result excerpts, current work, uncommitted changes, **Calls** (running and recent tool calls, with sub-agents), **Tasks** and **Files** (heuristic, from Claude Code transcripts) and **PRs** Orca has linked to the workspace.
+- **Task, state, result and action come first.** The friendly name is secondary; source finish times are distinguished from locally observed finish times.
+- **More details** progressively discloses the asked excerpt, current work, changes, context and tokens, **Calls** (running and recent tool calls, with sub-agents), **Tasks** and **Files** (heuristic, from Claude Code transcripts) and **PRs** Orca has linked to the workspace.
 - **Go to agent** brings its terminal to the front. For an Orca chat session, Orca gives plugins no way to pick a chat tab, so it opens the agent's workspace and says so.
 - **Instruction box** (terminal agents only): sends your text to the agent's terminal. Enter sends, Shift+Enter adds a line.
 - **Compact conversation** (Claude Code agents in a terminal): types `/compact` after you confirm.
@@ -91,8 +102,11 @@ Controls that cannot work for an agent are left out. A blocked agent says it nee
 - **Color palette**: Orca default (follows the app theme), Catppuccin Mocha / Latte, Dracula, GitHub Dark / Light. It colors the panel and room artwork; state colors keep their meaning.
 - **Notify me when an agent needs me** and **Notify me when a long turn ends** (turns over a minute).
 - **Notify me when an agent seems stuck**: Off, or after 10, 20 (default), 30 or 60 minutes. One notification per quiet spell, when a working agent has shown no status, tool call or roster update for that long, or a blocked agent still needs you.
+- **Display density**: Comfortable or Compact.
 - **Animate the office**: off, the scene holds still (also when the system asks for reduced motion; bubbles still show).
 - **Clear local activity history**: empties the plugin's stored observation journal.
+
+New installations start in Attention. An upgrade with existing 1.2 data opens Office first. After that, the last functional view is remembered; Settings is not remembered as a startup view. Comfortable density is the migration default.
 
 ### Status bar and shortcuts
 
@@ -129,7 +143,8 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 
 - Your settings.
 - The office state: current agents with their title, short prompt and last-reply excerpts (up to 400 characters), tool-call labels (up to 80 characters), recent state history, and the counts for today.
-- A bounded observation journal of state changes and tool calls: at most 24 hours, oldest dropped first to fit Orca's 256 KiB limit. It may hold clipped tool details and result excerpts; it does not store prompts. **Clear local activity history** in Settings empties it. The journal is never sent to the panel.
+- A bounded observation journal of state changes and tool calls: at most 24 hours, oldest dropped first to fit the 200,000-byte storage bound. It may hold clipped tool details and result excerpts; it does not store prompts. **Clear local activity history** in Settings empties it. The journal is never sent to the panel.
+- Bounded completion identity metadata and Reviewed completion keys. Reviewed keys expire after 24 hours and are capped at 500; they are not sent to agents and do not change Orca's unread or status state.
 
 **What it types.** The plugin types into a terminal only after you press **Send** or confirm **Compact conversation**, and only while Orca's own list still shows that agent working in a terminal no other agent shares.
 
@@ -140,6 +155,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - **Tokens are counted for Claude Code and Codex only**, per workspace and per project for the local day, with cache read and write separate. No cost estimate is made.
 - **Tasks and Files are heuristic.** They come from Claude transcripts matched to an agent by title and prompt similarity, which can be ambiguous when several agents look alike.
 - **Observation is sampled.** Short chat tool calls can fall between roster polls, and Orca does not report terminal tool calls on SSH or WSL hosts yet. Uncommitted changes ignore untracked files.
+- **Completion identity depends on reported transitions.** The Lobby prefers Orca's finish time and reported turn/session identifiers; otherwise it saves the local observation identity. If a new turn begins and finishes while it was unobserved and Orca supplies no discriminator, identical pane/state data cannot prove that it was a different turn. A displayed local observation time is labeled as observed, not as an Orca finish time.
 - **Charts show only what Orca reports.** The chart does not imply agents talk to each other, and a missing child link does not prove an agent has no parent.
 - **Without the Orca CLI**, the plugin falls back to status and tool events plus the focused workspace's agents. Chat calls are then unavailable, and finished agents linger for four hours.
 - **Paired Orca servers** appear in the roster when the CLI supports `host list`. **Go to agent** opens the remote terminal if Orca reports one, or the Git worktree otherwise. Unreachable paired servers disappear until they reconnect, so stale states cannot trigger alerts. The Lobby does not read remote files or logs, or send text to remote terminals.

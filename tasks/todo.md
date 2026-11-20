@@ -62,6 +62,8 @@ Dependencies: 04. Likely files: src/protocol.ts, panel/main.ts, panel/index.html
 
 Dependencies: 04, 06. Likely files: panel/drawer.ts, panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py.
 
+Review: Terra approved `1a65df0` with no remaining task 07 blocker. The real development-panel trial in Checkpoint B remains pending.
+
 ### Checkpoint B
 
 - [ ] Demonstrate find → open → review on the real development panel; inspect Office, Activity and Attention at multiple widths.
@@ -69,11 +71,13 @@ Dependencies: 04, 06. Likely files: panel/drawer.ts, panel/main.ts, panel/index.
 
 ## 08 — Isolate existing notification decisions (S)
 
-- [ ] Extract a small notification-policy module while preserving current transition settings, long-turn threshold and reminder behavior.
-- [ ] Keep event/roster deduplication and no-backlog-on-start behavior explicit; no new preferences yet.
-- [ ] Verify equivalent behavior with deterministic policy tests and existing worker notification tests.
+- [x] Extract a small notification-policy module while preserving current transition settings, long-turn threshold and reminder behavior.
+- [x] Keep event/roster deduplication and no-backlog-on-start behavior explicit; no new preferences yet.
+- [x] Verify equivalent behavior with deterministic policy tests and existing worker notification tests.
 
 Dependencies: 02. Likely files: src/notifications.ts, src/notifications.test.ts, src/worker.ts, src/worker.test.ts.
+
+Verified in reviewed extraction commits `209ee38` and `e1f01f0`; unit and worker tests cover pure transition/reminder decisions and event/roster deduplication.
 
 ## 09 — Project mute and reminder snooze (M)
 
@@ -83,6 +87,8 @@ Dependencies: 02. Likely files: src/notifications.ts, src/notifications.test.ts,
 
 Dependencies: 03, 04, 08. Likely files: src/protocol.ts, src/notifications.ts, src/worker.ts, panel/attention.ts, src/worker.test.ts. Test policy cases in the module's existing test file as needed.
 
+Status: pure mute/snooze policy helpers are present, but worker/UI integration and review are pending in the isolated child. Do not describe these controls as available in user-facing copy yet.
+
 ## 10 — Burst notification grouping (M)
 
 - [ ] Group eligible notifications by project and kind over a non-extending two-second window; preserve useful individual messages.
@@ -90,6 +96,8 @@ Dependencies: 03, 04, 08. Likely files: src/protocol.ts, src/notifications.ts, s
 - [ ] Verify isolated events, bursts, distinct projects/kinds, state changes during the window, failure and restart using deterministic time.
 
 Dependencies: 08–09. Likely files: src/notifications.ts, src/notifications.test.ts, src/worker.ts, src/worker.test.ts.
+
+Status: burst-grouping helpers are not yet integrated or reviewed; do not describe grouped delivery as available in user-facing copy.
 
 ### Checkpoint C
 
@@ -110,6 +118,8 @@ Dependencies: 04–10. Likely files: scripts/shots/fixture.js, scripts/shots/run
 - [ ] Regenerate fixture-based screenshots/posters; check image limits, links, desktop/mobile rendering and browser errors.
 
 Dependencies: 11; draft copy may begin earlier. Documentation batch: README.md, docs/ARCHITECTURE.md, docs/index.html, docs/guide.html, CHANGELOG.md. Media/catalog updates are a separate follow-up batch using existing scripts and docs/LISTING.md.
+
+Draft documentation is being updated against implemented root behavior. Final media and notification copy wait for integrated task 09–10 review and task 11 verification.
 
 ## 13 — Review, trial and 1.3.0 release
 

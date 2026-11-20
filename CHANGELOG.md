@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Draft notes for 1.3; integration review and final fixture media are still pending.
+
+- Add **Attention** for blocked agents, explicit failures and unread or newly observed completions, with Lobby-local **Reviewed** state that never changes Orca's unread or status data.
+- Share literal search and project filtering across Attention, Office and Activity; add Comfortable / Compact density and remember the selected functional view.
+- Preserve Office as the initial view for 1.2 upgrades and open Attention by default only on genuinely new installations.
+- Put task, state, result and available action first in the drawer; progressively disclose calls, tokens and supplementary details.
+- Keep source finish timestamps distinguishable from local observation times. Completion identity remains ambiguous when Orca reports no turn/session discriminator and the transition was not observed.
+- Existing notification settings remain. Project mute, reminder snooze and burst grouping are not included in these draft notes pending their worker integration and review.
+
 ## 1.2.0
 
 - Show agents on paired Orca servers in separate rooms, labeled by host; improve Windows CLI discovery. Thanks to @titilambert ([#1](https://github.com/Lilykos/orca-the-lobby/pull/1)).
