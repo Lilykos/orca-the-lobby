@@ -724,7 +724,7 @@ function renderAttentionPage(): void {
         done(message)
       }).catch(() => { attentionFeedback.textContent = 'Could not open this agent in Orca.'; done('Could not open this agent in Orca.') })
     },
-    details: (agent) => { clearFilters(); selected = agent.id; setPage('office'); listed = ''; renderList() },
+    details: (agent) => { selected = agent.id; setPage('office'); listed = ''; renderList() },
     review: (agent, done) => {
       void orca.plugin.request('attention.review', { completionId: agent.completionId! }).then((result: ActionResult) => {
         if (!result.ok) { attentionFeedback.textContent = result.error; done(result.error); return }
@@ -745,17 +745,6 @@ document.getElementById('brand-toggle')!.addEventListener('click', (event) => {
   button.textContent = brandCollapsed ? 'Show Office banner' : 'Hide Office banner'
   button.setAttribute('aria-expanded', String(!brandCollapsed))
 })
-
-function clearFilters(): void {
-  searchText = ''
-  projectFilter = 'all'
-  const query = filterBar.querySelector<HTMLInputElement>('input')
-  const project = filterBar.querySelector<HTMLSelectElement>('select')
-  if (query) query.value = ''
-  if (project) project.value = 'all'
-  renderFilters()
-  showOrder()
-}
 
 function renderFilters(): void {
   const query = filterBar.querySelector<HTMLInputElement>('input')!
