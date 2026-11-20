@@ -1,4 +1,5 @@
 import { overdue, type AgentState, type AgentView, type Prefs } from './protocol'
+import { jsonBytes, STORE_BYTES } from './office'
 
 /** A turn shorter than this ends without a notification: you were probably watching. */
 export const LONG_TURN_MS = 60_000
@@ -65,11 +66,17 @@ export type NotificationPolicy = {
 }
 
 export type SnoozeChoice = '15m' | '1h' | 'manual' | 'resume'
+export type SnoozeUpdateResult =
+  | { ok: true; policy: NotificationPolicy }
+  | { ok: false; policy: NotificationPolicy; error: 'invalid-update' | 'snooze-limit' }
 export const GROUP_WINDOW_MS = 2_000
 const MAX_ID_LENGTH = 256
 const MAX_MUTED_PROJECTS = 200
 const MAX_REMINDER_SNOOZES = 500
 const MAX_HANDLED_TRANSITIONS = 1_000
+export const MAX_PENDING_GROUPS = 500
+export const MAX_GROUP_CANDIDATES = 500
+export const MAX_NOTIFICATION_BYTES = STORE_BYTES
 
 function validId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH
@@ -85,23 +92,35 @@ function object(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function own(record: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+}
+
 /** A bounded, restart-safe view of the controls persisted by a later worker integration. */
 export function readNotificationPolicy(value: unknown, now: number): NotificationPolicy {
   const stored = object(value)
   if (!stored || !Number.isFinite(now) || now < 0) return emptyNotificationPolicy()
 
-  const mutedProjects = Array.isArray(stored.mutedProjects)
-    ? [...new Set(stored.mutedProjects.slice(0, MAX_MUTED_PROJECTS * 4).filter(validId))].sort(compareText).slice(0, MAX_MUTED_PROJECTS)
+  const mutedValue = own(stored, 'mutedProjects')
+  const mutedProjects = Array.isArray(mutedValue)
+    ? [...new Set(mutedValue.slice(0, MAX_MUTED_PROJECTS * 4).filter(validId))].sort(compareText).slice(0, MAX_MUTED_PROJECTS)
     : []
 
   const snoozes = new Map<string, ReminderSnooze>()
-  if (Array.isArray(stored.reminderSnoozes)) {
-    for (const value of stored.reminderSnoozes.slice(-MAX_REMINDER_SNOOZES * 2)) {
+  const snoozeValue = own(stored, 'reminderSnoozes')
+  if (Array.isArray(snoozeValue)) {
+    for (const value of snoozeValue.slice(-MAX_REMINDER_SNOOZES * 2)) {
       const entry = object(value)
-      if (!entry || !validId(entry.episodeId) || !Number.isFinite(entry.setAt) || (entry.setAt as number) < 0 || (entry.setAt as number) > now) continue
-      const expiresAt = entry.expiresAt
-      if (expiresAt !== null && (!Number.isFinite(expiresAt) || (expiresAt as number) <= now || (expiresAt as number) <= (entry.setAt as number))) continue
-      const parsed = { episodeId: entry.episodeId, expiresAt: expiresAt as number | null, setAt: entry.setAt as number }
+      if (!entry) continue
+      const episodeId = own(entry, 'episodeId')
+      const setAt = own(entry, 'setAt')
+      const expiresAt = own(entry, 'expiresAt')
+      if (!validId(episodeId) || !Number.isFinite(setAt) || (setAt as number) < 0 || (setAt as number) > now || expiresAt === undefined) continue
+      if (expiresAt !== null && (!Number.isFinite(expiresAt) ||
+          ((expiresAt as number) !== (setAt as number) + 15 * 60_000 &&
+           (expiresAt as number) !== (setAt as number) + 60 * 60_000) ||
+          (expiresAt as number) <= now)) continue
+      const parsed = { episodeId, expiresAt: expiresAt as number | null, setAt: setAt as number }
       const previous = snoozes.get(parsed.episodeId)
       if (!previous || parsed.setAt > previous.setAt) snoozes.set(parsed.episodeId, parsed)
     }
@@ -112,11 +131,15 @@ export function readNotificationPolicy(value: unknown, now: number): Notificatio
     .sort((a, b) => compareText(a.episodeId, b.episodeId))
 
   const handledTransitions: HandledTransition[] = []
-  if (Array.isArray(stored.handledTransitions)) {
-    for (const value of stored.handledTransitions.slice(-MAX_HANDLED_TRANSITIONS * 4)) {
+  const handledValue = own(stored, 'handledTransitions')
+  if (Array.isArray(handledValue)) {
+    for (const value of handledValue.slice(-MAX_HANDLED_TRANSITIONS * 4)) {
       const entry = object(value)
-      if (!entry || !validId(entry.episodeId) || !validId(entry.transitionId)) continue
-      const identity = { episodeId: entry.episodeId, transitionId: entry.transitionId }
+      if (!entry) continue
+      const episodeId = own(entry, 'episodeId')
+      const transitionId = own(entry, 'transitionId')
+      if (!validId(episodeId) || !validId(transitionId)) continue
+      const identity = { episodeId, transitionId }
       if (handledTransitions.some((prior) => sameTransition(prior, identity))) continue
       handledTransitions.push(identity)
     }
@@ -149,20 +172,30 @@ export function setReminderSnooze(
   episodeId: string,
   now: number,
   choice: SnoozeChoice
-): NotificationPolicy {
-  if (!validId(episodeId) || !Number.isFinite(now) || now < 0 || !['15m', '1h', 'manual', 'resume'].includes(choice)) return policy
-  const reminderSnoozes = policy.reminderSnoozes.filter((entry) => entry.episodeId !== episodeId)
-  if (choice !== 'resume') {
-    const expiresAt = choice === '15m' ? now + 15 * 60_000 : choice === '1h' ? now + 60 * 60_000 : null
-    reminderSnoozes.push({ episodeId, expiresAt, setAt: now })
+): SnoozeUpdateResult {
+  if (!validId(episodeId) || !Number.isFinite(now) || now < 0 || !['15m', '1h', 'manual', 'resume'].includes(choice)) {
+    return { ok: false, policy, error: 'invalid-update' }
   }
-  return {
+  const reminderSnoozes = policy.reminderSnoozes.filter((entry) =>
+    entry.expiresAt === null || entry.expiresAt > now
+  )
+  const existing = reminderSnoozes.some((entry) => entry.episodeId === episodeId)
+  const withoutEpisode = reminderSnoozes.filter((entry) => entry.episodeId !== episodeId)
+  if (choice !== 'resume' && !existing && withoutEpisode.length >= MAX_REMINDER_SNOOZES) {
+    return { ok: false, policy, error: 'snooze-limit' }
+  }
+  if (choice === 'resume') {
+    return { ok: true, policy: { ...policy, reminderSnoozes: withoutEpisode } }
+  }
+  const expiresAt = choice === '15m' ? now + 15 * 60_000 : choice === '1h' ? now + 60 * 60_000 : null
+  const nextSnoozes = [...withoutEpisode, { episodeId, expiresAt, setAt: now }]
+  return { ok: true, policy: {
     ...policy,
-    reminderSnoozes: reminderSnoozes
+    reminderSnoozes: nextSnoozes
       .sort((a, b) => b.setAt - a.setAt || compareText(a.episodeId, b.episodeId))
       .slice(0, MAX_REMINDER_SNOOZES)
       .sort((a, b) => compareText(a.episodeId, b.episodeId))
-  }
+  } }
 }
 
 export function isReminderSnoozed(policy: NotificationPolicy, episodeId: string, now: number): boolean {
@@ -189,7 +222,8 @@ export type PendingTransitionGroup = {
   candidates: TransitionCandidate[]
 }
 export type NotificationQueue = { pending: PendingTransitionGroup[] }
-export type QueueResult = { queue: NotificationQueue; policy: NotificationPolicy; notifications: NotificationMessage[] }
+export type QueueRefusal = { reason: 'invalid-candidate' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' }
+export type QueueResult = { queue: NotificationQueue; policy: NotificationPolicy; notifications: NotificationMessage[]; refusals: QueueRefusal[] }
 
 export function emptyNotificationQueue(): NotificationQueue {
   return { pending: [] }
@@ -207,7 +241,8 @@ function validCandidate(candidate: TransitionCandidate): boolean {
   return validId(candidate.episodeId) && validId(candidate.transitionId) && validId(candidate.projectId) &&
     (candidate.kind === 'blocked' || candidate.kind === 'finished' || candidate.kind === 'failed') &&
     typeof candidate.projectName === 'string' && typeof candidate.agentName === 'string' &&
-    typeof candidate.notification?.title === 'string' && candidate.notification.title.length > 0
+    typeof candidate.notification?.title === 'string' && candidate.notification.title.length > 0 &&
+    (candidate.notification.body === undefined || typeof candidate.notification.body === 'string')
 }
 
 function groupKey(a: Pick<PendingTransitionGroup, 'projectId' | 'kind'>, b: Pick<TransitionCandidate, 'projectId' | 'kind'>): boolean {
@@ -227,18 +262,36 @@ function summarize(group: PendingTransitionGroup): NotificationMessage {
       }
 }
 
-/** Flush only elapsed groups, rechecking mute with current controls; pending groups are never persisted. */
-export function flushTransitionQueue(queue: NotificationQueue, policy: NotificationPolicy, now: number): QueueResult {
+/**
+ * Integration contract: persist consumed identities before dispatch; discard pending groups on restart;
+ * recheck live eligibility and mute at dispatch; schedule at most one qualifying reminder at snooze expiry;
+ * resume/unmute never triggers historical catch-up.
+ */
+/** Flush elapsed groups after rechecking current eligibility and mute; pending groups are transient. */
+export function flushTransitionQueue(
+  queue: NotificationQueue,
+  policy: NotificationPolicy,
+  now: number,
+  isEligible: (candidate: TransitionCandidate) => boolean
+): QueueResult {
   const due = queue.pending.filter((group) => group.deadline <= now)
     .sort((a, b) => a.deadline - b.deadline || compareText(a.projectId, b.projectId) || compareText(a.kind, b.kind))
-  const notifications = due
-    .filter((group) => !policy.mutedProjects.includes(group.projectId))
-    .map(summarize)
+  const notifications: NotificationMessage[] = []
+  const refusals: QueueRefusal[] = []
+  for (const group of due) {
+    if (policy.mutedProjects.includes(group.projectId)) continue
+    const eligible = { ...group, candidates: group.candidates.filter(isEligible) }
+    if (eligible.candidates.length === 0) continue
+    const notification = summarize(eligible)
+    if (jsonBytes(notification) > MAX_NOTIFICATION_BYTES) refusals.push({ reason: 'notification-too-large' })
+    else notifications.push(notification)
+  }
   const dueGroups = new Set(due)
   return {
     queue: { pending: queue.pending.filter((group) => !dueGroups.has(group)) },
     policy,
-    notifications
+    notifications,
+    refusals
   }
 }
 
@@ -247,16 +300,21 @@ export function queueTransition(
   queue: NotificationQueue,
   policy: NotificationPolicy,
   candidate: TransitionCandidate,
-  now: number
+  now: number,
+  isEligible: (candidate: TransitionCandidate) => boolean
 ): QueueResult {
-  const elapsed = flushTransitionQueue(queue, policy, now)
-  if (!validCandidate(candidate) || !Number.isFinite(now) || now < 0) return elapsed
+  const elapsed = flushTransitionQueue(queue, policy, now, isEligible)
+  const refuse = (reason: QueueRefusal['reason']): QueueResult => ({ ...elapsed, refusals: [...elapsed.refusals, { reason }] })
+  if (!Number.isFinite(now) || now < 0 || !validCandidate(candidate)) return refuse('invalid-candidate')
+  if (jsonBytes(candidate) > MAX_NOTIFICATION_BYTES) return refuse('candidate-too-large')
+  if (!isEligible(candidate)) return elapsed
   const identity = transitionIdentity(candidate)
   if (elapsed.policy.handledTransitions.some((prior) => sameTransition(prior, identity)) ||
       elapsed.queue.pending.some((group) => group.candidates.some((prior) => sameTransition(transitionIdentity(prior), identity)))) return elapsed
+  if (elapsed.policy.handledTransitions.length >= MAX_HANDLED_TRANSITIONS) return refuse('handled-identity-limit')
   const nextPolicy = {
     ...elapsed.policy,
-    handledTransitions: [...elapsed.policy.handledTransitions, identity].slice(-MAX_HANDLED_TRANSITIONS)
+    handledTransitions: [...elapsed.policy.handledTransitions, identity]
   }
   if (elapsed.policy.mutedProjects.includes(candidate.projectId)) return { ...elapsed, policy: nextPolicy }
 
@@ -272,8 +330,10 @@ export function queueTransition(
       candidates: [candidate]
     })
   } else {
+    if (pending[index].candidates.length >= MAX_GROUP_CANDIDATES) return refuse('group-candidate-limit')
     pending[index] = { ...pending[index], candidates: [...pending[index].candidates, candidate] }
   }
+  if (pending.length > MAX_PENDING_GROUPS || jsonBytes(pending) > STORE_BYTES) return refuse('pending-queue-full')
   pending.sort((a, b) => a.firstAt - b.firstAt || compareText(a.projectId, b.projectId) || compareText(a.kind, b.kind))
   return { ...elapsed, queue: { pending }, policy: nextPolicy }
 }
