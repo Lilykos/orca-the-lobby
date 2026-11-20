@@ -8,9 +8,11 @@ import {
   applyToolAfter,
   applyToolBefore,
   classify,
+  clearHistory,
   createOffice,
   describe,
   keepTerminals,
+  jsonBytes,
   placeWorkspace,
   projectRoot,
   prune,
@@ -267,6 +269,37 @@ test('bounds reconnect identity metadata and omits it from panel payloads', () =
   const restored = createOffice()
   restore(restored, stored, 24 * 60 * 60 * 1000 + 601)
   assert.deepEqual(snapshot(restored).completionIdentities, {})
+})
+
+test('retains bounded disconnected notification episodes without storing rows or oversizing UTF-8 data', () => {
+  const office = createOffice()
+  const now = 10_000
+  const longUnicode = '🧪'.repeat(100)
+  const agents = Array.from({ length: 510 }, (_, index) => ({
+    paneKey: `episode-${index}`,
+    state: 'blocked' as const,
+    sessionId: longUnicode,
+    turnId: longUnicode
+  }))
+  applyRoster(office, [{ path: '/episodes', hostId: 'local', agents }], now)
+  applyRoster(office, [{ path: '/episodes', hostId: 'local', agents: [] }], now + 1)
+  clearHistory(office)
+
+  const stored = storable(snapshot(office))
+  assert.equal(stored.agents.length, 0)
+  const retainedEpisodes = Object.keys(stored.notificationEpisodes ?? {}).length
+  assert.ok(retainedEpisodes > 0 && retainedEpisodes <= 500)
+  assert.ok(jsonBytes(stored) <= STORE_BYTES)
+  assert.equal(forPanel(stored).notificationEpisodes, undefined)
+
+  const restored = createOffice()
+  restore(restored, JSON.parse(JSON.stringify(stored)), now + 2)
+  applyRoster(restored, [{ path: '/episodes', agents: [] }], now + 3)
+  assert.equal(snapshot(restored).agents.length, 0)
+  assert.equal(Object.keys(snapshot(restored).notificationEpisodes ?? {}).length, retainedEpisodes)
+
+  applyRoster(restored, [{ path: '/episodes', agents: [] }], now + 24 * 60 * 60 * 1000 + 1)
+  assert.deepEqual(snapshot(restored).notificationEpisodes, {})
 })
 
 test('sorts tools into what the character does', () => {

@@ -197,7 +197,9 @@ export default function activate(orca: OrcaWorkerApi): void {
   const currentTransition = (candidate: TransitionCandidate): AgentView | undefined =>
     [...office.agents.values()].find((agent) =>
       episodeOfAgent(agent) === candidate.episodeId && projectOfAgent(agent) === candidate.projectId &&
-      candidate.transitionId === (agent.state === 'done' ? agent.completionId ?? `${agent.state}:${agent.stateStartedAt}` : `${agent.state}:${agent.stateStartedAt}`) &&
+      candidate.transitionId === (agent.state === 'done'
+        ? agent.completionId ?? agent.notificationTransitionId ?? `${agent.state}:${agent.stateStartedAt}`
+        : agent.notificationTransitionId ?? `${agent.state}:${agent.stateStartedAt}`) &&
       (candidate.kind === 'blocked'
         ? agent.state === 'blocked' && prefs.notifyBlocked
         : agent.state === 'done' && (candidate.kind === 'failed' ? agent.outcome === 'failure' : agent.outcome !== 'failure') && prefs.notifyDone)
@@ -406,9 +408,21 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (worktrees) {
       rosterObserved = true
       const identitiesBefore = new Map([...office.agents].map(([id, agent]) => [id, agent.completionId]))
+      const notificationStateBefore = JSON.stringify([
+        [...office.agents].map(([id, agent]) => [id, agent.stateStartedAt, agent.notificationEpisodeId, agent.notificationTransitionId, agent.notificationTurnId]),
+        [...office.notificationEpisodes]
+      ])
+      const hadNotificationState = office.agents.size > 0 || office.notificationEpisodes.size > 0
       applyRoster(office, worktrees, Date.now())
       if (!office.attentionTracking) startAttentionTracking(office, Date.now())
-      if ([...office.agents].some(([id, agent]) => agent.completionId && identitiesBefore.get(id) !== agent.completionId)) {
+      const completionChanged = [...office.agents].some(([id, agent]) => agent.completionId && identitiesBefore.get(id) !== agent.completionId)
+      const notificationStateChanged = hadNotificationState && notificationStateBefore !== JSON.stringify([
+        [...office.agents].map(([id, agent]) => [id, agent.stateStartedAt, agent.notificationEpisodeId, agent.notificationTransitionId, agent.notificationTurnId]),
+        [...office.notificationEpisodes]
+      ])
+      if (notificationStateChanged && officeStorageAvailable) {
+        void persist().catch((error) => orca.log(`notification episode: ${error}`))
+      } else if (completionChanged) {
         void persist().catch((error) => orca.log(`completion identity: ${error}`))
       }
     }
@@ -489,8 +503,8 @@ export default function activate(orca: OrcaWorkerApi): void {
       const episodeId = episodeOfAgent(agent)
       if (!episodeId) continue
       const transitionId = agent.state === 'done'
-        ? agent.completionId ?? `${agent.state}:${agent.stateStartedAt}`
-        : `${agent.state}:${agent.stateStartedAt}`
+        ? agent.completionId ?? agent.notificationTransitionId ?? `${agent.state}:${agent.stateStartedAt}`
+        : agent.notificationTransitionId ?? `${agent.state}:${agent.stateStartedAt}`
       const candidate = notificationForTransition(was, {
         state: agent.state,
         stateStartedAt: agent.stateStartedAt,
@@ -621,15 +635,18 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.events.on('agent.status.changed', (event) => {
     const workspaceId = roomOf(event.workspaceId)
-    const prior = [...office.agents.values()].find((agent) =>
+    const before = [...office.agents.values()].find((agent) =>
       (event.terminalId && agent.terminalId === event.terminalId) || agent.paneKey === event.paneKey
-    )?.completionId
+    )
     applyStatus(office, { ...event, workspaceId })
     const current = [...office.agents.values()].find((agent) =>
       (event.terminalId && agent.terminalId === event.terminalId) || agent.paneKey === event.paneKey
     )
-    if (event.state === 'done' && current?.completionId && current.completionId !== prior) {
-      void persist().catch((error) => orca.log(`completion identity: ${error}`))
+    const notificationEpisodeChanged = !!current && (current.notificationEpisodeId !== before?.notificationEpisodeId ||
+      current.notificationTransitionId !== before?.notificationTransitionId)
+    const completionChanged = event.state === 'done' && !!current?.completionId && current.completionId !== before?.completionId
+    if (officeStorageAvailable && (notificationEpisodeChanged || completionChanged)) {
+      void persist().catch((error) => orca.log(`${completionChanged ? 'completion identity' : 'notification episode'}: ${error}`))
     }
     place(workspaceId)
     if (workspaceId && !office.workspaces.has(workspaceId)) void nameWorkspaces()

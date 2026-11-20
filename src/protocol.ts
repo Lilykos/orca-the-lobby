@@ -196,6 +196,10 @@ export type AgentView = {
   completionTracked: boolean
   /** Worker-private persisted snooze episode; retained across same-state metadata corrections. */
   notificationEpisodeId?: string
+  /** Worker-private transition identity; source timestamps may be corrected after observation. */
+  notificationTransitionId?: string
+  /** Hash of the current roster turn id, when Orca reports one. */
+  notificationTurnId?: string
   /** A terminal's title, or the name Orca gives the conversation. */
   title: string | null
   /** The last thing it was asked, and the last thing it said, when Orca knows. */
@@ -262,6 +266,16 @@ export type OfficeSnapshot = {
   reviewedCompletions?: string[]
   /** Worker persistence for reconnect identity continuity; omitted from panel updates. */
   completionIdentities?: Record<string, { id: string; sourceAt: number | null; turnId: string | null; observedAt: number; tracked: boolean }>
+  /** Bounded disconnected-agent snooze identity metadata; omitted from panel updates. */
+  notificationEpisodes?: Record<string, {
+    id: string
+    transitionId: string
+    state: AgentState
+    stateStartedAt: number
+    observedAt: number
+    sessionId: string | null
+    turnId: string | null
+  }>
   /** Locally observed, bounded history, oldest first. */
   journal: JournalEvent[]
   /** Workspace path (an agent's `workspaceId`) to the name Orca gives it, which its agents go by. */

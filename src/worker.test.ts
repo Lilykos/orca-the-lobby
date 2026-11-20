@@ -638,7 +638,11 @@ test('a snoozed observed episode survives roster time correction and restart, bu
     const corrected = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent' })
     assert.equal(corrected.episodeId, blockedEpisode)
     assert.equal(corrected.snoozed, true)
+    await waitUntil('corrected episode identity is durable', () =>
+      (host.data().storage.office as OfficeSnapshot | undefined)?.agents.find((agent) => agent.id === 'episode-agent')?.notificationEpisodeId === blockedEpisode
+    )
     await worker.deactivate()
+    assert.ok(host.data().storage.office)
     worker = await mountWorker(main, { host })
     await waitUntil('restored episode baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'episode-agent'))
     const restored = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent', episodeId: blockedEpisode })
@@ -656,6 +660,133 @@ test('a snoozed observed episode survives roster time correction and restart, bu
     assert.equal(sameObservedEpisode.episodeId, nextEpisode.episodeId)
   } finally {
     await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a snoozed episode survives roster removal and restart but a new turn supersedes it', async () => {
+  const transitionAt = Date.now()
+  const sourceAt = transitionAt - 5_000
+  const heartbeat = { paneKey: 'heartbeat-agent', state: 'working' as const, agentType: 'claude' }
+  listed = [{ path: '/notification-reconnect', agents: [
+    { paneKey: 'reconnect-agent', state: 'working', stateStartedAt: transitionAt - 60_000, turnId: 'turn-a', agentType: 'claude' }, heartbeat
+  ] }]
+  const host = mockHost({ storage: { prefs: { notifyBlocked: false } } })
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('reconnect target baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'reconnect-agent'))
+    await waitUntil('reconnect notification policy ready', async () => (await worker.request('notification.control.read', { projectId: '/notification-reconnect' })).status === 'ready')
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/notification-reconnect', paneKey: 'reconnect-agent', state: 'blocked', receivedAt: transitionAt
+    })
+    const blocked = await worker.request('notification.control.read', { projectId: '/notification-reconnect', agentId: 'reconnect-agent' })
+    const snoozedEpisode = blocked.episodeId!
+    assert.deepEqual(await worker.request('notification.reminder.snooze', {
+      projectId: '/notification-reconnect', agentId: 'reconnect-agent', episodeId: snoozedEpisode, choice: 'manual'
+    }), { ok: true })
+
+    listed![0].agents![0].state = 'blocked'
+    listed![0].agents![0].stateStartedAt = sourceAt
+    await waitUntil('late roster timestamp correction', async () =>
+      (await worker.request('office.snapshot')).agents.find((agent) => agent.id === 'reconnect-agent')?.stateStartedAt === sourceAt
+    )
+    listed = [{ path: '/notification-reconnect', agents: [heartbeat] }]
+    await waitUntil('roster removal', async () => !(await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'reconnect-agent'))
+    await waitUntil('disconnected episode metadata saved', () => {
+      const stored = host.data().storage.office as { notificationEpisodes?: Record<string, unknown> } | undefined
+      return Object.keys(stored?.notificationEpisodes ?? {}).length > 0
+    })
+
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('empty roster after restart', async () => (await worker.request('office.snapshot')).agents.length === 0)
+    listed = [{ path: '/notification-reconnect', agents: [
+      { paneKey: 'reconnect-agent', state: 'blocked', stateStartedAt: sourceAt, turnId: 'turn-a', agentType: 'claude' }, heartbeat
+    ] }]
+    await waitUntil('same episode reconnects', async () => {
+      const state = await worker.request('notification.control.read', { projectId: '/notification-reconnect', agentId: 'reconnect-agent' })
+      return state.status === 'ready' && state.snoozed === true
+    })
+    const reconnected = await worker.request('notification.control.read', { projectId: '/notification-reconnect', agentId: 'reconnect-agent' })
+    assert.equal(reconnected.episodeId, snoozedEpisode)
+    assert.equal(reconnected.snoozed, true)
+
+    listed![0].agents![0].turnId = 'turn-b'
+    await waitUntil('new reported turn supersedes old snooze', async () => {
+      const state = await worker.request('notification.control.read', { projectId: '/notification-reconnect', agentId: 'reconnect-agent' })
+      return state.status === 'ready' && state.episodeId !== snoozedEpisode
+    })
+    const nextTurn = await worker.request('notification.control.read', { projectId: '/notification-reconnect', agentId: 'reconnect-agent' })
+    assert.equal(nextTurn.snoozed, false)
+    listed = [{ path: '/notification-reconnect', agents: [heartbeat] }]
+    await waitUntil('new turn removed without resurrecting metadata rows', async () => !(await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'reconnect-agent'))
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    listed = [{ path: '/notification-reconnect', agents: [heartbeat] }]
+    await waitUntil('restart keeps unlisted agent absent', async () => !(await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'reconnect-agent'))
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a late roster timestamp correction cannot invalidate a pending blocked notification', async () => {
+  const transitionAt = Date.now()
+  const sourceAt = transitionAt - 5_000
+  const heartbeat = { paneKey: 'correction-heartbeat', state: 'working' as const, agentType: 'claude' }
+  listed = [{ path: '/notification-correction', agents: [
+    { paneKey: 'correction-agent', state: 'working', stateStartedAt: transitionAt - 60_000, agentType: 'claude' }, heartbeat
+  ] }]
+  const host = mockHost()
+  let worker = await mountWorker(main, { host })
+  const originalRoster = cli.roster
+  let releaseRoster!: () => void
+  let rosterStarted = false
+  let gateNextRoster = false
+  const rosterGate = new Promise<void>((resolve) => { releaseRoster = resolve })
+  cli.roster = async () => {
+    if (gateNextRoster) {
+      gateNextRoster = false
+      rosterStarted = true
+      await rosterGate
+    }
+    return listed
+  }
+  try {
+    await waitUntil('late correction transition baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'correction-agent'))
+    await waitUntil('late correction notification baseline', () => host.callsOf('statusBar.update').length > 0)
+    gateNextRoster = true
+    await waitUntil('roster poll paused before correction', () => rosterStarted)
+    const transition = worker.emit('agent.status.changed', {
+      workspaceId: '/notification-correction', paneKey: 'correction-agent', state: 'blocked', receivedAt: transitionAt
+    })
+    await waitUntil('late correction identity persisted', () => {
+      const policy = host.data().storage['notification.policy'] as { handledTransitions?: { kind: string; transitionId: string }[] } | undefined
+      return policy?.handledTransitions?.some((entry) => entry.kind === 'transition') === true
+    })
+    listed![0].agents![0].state = 'blocked'
+    listed![0].agents![0].stateStartedAt = sourceAt
+    releaseRoster()
+    await waitUntil('late correction applied before queue deadline', async () =>
+      (await worker.request('office.snapshot')).agents.find((agent) => agent.id === 'correction-agent')?.stateStartedAt === sourceAt
+    )
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    await transition
+    assert.equal(host.callsOf('notifications.show').length, 1)
+    const calls = host.calls.map((call) => call.method)
+    assert.ok(calls.indexOf('storage.set') < calls.indexOf('notifications.show'))
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('late correction restart baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'correction-agent'))
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/notification-correction', paneKey: 'correction-agent', state: 'blocked', receivedAt: transitionAt
+    })
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    assert.equal(host.callsOf('notifications.show').length, 1)
+  } finally {
+    releaseRoster()
+    await worker.deactivate()
+    cli.roster = originalRoster
     listed = null
   }
 })
