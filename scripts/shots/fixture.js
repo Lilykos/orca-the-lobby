@@ -8,6 +8,11 @@ function agent(id,title,state,extra={}){return {id,terminalId:null,paneKey:id,wo
 const child={id:'b',kind:'agent',name:'Helper',description:'Keyboard review',tool:null,toolKind:null,state:'waiting',reported:true,lastReportedAt:now,missingSince:null};
 window.fixture={agents:[agent('a','Update settings layout','working',{family:[child]}),agent('b','Check keyboard navigation','waiting'),agent('c','Review a long task title that must wrap naturally without hiding its status','done',{unread:true})],journal:[{id:'event1',agentId:'a',workspaceId:'/w',projectId:'p',kind:'tool',source:'roster',observedAt:now,coverage:'sampled',tool:'Edit',detail:'panel/main.ts'}],workspaces:{'/w':'Fixture workspace'},projects:{p:'Fixture project'},changes:{'/w':{files:2,added:3,removed:1}},links:{},can:{open:true},today:{day:'',finished:0,failed:0,blockedMs:0}};
 const scenario=new URLSearchParams(location.search).get('scenario')||'linked';if(scenario==='peers')window.fixture.agents[0].family=[];if(scenario==='cycle')window.fixture.agents[1].family=[{...child,id:'a'}];if(scenario==='unknown'||scenario==='noid')window.fixture.agents[0].family=[{...child,id:scenario==='noid'?'':'missing',description:'Review keyboard access',tool:'Read'}];
+if(['attentionview','attentionkeyboard','attentionfail'].includes(scenario))window.fixture.agents=[agent('need','Needs a decision','blocked'),agent('fail','Failed result','done',{outcome:'failure',completionId:'a'.repeat(64),completionTracked:true}),agent('done','Successful result','done',{outcome:'success',completionId:'b'.repeat(64),completionTracked:true})];
+if(scenario==='attentionemptyview')window.fixture.agents=[agent('quiet','No action needed','working')];
+if(scenario==='attentionlive')window.fixture.agents=Array.from({length:100},(_,i)=>agent('a'+i,'Agent '+i,i===0?'blocked':'working'));
+if(scenario==='searchviews'){window.fixture.agents=[agent('parent','Parent orchestrator','working'),agent('child','Feature [one] implementation','working',{parentId:'parent',parentPaneKey:'parent'}),agent('other','Feature one other project','working',{projectId:'q',workspaceId:'/q'})];window.fixture.projects.q='Other project'}
+if(scenario==='preferences')window.fixture.agents=[agent('a','Preference migration','working')];
 // fixture data: terminal actions
 if(scenario==='actions'||scenario==='actionslive')window.fixture.agents=[agent('a','Update settings layout','working',{agent:'claude'}),agent('b','Check keyboard navigation','waiting'),agent('c','Review the chat session','done',{agent:'claude'}),agent('d','Needs a decision','blocked',{agent:'claude'}),agent('e','Nothing to reach','done')];
 // fixture data: context
@@ -42,7 +47,7 @@ if(scenario==='attention'||scenario==='attentionempty'||scenario==='big'){
     window.fixture.agents=list;
   }
 }
-let listener;const stored={};window.orca={storage:{get:async k=>stored[k]??null,set:async(k,v)=>{if(scenario==='storagefail'&&k==='activity-view-cursors')throw Error('storage denied');stored[k]=v},onDidChange:()=>{}},plugin:{on:(name,fn)=>{listener=fn},request:async(name)=>name==='office.snapshot'?window.fixture:name==='office.clearHistory'?((window.fixture.journal=[],listener(window.fixture),{cleared:scenario!=='clearfail'})):{opened:true}},shell:{openExternal:()=>{}}};
+let listener;const stored={prefs:{notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:[]}};if(scenario==='newinstall')delete stored.prefs;window.goToCalls=0;window.orca={storage:{get:async k=>stored[k]??null,set:async(k,v)=>{if(scenario==='storagefail'&&k==='activity-view-cursors')throw Error('storage denied');stored[k]=v},onDidChange:()=>{}},plugin:{on:(name,fn)=>{listener=fn},request:async(name,input)=>name==='office.snapshot'?window.fixture:name==='attention.review'?scenario==='attentionfail'?{ok:false,error:'Could not save the review.'}:{ok:true}:name==='office.goTo'?(window.goToCalls++,{ok:true,note:'Opened fixture agent.'}):name==='office.clearHistory'?((window.fixture.journal=[],listener(window.fixture),{cleared:scenario!=='clearfail'})):{opened:true}},shell:{openExternal:()=>{}}};
 // media: the DEMO dataset, with the person's saved choices (?layout=grid&palette=dracula&stuck=20) and friendly names.
 if(scenario==='media'){
 const demo=DEMO.build(now,{fresh:params.get('fresh')==='1',only:params.get('only')?params.get('only').split(','):undefined}),prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:params.get('palette')||'orca',layout:params.get('layout')==='grid'?'grid':'list',stuckMinutes:+(params.get('stuck')||20)};
@@ -210,6 +215,46 @@ btn('office-row:a').click();await wait();
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 // fixture checks: bubbles
+if(scenario==='searchviews'){
+const must=(ok,m)=>{if(!ok)throw Error(m)};const search=document.querySelector('#view-filters input');search.value='FEATURE [ONE]';search.dispatchEvent(new Event('input',{bubbles:true}));await wait();
+must(document.querySelectorAll('#offices [data-focus-key^="office-row:"]').length===1&&document.querySelector('[data-focus-key="office-row:child"]'),'Office search did not use a literal normalized match');must(document.querySelector('#filter-count').textContent==='1 match','shared match count did not update');
+document.querySelector('#activity-tab').click();await wait();must(document.querySelector('[data-focus-key="chart-node:child"]')&&!document.querySelector('[data-focus-key="chart-node:other"]')&&document.querySelector('[data-focus-key="chart-node:parent"]'),'Activity search lost its chart ancestor or included a nonmatch');
+search.value='';search.dispatchEvent(new Event('input',{bubbles:true}));await wait();const project=document.querySelector('#view-filters select');project.value='q';project.dispatchEvent(new Event('change',{bubbles:true}));await wait();must(!document.querySelector('[data-focus-key="chart-node:child"]')&&document.querySelector('[data-focus-key="chart-node:other"]'),'project filter did not apply across views');must(document.querySelector('#filter-count').textContent==='1 match','project match count did not update');
+document.querySelector('#attention-tab').click();await wait();must(document.querySelector('#view-filters select').value==='q','project filter did not persist into Attention');
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='newinstall'){
+const must=(ok,m)=>{if(!ok)throw Error(m)};must(document.querySelector('#attention-tab').getAttribute('aria-selected')==='true','new installation did not open Attention');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='preferences'){
+const must=(ok,m)=>{if(!ok)throw Error(m)};must(document.querySelector('#office-tab').getAttribute('aria-selected')==='true','1.2 preferences did not preserve Office');const brand=document.querySelector('#brand-toggle');must(!document.querySelector('#banner').hidden,'Office banner unexpectedly hidden');brand.click();must(document.querySelector('#banner').hidden&&brand.getAttribute('aria-expanded')==='false','Office branding did not collapse accessibly');brand.click();
+document.querySelector('#settings-tab').click();await wait();const density=document.querySelector('select[name="density"]');must(density.value==='comfortable','upgrade density was not Comfortable');density.value='compact';density.dispatchEvent(new Event('change',{bubbles:true}));await wait();must(document.documentElement.classList.contains('compact'),'Compact density not applied');document.querySelector('#activity-tab').click();await wait();must(stored.prefs.selectedView==='activity','functional view was not persisted');document.querySelector('#settings-tab').click();await wait();must(stored.prefs.selectedView==='activity','Settings was persisted as startup view');
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='attentionemptyview'){
+document.querySelector('#attention-tab').click();await wait();if(document.querySelector('.attention-empty')?.textContent!=='Nothing needs your attention right now.')throw Error('empty Attention state missing');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='attentionlive'){
+document.querySelector('#attention-tab').click();await wait();const search=document.querySelector('#view-filters input');search.value='Agent';search.dispatchEvent(new Event('input',{bubbles:true}));await wait();search.focus();window.scrollTo(0,300);const at=document.scrollingElement.scrollTop;listener({...window.fixture,agents:window.fixture.agents.map(x=>({...x,lastSeenAt:x.lastSeenAt+1}))});await wait();if(document.activeElement!==search||search.value!=='Agent'||document.scrollingElement.scrollTop!==at)throw Error('100-agent update lost focus, query or scroll');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='attentionkeyboard'){
+document.querySelector('#attention-tab').click();await wait();const review=document.querySelector('[data-focus-key="finished:done:review"]');if(!review)throw Error('keyboard review action missing');review.focus();window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='attentioncapture'){
+document.querySelector('#attention-tab').click();await wait();window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='attentionfail'){
+document.querySelector('#attention-tab').click();await wait();document.querySelector('[data-focus-key="finished:done:review"]').click();await wait();await wait();if(!document.querySelector('[data-focus-key="finished:done:review"]')||![...document.querySelectorAll('.attention-card')].find(x=>x.textContent.includes('Successful result'))?.querySelector('.attention-feedback')?.textContent.includes('Could not save'))throw Error('failed review was hidden or its error was not visible');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='attentionview'){
+const must=(ok,m)=>{if(!ok)throw Error(m)};document.querySelector('#attention-tab').click();await wait();
+must(document.querySelectorAll('.attention-card').length===3,'Attention cards missing');must(document.querySelector('.attention-counts').textContent==='1 need input · 1 failed · 1 finished to review','live group counts incorrect');
+document.querySelector('[data-focus-key="needs-input:need:go"]').click();await wait();await wait();must(window.goToCalls===1&&document.querySelector('[data-focus-key="needs-input:need:go"]'),'Go to agent did not use the validated action');must(document.querySelector('[data-focus-key="needs-input:need:go"]').closest('.attention-card').textContent.includes('Opened fixture agent.'),'navigation feedback missing');
+document.querySelector('[data-focus-key="finished:done:details"]').click();await wait();must(document.querySelector('.sheet'),'Review details did not open the drawer');document.querySelector('[data-focus-key="drawer-close"]').click();await wait();must(document.querySelector('#office-tab').getAttribute('aria-selected')==='true','closing details did not return to Office');document.querySelector('#attention-tab').click();await wait();
+const review=document.querySelector('[data-focus-key="finished:done:review"]');review.focus();review.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));review.click();await wait();await wait();must(![...document.querySelectorAll('.attention-title')].some(x=>x.textContent==='Successful result'),'Reviewed completion remained in the queue');must(document.querySelectorAll('.attention-card').length===2,'review removed an unrelated row');must(document.querySelector('#attention-feedback').textContent==='Reviewed in The Lobby.','successful review was not announced');
+const input=document.querySelector('#view-filters input');input.value='not present anywhere';input.dispatchEvent(new Event('input',{bubbles:true}));await wait();must(document.querySelector('.attention-empty')?.textContent==='No agents match these filters.','search state: '+document.querySelector('#attention-list').textContent);
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
 if(scenario==='emojibubble'){
 const must=(ok,m)=>{if(!ok)throw Error(m)};
 const drawn=[];const real=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(t,...rest){drawn.push(String(t));return real.call(this,t,...rest)};

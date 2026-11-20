@@ -35,6 +35,8 @@ import { assignAgentNames, readAgentNames } from './names'
 import { moveProject, orderProjects, projectGroups, taskLabel } from './work-map'
 import { chartLayout, needsAttention, hasAttention, attentionBranches, NODE_WIDTH, NODE_HEIGHT } from './chart'
 import { buildFamilyTree, syncFamilyExpansion, type FamilyNode } from './family'
+import { renderAttention } from './attention'
+import { filterAgents } from './search'
 import { PALETTES, PALETTE_OPTIONS, paletteVariables } from './palettes'
 import {
   agentName,
@@ -74,6 +76,11 @@ const primaryTabs = [...document.querySelectorAll<HTMLButtonElement>('.primary-t
 const pages = [...document.querySelectorAll<HTMLElement>('.page')]
 const activityList = document.getElementById('activity-list') as HTMLElement
 const settings = document.getElementById('settings') as HTMLElement
+const attentionList = document.getElementById('attention-list') as HTMLElement
+const attentionFeedback = document.getElementById('attention-feedback') as HTMLElement
+const filterBar = document.getElementById('view-filters') as HTMLElement
+let searchText = ''
+let projectFilter = 'all'
 /** Calls shown on a card before "Show all". */
 const CALLS = 8
 const AGENT_NAMES_KEY = 'friendly-agent-names'
@@ -286,8 +293,8 @@ function select(id: string | null): void {
 
 function renderList(): void {
   const now = Date.now()
-  const { agents } = office
-  const counts = countsLine()
+  const agents = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false)
+  const counts = countsLine(agents)
   const shown = officeBar.querySelector('.agent-counts')
   if (!shown) officeBar.prepend(counts)
   else if (shown.textContent !== counts.textContent) shown.replaceWith(counts)
@@ -346,9 +353,11 @@ function renderList(): void {
       list.replaceChildren()
       continue
     }
-    const rows = room.agents.map((agent) => listItem(agent, now))
+    const visible = new Set(agents.map((agent) => agent.id))
+    const rows = room.agents.filter((agent) => visible.has(agent.id)).map((agent) => listItem(agent, now))
     list.replaceChildren(...rows)
   }
+  if (!agents.length && (searchText || projectFilter !== 'all')) officeMessage.textContent = 'No agents match these filters.'
   if (focusedKey) {
     const target = focusTarget(
       [...offices.querySelectorAll<HTMLElement>('[data-focus-key]')]
@@ -683,7 +692,7 @@ function keepChartNodeVisible(focusKey: string): void {
   target?.scrollIntoView({ block: 'nearest' })
 }
 
-function setPage(id: string): void {
+function setPage(id: string, persist = true): void {
   const refreshOffice = shouldRefreshOffice(currentPage, id)
   currentPage = id
   for (const tab of primaryTabs) {
@@ -692,15 +701,100 @@ function setPage(id: string): void {
     tab.tabIndex = active ? 0 : -1
   }
   for (const page of pages) page.hidden = page.id !== `${id}-page`
+  filterBar.hidden = id === 'settings'
+  banner.hidden = id !== 'office' || brandCollapsed
+  document.documentElement.classList.toggle('compact', prefs.density === 'compact')
   if (id === 'activity') renderActivity()
+  if (id === 'attention') renderAttentionPage()
   if (refreshOffice) { listed = ''; renderList() }
+  if (persist && id !== 'settings') {
+    prefs = { ...prefs, selectedView: id as Prefs['selectedView'] }
+    void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+  }
   renderDrawer()
 }
 
+function renderAttentionPage(): void {
+  const filtered = { ...office, agents: filterAgents(office.agents, office, searchText, projectFilter, nameOf, false) }
+  renderAttention(attentionList, filtered, new Set(office.reviewedCompletions ?? []), {
+    go: (agent, done) => {
+      void orca.plugin.request('office.goTo', { agentId: agent.id }).then((result: ActionResult) => {
+        const message = result.ok ? result.note ?? 'Opened the agent in Orca.' : result.error
+        attentionFeedback.textContent = message
+        done(message)
+      }).catch(() => { attentionFeedback.textContent = 'Could not open this agent in Orca.'; done('Could not open this agent in Orca.') })
+    },
+    details: (agent) => { clearFilters(); selected = agent.id; setPage('office'); listed = ''; renderList() },
+    review: (agent, done) => {
+      void orca.plugin.request('attention.review', { completionId: agent.completionId! }).then((result: ActionResult) => {
+        if (!result.ok) { attentionFeedback.textContent = result.error; done(result.error); return }
+        attentionFeedback.textContent = 'Reviewed in The Lobby.'
+        office = { ...office, reviewedCompletions: [...new Set([...(office.reviewedCompletions ?? []), agent.completionId!])] }
+        renderAttentionPage()
+        done()
+      }).catch(() => { attentionFeedback.textContent = 'Could not save the review. Try again.'; done('Could not save the review. Try again.') })
+    }
+  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf)
+}
+
+let brandCollapsed = false
+document.getElementById('brand-toggle')!.addEventListener('click', (event) => {
+  brandCollapsed = !brandCollapsed
+  banner.hidden = brandCollapsed
+  const button = event.currentTarget as HTMLButtonElement
+  button.textContent = brandCollapsed ? 'Show Office banner' : 'Hide Office banner'
+  button.setAttribute('aria-expanded', String(!brandCollapsed))
+})
+
+function clearFilters(): void {
+  searchText = ''
+  projectFilter = 'all'
+  const query = filterBar.querySelector<HTMLInputElement>('input')
+  const project = filterBar.querySelector<HTMLSelectElement>('select')
+  if (query) query.value = ''
+  if (project) project.value = 'all'
+  renderFilters()
+  showOrder()
+}
+
+function renderFilters(): void {
+  const query = filterBar.querySelector<HTMLInputElement>('input')!
+  const project = filterBar.querySelector<HTMLSelectElement>('select')!
+  const options = ['all', ...projectOrder()]
+  const key = options.join('\u0000')
+  if (project.dataset.options !== key) {
+    project.replaceChildren(...options.map((id) => {
+      const option = document.createElement('option')
+      option.value = id
+      option.textContent = id === 'all' ? 'All projects' : projectName(id)
+      return option
+    }))
+    project.dataset.options = key
+  }
+  if (query.value !== searchText) query.value = searchText
+  project.value = options.includes(projectFilter) ? projectFilter : 'all'
+  const matches = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false).length
+  const count = document.getElementById('filter-count')!
+  count.textContent = searchText || projectFilter !== 'all' ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : `${office.agents.length} agents`
+}
+
+const searchInput = document.createElement('input')
+searchInput.type = 'search'
+searchInput.placeholder = 'Search tasks and workspace context'
+searchInput.setAttribute('aria-label', 'Search tasks and workspace context')
+searchInput.dataset.focusKey = 'shared-search'
+const projectSelect = document.createElement('select')
+projectSelect.setAttribute('aria-label', 'Filter by project')
+projectSelect.dataset.focusKey = 'shared-project'
+filterBar.append(searchInput, projectSelect)
+searchInput.addEventListener('input', () => { searchText = searchInput.value; renderFilters(); showOrder(); if (currentPage === 'attention') renderAttentionPage() })
+projectSelect.addEventListener('change', () => { projectFilter = projectSelect.value; renderFilters(); showOrder(); if (currentPage === 'attention') renderAttentionPage() })
+
 function renderActivity(): void {
   const order = projectOrder()
-  const groups = projectGroups(office.agents).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
-  if (activitySelected && !office.agents.some((agent) => agent.id === activitySelected)) activitySelected = null
+  const visibleAgents = filterAgents(office.agents, office, searchText, projectFilter, nameOf)
+  const groups = projectGroups(visibleAgents).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+  if (activitySelected && !visibleAgents.some((agent) => agent.id === activitySelected)) activitySelected = null
   const trees = groups.map((item) => buildFamilyTree(item.agents))
   syncFamilyExpansion(trees.flat(), expandedFamilies, seenFamilyBranches)
   const findHelper = (nodes: FamilyNode[]): FamilyNode | undefined => {
@@ -714,7 +808,7 @@ function renderActivity(): void {
   const selectedHelper = activityHelper ? findHelper(trees.flat()) : undefined
   if (activityHelper && !selectedHelper) activityHelper = null
   drawerHelper = selectedHelper ?? null
-  const key = JSON.stringify([office.agents, office.can, office.projects, office.workspaces, office.usage, activitySelected, activityHelper, [...expandedFamilies], [...foldedCharts], activityFilter, prefs.layout, order, timeRefreshBucket(Date.now())])
+  const key = JSON.stringify([visibleAgents, searchText, projectFilter, office.can, office.projects, office.workspaces, office.usage, activitySelected, activityHelper, [...expandedFamilies], [...foldedCharts], activityFilter, prefs.layout, order, timeRefreshBucket(Date.now())])
   if (key === activityRenderKey) return renderDrawer()
   activityRenderKey = key
   const focused = activityList.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
@@ -727,13 +821,13 @@ function renderActivity(): void {
     oldBlocks.set(viewport.dataset.project, block)
   }
   if (!groups.length) {
-    activityList.replaceChildren(element('p', 'quiet', 'No agents to show yet.'))
+    activityList.replaceChildren(element('p', 'quiet', office.agents.length ? 'No agents match these filters.' : 'No agents to show yet.'))
     return renderDrawer()
   }
   const attentionOnly = activityFilter === 'attention'
   const counts = trees.map((roots) => roots.reduce((sum, root) => sum + countAttention(root), 0))
   const attentionTotal = counts.reduce((sum, count) => sum + count, 0)
-  const children: HTMLElement[] = [filterToggle(attentionTotal, office.agents.length)]
+  const children: HTMLElement[] = [filterToggle(attentionTotal, visibleAgents.length)]
   const items: HTMLElement[] = []
   if (attentionOnly && !attentionTotal) children.push(attentionEmpty())
   else {
@@ -871,8 +965,8 @@ function countAttention(node: FamilyNode): number {
 }
 
 /** "● 3 working · ● 2 done · ● 1 failed", in the state colors; needs-you only when someone does. */
-function countsLine(): HTMLElement {
-  const counts = agentCounts(office.agents)
+function countsLine(agents: AgentView[] = office.agents): HTMLElement {
+  const counts = agentCounts(agents)
   const line = element('span', 'agent-counts')
   line.setAttribute('role', 'status')
   const parts: [number, string, string][] = [
@@ -912,6 +1006,7 @@ function layoutToggle(): HTMLElement {
 
 function applyLayout(): void {
   const root = document.documentElement
+  root.classList.toggle('compact', prefs.density === 'compact')
   const wide = root.clientWidth >= GRID_MIN_WIDTH
   const grid = wide && prefs.layout === 'grid'
   if (root.classList.contains('grid') !== grid && currentPage === 'activity') queueMicrotask(() => { activityRenderKey = ''; renderActivity() })
@@ -1771,8 +1866,10 @@ async function acceptSnapshot(snapshot: OfficeSnapshot): Promise<void> {
   agentNames = assignAgentNames(snapshot.agents.map((agent) => agent.id), agentNames)
   if (JSON.stringify([...agentNames]) !== previousNames)
     void orca.storage.set(AGENT_NAMES_KEY, Object.fromEntries(agentNames)).catch(() => {})
+  renderFilters()
   renderList()
   if (currentPage === 'activity') renderActivity()
+  if (currentPage === 'attention') renderAttentionPage()
 }
 
 function refresh(): void {
@@ -1856,7 +1953,7 @@ function aboutCard(): HTMLElement {
 
 /** Settings controls are created once, then synchronized in place so storage changes keep focus. */
 function renderSettings(): void {
-  const choices: [Exclude<keyof Prefs, 'palette' | 'layout' | 'stuckMinutes' | 'projectOrder'>, string][] = [
+  const choices: [Exclude<keyof Prefs, 'palette' | 'layout' | 'density' | 'selectedView' | 'stuckMinutes' | 'projectOrder'>, string][] = [
     ['notifyBlocked', 'Notify me when an agent needs me'],
     ['notifyDone', 'Notify me when a long turn ends'],
     ['animate', 'Animate the office']
@@ -1864,10 +1961,12 @@ function renderSettings(): void {
   const existing = settings.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
   const existingPalette = settings.querySelector<HTMLSelectElement>('select[name="palette"]')
   const existingStuck = settings.querySelector<HTMLSelectElement>('select[name="stuck"]')
-  if (existing.length === choices.length && existingPalette && existingStuck) {
+  const existingDensity = settings.querySelector<HTMLSelectElement>('select[name="density"]')
+  if (existing.length === choices.length && existingPalette && existingStuck && existingDensity) {
     choices.forEach(([key], index) => (existing[index].checked = prefs[key]))
     existingPalette.value = prefs.palette
     existingStuck.value = String(prefs.stuckMinutes)
+    existingDensity.value = prefs.density
     applyPalette()
     return
   }
@@ -1935,6 +2034,24 @@ function renderSettings(): void {
     void orca.storage.set(PREFS_KEY, prefs)
   })
   stuckLabel.append(stuckSelect, element('span', 'setting-hint', 'Working with no activity seen, or still needing you, for that long.'))
+  const densityLabel = element('label', 'palette-setting', 'Display density')
+  const densitySelect = document.createElement('select')
+  densitySelect.className = 'palette-select'
+  densitySelect.name = 'density'
+  densitySelect.setAttribute('aria-label', 'Display density')
+  for (const [value, label] of [['comfortable', 'Comfortable'], ['compact', 'Compact']] as const) {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = label
+    densitySelect.append(option)
+  }
+  densitySelect.value = prefs.density
+  densitySelect.addEventListener('change', () => {
+    prefs = { ...prefs, density: densitySelect.value as Prefs['density'] }
+    applyLayout()
+    void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+  })
+  densityLabel.append(densitySelect)
   const orderSetting = element('section', 'history-settings')
   orderSetting.append(element('p', '', prefs.projectOrder.length
     ? 'Projects are in the order you set with their ↑ ↓ buttons, in both Office and Activity.'
@@ -1945,7 +2062,7 @@ function renderSettings(): void {
     renderSettings()
     showOrder()
   }))
-  settings.replaceChildren(paletteLabel, ...controls, stuckLabel, orderSetting, privacy, aboutCard())
+  settings.replaceChildren(paletteLabel, ...controls, densityLabel, stuckLabel, orderSetting, privacy, aboutCard())
   applyPalette()
 }
 
@@ -1962,7 +2079,7 @@ for (const tab of primaryTabs) {
     }
   })
 }
-setPage('office')
+setPage('attention', false)
 renderSettings()
 const loadPrefs = (): void =>
   void orca.storage
@@ -1972,6 +2089,7 @@ const loadPrefs = (): void =>
       renderSettings()
       applyLayout()
       showOrder()
+      setPage(prefs.selectedView, false)
     })
     .catch(() => {})
 orca.storage.onDidChange(({ key }) => key === PREFS_KEY && loadPrefs())

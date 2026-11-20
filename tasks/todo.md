@@ -32,25 +32,25 @@ Dependencies: 02. Likely files: src/attention.ts, src/protocol.ts, src/worker.ts
 
 ## 04 — End-to-end Attention view (M)
 
-- [ ] Add grouped inbox, counts, empty state and direct Go to agent / Review details / Reviewed actions, reusing existing validated actions and drawer.
-- [ ] Preserve selected row, focus and scroll during updates; show truthful action availability and failure notes.
-- [ ] Verify keyboard review-to-next behavior, disappearing agents and live updates at narrow/wide widths using browser fixtures.
+- [x] Add grouped inbox, counts, empty state and direct Go to agent / Review details / Reviewed actions, reusing existing validated actions and drawer.
+- [x] Preserve selected row, focus and scroll during updates; show truthful action availability and failure notes.
+- [x] Verify keyboard review-to-next behavior, disappearing agents and live updates at narrow/wide widths using browser fixtures (280/420/900px and 100-agent updates).
 
 Dependencies: 01–03. Likely files: panel/attention.ts, panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py.
 
 ## 05 — Shared search and project filter (M)
 
-- [ ] Add literal case-insensitive search over reported context and a project selector across functional views.
-- [ ] Keep query on view changes, preserve project order and necessary chart ancestors, and distinguish no matches from no agents.
-- [ ] Verify search normalization, missing fields, chart filtering, clear/reset, keyboard focus and busy updates.
+- [x] Add literal case-insensitive search over reported context and a project selector across functional views.
+- [x] Keep query on view changes, preserve project order and necessary chart ancestors, and distinguish no matches from no agents.
+- [x] Verify search normalization, missing fields, chart filtering, clear/reset, keyboard focus and busy updates.
 
 Dependencies: 04. Likely files: panel/search.ts, panel/search.test.ts, panel/main.ts, panel/attention.ts, scripts/shots/fixture.js.
 
 ## 06 — Header, density and view preferences (M)
 
-- [ ] Add Comfortable/Compact density, compact navigation/header and collapsible Office branding without removing pixel rooms or palettes.
-- [ ] Migrate preferences without losing layout/order/notifications; preserve Office on upgrade and remember later view choices.
-- [ ] Verify malformed preferences, first-install defaults, theme, reduced motion, keyboard access and 280/420/900-width rendering.
+- [x] Add Comfortable/Compact density, compact navigation/header and collapsible Office branding without removing pixel rooms or palettes.
+- [x] Migrate preferences without losing layout/order/notifications; preserve Office on upgrade and remember later view choices.
+- [x] Verify malformed preferences, first-install defaults, theme, reduced motion, keyboard access and 280/420/900-width rendering.
 
 Dependencies: 04. Likely files: src/protocol.ts, panel/main.ts, panel/index.html, src/office.test.ts, scripts/shots/fixture.js.
 

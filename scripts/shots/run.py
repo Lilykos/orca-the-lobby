@@ -24,6 +24,7 @@ scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'),
 scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
+scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionfail'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall')]  # inbox, shared filters and startup preference
 
 if args.only:
     wanted = set(args.only.split(','))
@@ -41,6 +42,12 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
         result = command('Runtime.evaluate', {'expression': "new Promise(resolve=>{const n=setInterval(()=>{if(document.body?.dataset.fixture){clearInterval(n);resolve({result:document.body.dataset.fixture,width:innerWidth,errors:document.body.dataset.errors})}},25);setTimeout(()=>{clearInterval(n);resolve({result:'TIMEOUT'})},5000)})", 'awaitPromise': True, 'returnByValue': True})['result']['value']
         print(width, scenario, json.dumps(result))
         if result.get('result') != 'PASS' or result.get('width') != width or result.get('errors'): raise RuntimeError('fixture failed')
+        if scenario == 'attentionkeyboard':
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            time.sleep(.15)
+            state = command('Runtime.evaluate', {'expression': "({removed:!document.querySelector('[data-focus-key=\\\"finished:done:review\\\"]'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if not state['removed'] or state['focus'] != 'failed:fail:review': raise RuntimeError('keyboard review did not advance to the next actionable item: ' + str(state))
         if scenario in ('linked', 'unknown', 'noid'):
             selector = 'button.chart-helper' if scenario in ('unknown', 'noid') else 'button.chart-node-button:not(.chart-helper)'
             command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]')?.click();document.querySelector(" + json.dumps(selector) + ").focus({preventScroll:true})"})
@@ -133,6 +140,8 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             time.sleep(.2)
         def shot(name):
             if out: (out / f'{name}-{width}-{scenario}.png').write_bytes(chrome.screenshot())
+        if scenario == 'attentioncapture':
+            shot('attention-inbox')
         if scenario in ('attention', 'big', 'parentlink', 'parentnote', 'attentionempty'):
             command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=\"filter:attention\"]').click(); window.scrollTo(0,0)"})
             time.sleep(.1)
