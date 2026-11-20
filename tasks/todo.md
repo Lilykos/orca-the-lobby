@@ -28,7 +28,7 @@ Dependencies: 02. Likely files: src/attention.ts, src/protocol.ts, src/worker.ts
 
 ### Checkpoint A
 
-- [ ] Membership, identity and restore/review semantics pass before building additional UI. **Under review:** Terra identified remaining fixes; restore this checkbox after the regressions pass and review clears.
+- [x] Membership, identity and restore/review semantics pass before building additional UI. Terra reviewed `57bb255` and cleared Checkpoint A with no remaining required blockers.
 
 ## 04 — End-to-end Attention view (M)
 
