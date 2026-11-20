@@ -116,7 +116,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 
 ## Data and privacy
 
-**No telemetry.** The plugin makes no direct network requests. Orca uses its existing connections to list agents on your paired servers.
+**No telemetry.** To display project logos in pinned-agent cards, the plugin makes one unauthenticated HTTPS request per distinct active GitHub avatar URL per worker session, only to `github.com` or `avatars.githubusercontent.com` (up to 12 URLs). GitHub may see your IP and the public avatar URL; no workspace paths or code are sent. Orca uses its existing connections to list agents on your paired servers.
 
 **What it reads, and from where**
 

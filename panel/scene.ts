@@ -4,6 +4,7 @@ import type { Activity, AgentView, OfficeSnapshot } from '../src/protocol'
 import type { PaletteChoice } from '../src/protocol'
 import { overdue } from '../src/protocol'
 import { PALETTES } from './palettes'
+import { PINNED_ROOM_ID, PINNED_ROOM_NAME } from './work-map'
 
 type Pose = 'idle' | 'type' | 'read' | 'hand' | 'cup'
 export type ActivityIcon = 'think' | 'edit' | 'read' | 'search' | 'shell' | 'web' | 'delegate' | 'plan' | 'tool'
@@ -14,6 +15,7 @@ export type Look = { seed: number; shirt: string }
 
 export type Room = {
   id: string
+  width: number
   name: string
   top: number
   /** How tall the sign over the room is. */
@@ -360,7 +362,7 @@ export function shown(agent: AgentView, now: number): Activity | null {
   return last && now - (last.endedAt ?? 0) < LINGER_MS ? last : null
 }
 
-/** One room per project, with a persistent row of desks for its active agents. */
+/** Office-only placement; agents retain their real project and workspace identities. */
 export function layout(
   snap: OfficeSnapshot,
   width: number,
@@ -369,16 +371,18 @@ export function layout(
   folded: Map<string, boolean>,
   displayNames?: ReadonlyMap<string, string>,
   /** Room ids in the order to draw them; others follow by name. */
-  order: readonly string[] = []
+  order: readonly string[] = [],
+  pinnedAgents: ReadonlySet<string> = new Set(),
+  pinnedRoomWidth = width
 ): { rooms: Room[]; height: number } {
   const byRoom = new Map<string, AgentView[]>()
   for (const agent of snap.agents) {
-    const id = agent.projectId ?? agent.workspaceId ?? ''
+    const id = pinnedAgents.has(agent.id) ? PINNED_ROOM_ID : agent.projectId ?? agent.workspaceId ?? ''
     byRoom.set(id, [...(byRoom.get(id) ?? []), agent])
   }
   if (!byRoom.size) byRoom.set('', [])
   const nameOf = (id: string): string =>
-    id
+    id === PINNED_ROOM_ID ? PINNED_ROOM_NAME : id
       ? (snap.projects[id] ?? snap.workspaces[id] ?? id.split(/[\\/]/).pop() ?? id)
       : snap.agents.length
         ? 'Lobby'
@@ -388,13 +392,14 @@ export function layout(
   const label = Math.ceil((NAME_PX + 3) / scale)
   const rooms: Room[] = []
   let top = 0
-  const place = (id: string): number => (order.includes(id) ? order.indexOf(id) : order.length)
+  const place = (id: string): number => id === PINNED_ROOM_ID ? -1 : (order.includes(id) ? order.indexOf(id) : order.length)
   const ids = [...byRoom.keys()].sort((a, b) => place(a) - place(b) || nameOf(a).localeCompare(nameOf(b)) || a.localeCompare(b))
   for (const id of ids) {
+    const roomWidth = id === PINNED_ROOM_ID ? pinnedRoomWidth : width
     const agents = byRoom.get(id) ?? []
     const seated = agents.filter((agent) => agent.state !== 'done').sort((a, b) => a.id.localeCompare(b.id))
     const collapsed = folded.get(id) ?? false
-    const furniture = wallFurniture(width)
+    const furniture = wallFurniture(roomWidth)
     const coffee = furniture.find((item) => item.name === 'coffee')!
     const workWidth = Math.max(DESK_W, coffee.left - 4)
     const perRow = Math.max(1, Math.floor((workWidth - DESK_W) / PITCH) + 1)
@@ -413,9 +418,10 @@ export function layout(
       : head + WALL + DESK_TOP + (rows - 1) * pitch + 25
     const seed = hash(id || 'lobby')
     const labels = agents.map((agent) => displayNames?.get(agent.id) ?? agentName(snap, agent))
-    const decorations = decorationsFor(width, floor, furniture, seed)
+    const decorations = decorationsFor(roomWidth, floor, furniture, seed)
     rooms.push({
       id,
+      width: roomWidth,
       name: nameOf(id),
       top,
       head,
@@ -477,7 +483,7 @@ function coffeePositions(room: Room, width: number, workers: Wanted[], count: nu
   return chosen.sort((a, b) => a.y - b.y || a.x - b.x)
 }
 
-function wantedIn(room: Room, width: number, now: number): Wanted[] {
+function wantedIn(room: Room, now: number): Wanted[] {
   const entry = { x: 9, y: room.floor + 4 }
   const wanted: Wanted[] = []
   if (room.collapsed) return wanted
@@ -511,7 +517,7 @@ function wantedIn(room: Room, width: number, now: number): Wanted[] {
       activity
     })
   })
-  const positions = coffeePositions(room, width, wanted, coffeeWishes.length)
+  const positions = coffeePositions(room, room.width, wanted, coffeeWishes.length)
   coffeeWishes.slice(0, positions.length).forEach((agent, index) => {
     wanted.push({
       key: agent.id,
@@ -547,14 +553,14 @@ function routeTo(room: Room | undefined, from: Point, goal: Point): Point[] {
 export function step(
   actors: Map<string, Actor>,
   rooms: Room[],
-  width: number,
+  _width: number,
   now: number,
   seconds: number,
   jump: boolean
 ): boolean {
   const roomOf = new Map(rooms.map((room) => [room.id, room]))
   const wanted = new Map(
-    rooms.flatMap((room) => wantedIn(room, width, now)).map((item) => [item.key, item])
+    rooms.flatMap((room) => wantedIn(room, now)).map((item) => [item.key, item])
   )
   const retarget = (actor: Actor, goal: Point): void => {
     if (actor.goal.x === goal.x && actor.goal.y === goal.y) return
@@ -1040,6 +1046,7 @@ export function draw(ctx: CanvasRenderingContext2D, view: View): PlacedBubble[] 
   const talk: PlacedBubble[] = []
 
   for (const room of view.rooms) {
+    const roomWidth = room.width
     const { floor, top } = room
     const bottom = top + room.height
     const colors = dress(view.colors, room.seed)
@@ -1054,12 +1061,12 @@ export function draw(ctx: CanvasRenderingContext2D, view: View): PlacedBubble[] 
     const actors = [...view.actors.values()].filter((actor) => actor.room === room.id)
     ctx.save()
     ctx.beginPath()
-    if (view.framed === false) ctx.rect(0, top, width, room.height)
-    else ctx.roundRect(0, top, width, room.height, RADIUS)
+    if (view.framed === false) ctx.rect(0, top, roomWidth, room.height)
+    else ctx.roundRect(0, top, roomWidth, room.height, RADIUS)
     ctx.clip()
 
     // The sign over the room.
-    rect(0, top, width, room.head, theme.card)
+    rect(0, top, roomWidth, room.head, theme.card)
     const baseline = top + room.head / 2 + (SIGN_PX * 0.36) / scale
     ctx.font = `500 ${(SIGN_PX - 1) / scale}px system-ui, sans-serif`
     const count = !room.agents.length
@@ -1069,10 +1076,10 @@ export function draw(ctx: CanvasRenderingContext2D, view: View): PlacedBubble[] 
         : `${room.agents.length} agent${room.agents.length > 1 ? 's' : ''}`
     const countWidth = ctx.measureText(count).width
     ctx.fillStyle = theme.muted
-    ctx.fillText(count, width - 6 - countWidth, baseline)
+    ctx.fillText(count, roomWidth - 6 - countWidth, baseline)
     ctx.font = `600 ${SIGN_PX / scale}px system-ui, sans-serif`
     ctx.fillStyle = theme.text
-    ctx.fillText(fit(room.name, width - countWidth - 28), 15, baseline)
+    ctx.fillText(fit(room.name, roomWidth - countWidth - 28), 15, baseline)
     // The fold mark: pointing down on an open room, right on a folded one.
     const mark = Math.round(top + room.head / 2)
     for (let step = 0; step < 3; step++) {
@@ -1085,7 +1092,7 @@ export function draw(ctx: CanvasRenderingContext2D, view: View): PlacedBubble[] 
       ctx.strokeStyle = theme.border
       ctx.lineWidth = 0.5
       ctx.beginPath()
-      ctx.roundRect(0.25, top + 0.25, width - 0.5, room.height - 0.5, RADIUS)
+      ctx.roundRect(0.25, top + 0.25, roomWidth - 0.5, room.height - 0.5, RADIUS)
       ctx.stroke()
     }
     if (room.collapsed) {
@@ -1094,30 +1101,30 @@ export function draw(ctx: CanvasRenderingContext2D, view: View): PlacedBubble[] 
     }
 
     // Wall and floorboards.
-    rect(0, top + room.head, width, WALL, colors.wall)
-    rect(0, floor - 9, width, 9, colors.wallLow)
-    rect(0, floor - 10, width, 1, colors.trim)
-    rect(0, floor, width, bottom - floor, colors.floor)
+    rect(0, top + room.head, roomWidth, WALL, colors.wall)
+    rect(0, floor - 9, roomWidth, 9, colors.wallLow)
+    rect(0, floor - 10, roomWidth, 1, colors.trim)
+    rect(0, floor, roomWidth, bottom - floor, colors.floor)
     if (colors.flooring === 0) {
       // Floorboards.
       for (let y = floor, board = 0; y < bottom; y += 7, board++) {
-        rect(0, y + 6, width, 1, colors.seam)
-        for (let x = (board * 13) % 29; x < width; x += 29) rect(x, y, 1, 6, colors.seam)
+        rect(0, y + 6, roomWidth, 1, colors.seam)
+        for (let x = (board * 13) % 29; x < roomWidth; x += 29) rect(x, y, 1, 6, colors.seam)
       }
     } else if (colors.flooring === 1) {
       // Tiles.
       for (let y = floor, row = 0; y < bottom; y += 9, row++) {
-        for (let x = row % 2 ? 9 : 0; x < width; x += 18)
+        for (let x = row % 2 ? 9 : 0; x < roomWidth; x += 18)
           rect(x, y, 9, Math.min(9, bottom - y), colors.seam)
       }
     } else {
       // Carpet.
       for (let y = floor + 2, row = 0; y < bottom; y += 3, row++) {
-        for (let x = (row * 7) % 11; x < width; x += 11) rect(x, y, 2, 1, colors.seam)
+        for (let x = (row * 7) % 11; x < roomWidth; x += 11) rect(x, y, 2, 1, colors.seam)
       }
     }
-    rect(0, floor - 2, width, 2, colors.trim)
-    rect(0, floor, width, 2, colors.shadow)
+    rect(0, floor - 2, roomWidth, 2, colors.trim)
+    rect(0, floor, roomWidth, 2, colors.shadow)
 
     // Window: the web.
     const webFixture = fixture('web')!
@@ -1218,7 +1225,7 @@ export function draw(ctx: CanvasRenderingContext2D, view: View): PlacedBubble[] 
     // Whoever speaks has no thought icon: one thing over a head at a time.
     ctx.font = `600 ${BUBBLE_PX / scale}px system-ui, sans-serif`
     const spoken = view.bubbles
-      ? placeBubbles(room, actors, view.bubbles, width, scale, (text) => ctx.measureText(text).width, ctx.font)
+      ? placeBubbles(room, actors, view.bubbles, roomWidth, scale, (text) => ctx.measureText(text).width, ctx.font)
       : []
     talk.push(...spoken)
     type Item = { y: number; paint: () => void }

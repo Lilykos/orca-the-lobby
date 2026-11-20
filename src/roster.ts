@@ -2,9 +2,10 @@
 // `agents.list` covers only the focused workspace) and each workspace's Git change count. Without
 // the CLI the office falls back to what events and hooks tell it.
 import { execFile } from 'node:child_process'
+import { Buffer } from 'node:buffer'
 import { homedir } from 'node:os'
 import { listArgs, parseOutcome, parseTerminals, sendArgs, switchArgs, type TerminalRow } from './actions'
-import type { RosterWorktree } from './office'
+import type { RepoListRow, RosterWorktree } from './office'
 import type { Change } from './protocol'
 
 const ENVIRONMENT_PREFIX = 'environment:'
@@ -23,6 +24,8 @@ export function environmentTarget(key: string | null | undefined): { id: string;
 }
 
 const environmentArgs = (id?: string): string[] => id ? ['--environment', id] : []
+const environmentKey = (id: string, value: string): string =>
+  `${ENVIRONMENT_PREFIX}${JSON.stringify([id, value])}`
 
 /** The app's bundled CLI on Windows and macOS, or the CLI on the PATH. */
 const ORCA = process.platform === 'win32'
@@ -67,7 +70,7 @@ export function parseShortstat(text: string): Change {
   return { files: count('file'), added: count('insertion'), removed: count('deletion') }
 }
 
-function resultArray(output: string | null, key: 'hosts' | 'worktrees'): unknown[] | null {
+function resultArray(output: string | null, key: 'hosts' | 'repos' | 'worktrees'): unknown[] | null {
   try {
     const answer = output === null ? null : JSON.parse(output)
     const rows = answer?.result?.[key]
@@ -75,6 +78,11 @@ function resultArray(output: string | null, key: 'hosts' | 'worktrees'): unknown
   } catch {
     return null
   }
+}
+
+function repoRows(output: string | null): RepoListRow[] | null {
+  const rows = resultArray(output, 'repos')
+  return rows?.filter((row): row is RepoListRow => !!row && typeof row === 'object') ?? null
 }
 
 function withHostName(row: RosterWorktree, name: string): RosterWorktree {
@@ -113,15 +121,14 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
       const rows = resultArray(output, 'worktrees') as RosterWorktree[] | null
       // Only live observations belong in the roster; stale working rows cause false alerts.
       if (!rows) return []
-      const key = (value: string): string => `${ENVIRONMENT_PREFIX}${JSON.stringify([id, value])}`
       const qualified = rows.filter((row) => typeof row?.path === 'string').map((row) => ({
         ...withHostName(row, name),
-        path: key(row.path),
-        repoId: key(row.repoId ?? row.path),
+        path: environmentKey(id, row.path),
+        repoId: environmentKey(id, row.repoId ?? row.path),
         agents: row.agents?.filter((agent) => typeof agent?.paneKey === 'string').map((agent) => ({
           ...agent,
-          paneKey: key(agent.paneKey),
-          parentPaneKey: agent.parentPaneKey ? key(agent.parentPaneKey) : agent.parentPaneKey
+          paneKey: environmentKey(id, agent.paneKey),
+          parentPaneKey: agent.parentPaneKey ? environmentKey(id, agent.parentPaneKey) : agent.parentPaneKey
         }))
       }))
       return qualified
@@ -134,19 +141,147 @@ export function createRoster(read: (args: string[]) => Promise<string | null>) {
   }
 }
 
+const ICON_LIMIT = 8192
+const ICON_COUNT_LIMIT = 12
+
+function publicGithubIconUrl(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || !('type' in value) || value.type !== 'image' ||
+    !('src' in value) || typeof value.src !== 'string') return null
+  try {
+    const url = new URL(value.src)
+    return url.protocol === 'https:' &&
+      !url.username && !url.password && !url.port &&
+      (url.hostname === 'github.com' || url.hostname === 'avatars.githubusercontent.com')
+      ? url.href
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function fetchGithubIcon(source: string): Promise<string | null> {
+  const allowed = (url: URL): boolean =>
+    url.protocol === 'https:' &&
+    !url.username && !url.password && !url.port &&
+    (url.hostname === 'github.com' || url.hostname === 'avatars.githubusercontent.com')
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  let url = new URL(source)
+  try {
+    for (let redirects = 0; redirects <= 3; redirects++) {
+      if (!allowed(url)) return null
+      const response = await fetch(url, {
+        signal: controller.signal,
+        redirect: 'manual',
+        credentials: 'omit',
+        headers: { accept: 'image/png,image/jpeg,image/webp' }
+      })
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location')
+        if (!location) return null
+        await response.body?.cancel()
+        url = new URL(location, url)
+        continue
+      }
+      if (!response.ok) {
+        console.warn(`GitHub project icon request returned HTTP ${response.status}`)
+        return null
+      }
+      const type = response.headers.get('content-type')?.split(';', 1)[0].toLowerCase()
+      if (!type || !['image/png', 'image/jpeg', 'image/webp'].includes(type)) {
+        await response.body?.cancel()
+        console.warn('GitHub project icon had an unsupported content type')
+        return null
+      }
+      const reader = response.body?.getReader()
+      if (!reader) return null
+      const chunks: Uint8Array[] = []
+      let size = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > ICON_LIMIT) {
+          await reader.cancel()
+          console.warn('GitHub project icon exceeded the size limit')
+          return null
+        }
+        chunks.push(value)
+      }
+      return `data:${type};base64,${Buffer.concat(chunks).toString('base64')}`
+    }
+    return null
+  } catch (error) {
+    console.warn(`Could not load a GitHub project icon: ${error}`)
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export function createRepoReader(
+  read: (args: string[]) => Promise<string | null>,
+  fetchIcon: (url: string) => Promise<string | null> = fetchGithubIcon
+) {
+  let environments: string[] = []
+  const cachedRemote = new Map<string, RepoListRow[]>()
+  const cachedIcons = new Map<string, string | null>()
+  return async (projectIds?: string[]): Promise<RepoListRow[] | null> => {
+    const [local, discovery] = await Promise.all([
+      read(['repo', 'list', '--json']),
+      read(['host', 'list', '--json'])
+    ])
+    const localRepos = repoRows(local)
+    if (!localRepos) return null
+    const hosts = resultArray(discovery, 'hosts')
+    if (hosts) {
+      environments = hosts.flatMap((host): string[] =>
+        host && typeof host === 'object' && 'kind' in host && host.kind === 'environment' &&
+        'id' in host && typeof host.id === 'string' && host.id
+          ? [host.id]
+          : []
+      )
+      for (const id of cachedRemote.keys()) if (!environments.includes(id)) cachedRemote.delete(id)
+    }
+    const remoteRepos = await Promise.all(environments.map(async (id) => {
+      const repos = repoRows(await read(['repo', 'list', '--json', ...environmentArgs(id)]))
+      if (repos) cachedRemote.set(id, repos)
+      return (cachedRemote.get(id) ?? []).map((repo) => {
+        const repoId = typeof repo.id === 'string' ? repo.id : typeof repo.path === 'string' ? repo.path : undefined
+        return {
+          ...repo,
+          id: repoId ? environmentKey(id, repoId) : undefined,
+          path: typeof repo.path === 'string' ? environmentKey(id, repo.path) : undefined
+        }
+      })
+    }))
+    const allRepos = [...localRepos, ...remoteRepos.flat()]
+    const wanted = projectIds ? new Set(projectIds) : null
+    const iconUrls = new Set(allRepos
+      .filter((repo) => !wanted || wanted.has(String(repo.id ?? '')) || wanted.has(String(repo.path ?? '')))
+      .map((repo) => publicGithubIconUrl(repo.repoIcon))
+      .filter((url): url is string => !!url))
+    const newUrls = [...iconUrls]
+      .filter((url) => !cachedIcons.has(url))
+      .slice(0, ICON_COUNT_LIMIT - cachedIcons.size)
+    await Promise.all(newUrls.map(async (url) => cachedIcons.set(url, await fetchIcon(url))))
+    return allRepos.map((repo) => {
+      if (wanted && !wanted.has(String(repo.id ?? '')) && !wanted.has(String(repo.path ?? '')))
+        return { ...repo, repoIcon: undefined }
+      const url = publicGithubIconUrl(repo.repoIcon)
+      const data = url ? cachedIcons.get(url) : null
+      if (!data || !repo.repoIcon || typeof repo.repoIcon !== 'object') return { ...repo, repoIcon: undefined }
+      return { ...repo, repoIcon: { ...repo.repoIcon, src: data } }
+    })
+  }
+}
+
 /** Tests replace these, so they never run a real program. */
 export const cli = {
   /** Orca's worktrees with their agents, or null when Orca cannot be asked. */
   roster: createRoster(ask),
   /** Orca's repos in its sidebar's order, or null when Orca cannot be asked. */
-  repos: async (): Promise<{ id?: unknown; path?: unknown }[] | null> => {
-    try {
-      const repos = JSON.parse((await ask(['repo', 'list', '--json'])) ?? '')?.result?.repos
-      return Array.isArray(repos) ? repos : null
-    } catch {
-      return null
-    }
-  },
+  repos: createRepoReader(ask),
   /** The live terminals Orca manages, or null when Orca cannot be asked. */
   terminals: async (environment?: string): Promise<TerminalRow[] | null> =>
     parseTerminals(await ask([...listArgs, ...environmentArgs(environment)])),

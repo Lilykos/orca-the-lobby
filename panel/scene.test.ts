@@ -20,6 +20,7 @@ import {
   type Actor,
   type Bubble
 } from './scene'
+import { PINNED_ROOM_ID } from './work-map'
 
 const agent = (id: string, state: AgentView['state'], unread = false): AgentView => ({
   id,
@@ -285,6 +286,23 @@ test('project room order does not change when agent states change', () => {
   const before = layout(office([a, b]), 190, 2, new Map()).rooms.map((room) => room.id)
   const after = layout(office([{ ...a, state: 'blocked' as const }, { ...b, state: 'done' as const }]), 190, 2, new Map()).rooms.map((room) => room.id)
   assert.deepEqual(after, before)
+})
+
+test('the pinned room uses its full width without widening project rooms', () => {
+  const pinned = agent('pinned', 'working')
+  const project = { ...agent('project', 'working'), projectId: 'other' }
+  const rooms = layout(
+    office([pinned, project]),
+    190,
+    2,
+    new Map(),
+    undefined,
+    [],
+    new Set([pinned.id]),
+    390
+  ).rooms
+  assert.deepEqual(rooms.map((room) => [room.id, room.width]), [[PINNED_ROOM_ID, 390], ['other', 190]])
+  assert.ok(rooms[0].desks.every((desk) => desk.x + 22 <= rooms[0].width))
 })
 
 const NOW = 1_000_000

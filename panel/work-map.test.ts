@@ -1,5 +1,5 @@
 import { assert, test } from 'orca/testing'
-import { taskLabel, projectGroups, orderProjects, moveProject, cursorFor, sinceCursor, groupToolEvents } from './work-map'
+import { taskLabel, pinnedTaskLabel, pinnedIdentityLabel, projectGroups, orderProjects, moveProject, cursorFor, sinceCursor, groupToolEvents } from './work-map'
 import type { AgentView, JournalEvent } from '../src/protocol'
 
 const agent = (id: string, projectId: string | null, workspaceId: string | null): AgentView => ({
@@ -13,6 +13,19 @@ test('task title precedes a visibly identified prompt excerpt and does not inven
   assert.equal(taskLabel({ ...agent('a', null, null), title: 'Update layout', prompt: 'Build it' }), 'Update layout')
   assert.equal(taskLabel({ ...agent('a', null, null), prompt: 'Build it' }), 'Asked excerpt: Build it')
   assert.equal(taskLabel(agent('a', null, null)), 'Task not reported')
+})
+
+test('pinned task titles omit only a matching provider suffix', () => {
+  assert.equal(pinnedTaskLabel({ ...agent('a', null, null), agent: 'copilot', title: 'Ship the fix - GitHub Copilot' }), 'Ship the fix')
+  assert.equal(pinnedTaskLabel({ ...agent('b', null, null), agent: 'claude', title: 'Review changes — Claude Code' }), 'Review changes')
+  assert.equal(pinnedTaskLabel({ ...agent('c', null, null), agent: 'codex', title: 'Review changes - GitHub Copilot' }), 'Review changes - GitHub Copilot')
+  assert.equal(pinnedTaskLabel({ ...agent('d', null, null), agent: 'copilot', prompt: 'Build it' }), 'Asked excerpt: Build it')
+})
+
+test('pinned identity labels include project and worktree before the friendly name', () => {
+  assert.equal(pinnedIdentityLabel('Orca', 'feature/lobby', 'Indy'), 'Orca · feature/lobby · Indy')
+  assert.equal(pinnedIdentityLabel('Orca', 'Orca', 'Indy'), 'Orca · Indy')
+  assert.equal(pinnedIdentityLabel('', 'feature/lobby', 'Indy'), 'feature/lobby · Indy')
 })
 
 test('project groups preserve input order and isolate unmapped workspaces', () => {
