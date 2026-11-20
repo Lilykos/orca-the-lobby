@@ -15,6 +15,9 @@ export type Prefs = {
   palette: PaletteChoice
   /** Projects one per line, or two per line when the panel is wide enough. */
   layout: 'list' | 'grid'
+  density: 'comfortable' | 'compact'
+  /** Last functional view; Settings is intentionally never stored here. */
+  selectedView: 'office' | 'activity' | 'attention'
   /** Minutes without observed progress before a notification says an agent may be stuck; 0 is off. */
   stuckMinutes: number
   /** Project ids in the order the person put them; empty follows Orca's sidebar. */
@@ -22,7 +25,7 @@ export type Prefs = {
 }
 
 export const PREFS_KEY = 'prefs'
-export const DEFAULT_PREFS: Prefs = { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20, projectOrder: [] }
+export const DEFAULT_PREFS: Prefs = { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', density: 'comfortable', selectedView: 'attention', stuckMinutes: 20, projectOrder: [] }
 
 export const STUCK_CHOICES = [0, 10, 20, 30, 60]
 
@@ -38,12 +41,18 @@ export function readPrefs(value: unknown): Prefs {
   const palette = PALETTE_CHOICES.includes(stored.palette as PaletteChoice)
     ? stored.palette as PaletteChoice
     : DEFAULT_PREFS.palette
+  const legacyPrefs = ['notifyBlocked', 'notifyDone', 'animate', 'palette', 'layout', 'stuckMinutes', 'projectOrder'].some((key) => key in stored)
+  const selectedView = stored.selectedView === 'office' || stored.selectedView === 'activity' || stored.selectedView === 'attention'
+    ? stored.selectedView
+    : legacyPrefs ? 'office' : DEFAULT_PREFS.selectedView
   return {
     notifyBlocked: pick('notifyBlocked'),
     notifyDone: pick('notifyDone'),
     animate: pick('animate'),
     palette,
     layout: stored.layout === 'grid' ? 'grid' : 'list',
+    density: stored.density === 'compact' ? 'compact' : 'comfortable',
+    selectedView,
     stuckMinutes: STUCK_CHOICES.includes(stored.stuckMinutes as number) ? stored.stuckMinutes as number : DEFAULT_PREFS.stuckMinutes,
     projectOrder: Array.isArray(stored.projectOrder) ? stored.projectOrder.filter((id): id is string => typeof id === 'string') : []
   }

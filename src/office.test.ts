@@ -690,13 +690,15 @@ test("keeps each agent's history and the day's tally", () => {
 })
 
 test('reads preferences, keeping the default for anything odd', () => {
-  assert.deepEqual(readPrefs(null), { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', stuckMinutes: 20, projectOrder: [] })
+  assert.deepEqual(readPrefs(null), { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', density: 'comfortable', selectedView: 'attention', stuckMinutes: 20, projectOrder: [] })
   assert.deepEqual(readPrefs({ notifyBlocked: false, animate: 'no', extra: 1 }), {
     notifyBlocked: false,
     notifyDone: true,
     animate: true,
     palette: 'orca',
     layout: 'list',
+    density: 'comfortable',
+    selectedView: 'office',
     stuckMinutes: 20,
     projectOrder: []
   })
@@ -706,6 +708,8 @@ test('reads preferences, keeping the default for anything odd', () => {
     animate: false,
     palette: 'dracula',
     layout: 'grid',
+    density: 'comfortable',
+    selectedView: 'office',
     stuckMinutes: 20,
     projectOrder: []
   })
@@ -715,9 +719,19 @@ test('reads preferences, keeping the default for anything odd', () => {
     animate: true,
     palette: 'orca',
     layout: 'list',
+    density: 'comfortable',
+    selectedView: 'office',
     stuckMinutes: 20,
     projectOrder: []
   })
+})
+
+test('new installs default to Attention while old 1.2 preferences keep Office', () => {
+  assert.equal(readPrefs(null).selectedView, 'attention')
+  assert.equal(readPrefs({ notifyBlocked: true, layout: 'grid', projectOrder: ['/work'], palette: 'dracula' }).selectedView, 'office')
+  assert.equal(readPrefs({ notifyBlocked: true, selectedView: 'activity', density: 'compact' }).selectedView, 'activity')
+  assert.equal(readPrefs({ notifyBlocked: true, selectedView: 'settings' }).selectedView, 'office')
+  assert.equal(readPrefs({ density: 'compact' }).density, 'compact')
 })
 
 test('keeps a stored project order of strings only', () => {
