@@ -3,6 +3,7 @@ import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import type { RosterWorktree } from './office'
 import { sessionStore } from './context'
 import type { OfficeSnapshot } from './protocol'
+import { attentionGroups } from './attention'
 import { cli } from './roster'
 import * as main from './worker'
 
@@ -392,6 +393,120 @@ test('reports a failed history save without breaking the live office', async () 
     assert.equal(office.agents[0].state, 'working')
   } finally {
     await worker.deactivate()
+  }
+})
+
+test('persists concurrent local reviews once and restores them without changing Orca status or unread', async () => {
+  listed = [{ path: '/review', agents: [{ paneKey: 'review-pane', state: 'done', stateStartedAt: 1234, mainAgent: { outcome: 'failure' } }] }]
+  const host = mockHost()
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('review completion identity', async () => !!(await worker.request('office.snapshot')).agents[0]?.completionId)
+    const before = await worker.request('office.snapshot')
+    const completionId = before.agents[0].completionId!
+    assert.deepEqual(await worker.request('attention.review', null as never), {
+      ok: false, error: 'That completion cannot be reviewed.'
+    })
+    const results = await Promise.all([
+      worker.request('attention.review', { completionId }),
+      worker.request('attention.review', { completionId })
+    ])
+    assert.deepEqual(results, [{ ok: true }, { ok: true }])
+    const writes = host.callsOf('storage.set').filter((call) => (call as { key?: string }).key === 'attention.reviewed')
+    assert.equal(writes.length, 1)
+    const stored = host.data().storage['attention.reviewed'] as { version: number; entries: Record<string, number> }
+    assert.equal(stored.version, 1)
+    assert.ok(Number.isFinite(stored.entries[completionId]))
+    const after = await worker.request('office.snapshot')
+    assert.equal(after.agents[0].state, 'done')
+    assert.equal(after.agents[0].unread, before.agents[0].unread)
+    assert.deepEqual(after.reviewedCompletions, [completionId])
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('review and identity restored', async () => (await worker.request('office.snapshot')).reviewedCompletions?.includes(completionId) === true)
+    const restored = await worker.request('office.snapshot')
+    assert.equal(restored.agents[0].completionId, completionId)
+    assert.deepEqual(restored.reviewedCompletions, [completionId])
+  } finally {
+    try { await worker.deactivate() } finally { listed = null }
+  }
+})
+
+test('a failed review write reports an error and leaves the current completion unreviewed', async () => {
+  listed = [{ path: '/review', agents: [{ paneKey: 'review-pane', state: 'done', stateStartedAt: 1234, mainAgent: { outcome: 'failure' } }] }]
+  const host = mockHost({ results: { 'storage.set': () => { throw new Error('disk full') } } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('review completion identity', async () => !!(await worker.request('office.snapshot')).agents[0]?.completionId)
+    const before = await worker.request('office.snapshot')
+    const completionId = before.agents[0].completionId!
+    assert.deepEqual(await worker.request('attention.review', { completionId: 'invalid' }), {
+      ok: false, error: 'That completion cannot be reviewed.'
+    })
+    assert.deepEqual(await worker.request('attention.review', { completionId: 'a'.repeat(64) }), {
+      ok: false, error: 'That completion is no longer current.'
+    })
+    assert.deepEqual(await worker.request('attention.review', { completionId }), {
+      ok: false, error: 'Could not save the review. Try again.'
+    })
+    const after = await worker.request('office.snapshot')
+    assert.deepEqual(after.reviewedCompletions, [])
+    assert.equal(after.agents[0].completionId, completionId)
+    assert.equal(after.agents[0].state, 'done')
+  } finally {
+    try { await worker.deactivate() } finally { listed = null }
+  }
+})
+
+test('repairs malformed review storage and keeps a later turn reviewable', async () => {
+  listed = [{ path: '/review', hostId: 'local', agents: [{ paneKey: 'review-pane', state: 'done', stateStartedAt: 1234, mainAgent: { outcome: 'failure' } }] }]
+  const host = mockHost({ storage: { 'attention.reviewed': { version: 9, entries: { invalid: 'yes' } } } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('review completion and successful roster', async () => {
+      const agent = (await worker.request('office.snapshot')).agents[0]
+      return !!agent?.completionId && agent.hostId === 'local'
+    })
+    const original = (await worker.request('office.snapshot')).agents[0]
+    assert.deepEqual(await worker.request('attention.review', { completionId: original.completionId! }), { ok: true })
+    const saved = host.data().storage['attention.reviewed'] as { version: number; entries: Record<string, number> }
+    assert.equal(saved.version, 1)
+    assert.deepEqual(Object.keys(saved.entries), [original.completionId])
+
+    const nextTurnAt = Date.now() + 1000
+    await worker.emit('agent.status.changed', { workspaceId: '/review', paneKey: 'review-pane', state: 'working', receivedAt: nextTurnAt })
+    await waitUntil('later turn starts', async () => (await worker.request('office.snapshot')).agents[0]?.state === 'working')
+    assert.equal((await worker.request('office.snapshot')).agents[0].completionId, null)
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/review', paneKey: 'review-pane', state: 'done', receivedAt: nextTurnAt + 1,
+      mainAgent: { state: 'done', stateStartedAt: nextTurnAt + 1 }
+    })
+    await waitUntil('later turn finishes', async () => (await worker.request('office.snapshot')).agents[0]?.state === 'done')
+    const later = (await worker.request('office.snapshot')).agents[0]
+    assert.notEqual(later.completionId, original.completionId)
+    assert.deepEqual(later.outcome, null)
+    assert.deepEqual((await worker.request('office.snapshot')).reviewedCompletions, [original.completionId])
+    const groups = attentionGroups([later], new Set([original.completionId!]))
+    assert.deepEqual(groups.finishedToReview.map((agent) => agent.completionId), [later.completionId])
+  } finally {
+    try { await worker.deactivate() } finally { listed = null }
+  }
+})
+
+test('prunes expired Reviewed keys from worker storage on startup', async () => {
+  listed = [{ path: '/review', agents: [{ paneKey: 'review-pane', state: 'done', mainAgent: { outcome: 'failure' } }] }]
+  const host = mockHost({ storage: {
+    'attention.reviewed': { version: 1, entries: { ['a'.repeat(64)]: Date.now() - 24 * 60 * 60 * 1000 - 1 } }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('expired review metadata pruned', () => {
+      const stored = host.data().storage['attention.reviewed'] as { version?: number; entries?: Record<string, number> } | undefined
+      return stored?.version === 1 && Object.keys(stored.entries ?? {}).length === 0
+    })
+    assert.deepEqual((await worker.request('office.snapshot')).reviewedCompletions, [])
+  } finally {
+    try { await worker.deactivate() } finally { listed = null }
   }
 })
 

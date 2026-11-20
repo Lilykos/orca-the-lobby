@@ -3,7 +3,7 @@ import { taskLabel, projectGroups, orderProjects, moveProject, cursorFor, sinceC
 import type { AgentView, JournalEvent } from '../src/protocol'
 
 const agent = (id: string, projectId: string | null, workspaceId: string | null): AgentView => ({
-  id, projectId, workspaceId, branch: null, hostId: null, hostName: null, title: null, prompt: null, terminalId: null, paneKey: null, parentPaneKey: null, parentId: null,
+  id, projectId, workspaceId, branch: null, hostId: null, hostName: null, sessionId: null, completionId: null, completionTracked: false, title: null, prompt: null, terminalId: null, paneKey: null, parentPaneKey: null, parentId: null,
   agent: 'codex', reply: null, state: 'working', outcome: null, unread: false,
   stateStartedAt: 1, finishedAt: null, firstSeenAt: 1, lastSeenAt: 1,
   active: [], recent: [], toolCount: 0, helpers: [], family: [], insight: null, history: []

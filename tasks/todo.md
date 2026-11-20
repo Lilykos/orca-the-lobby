@@ -12,23 +12,23 @@ Dependencies: none. Likely files: src/protocol.ts, src/office.ts, src/roster.ts,
 
 ## 02 — Attention membership and completion identity (M)
 
-- [ ] Implement pure Needs input / Failed to review / Finished to review classification, deterministic ordering and stable completion identities.
-- [ ] First observation establishes the documented baseline; new turns, missing times, unknown outcomes and reconnects do not create duplicate or fake results.
-- [ ] Verify repeated polls, first upgrade, repeated identical replies and host collisions with failing-then-passing unit tests.
+- [x] Implement pure Needs input / Failed to review / Finished to review classification, deterministic ordering and stable completion identities.
+- [x] First observation establishes the documented baseline; new turns, missing times, unknown outcomes and reconnects do not create duplicate or fake results.
+- [x] Verify repeated polls, first upgrade, repeated identical replies and host collisions with failing-then-passing unit tests.
 
 Dependencies: 01. Likely files: src/attention.ts, src/attention.test.ts, src/protocol.ts.
 
 ## 03 — Persistent local Reviewed state (M)
 
-- [ ] Add validated worker requests and bounded storage for reviewed completion keys, shared across panel instances.
-- [ ] Review survives restart, affects only that completion, and leaves Orca unread/status unchanged; failed writes are visible and do not silently hide results.
-- [ ] Verify persistence, malformed storage, concurrent requests, pruning and a later completion through mounted-worker tests.
+- [x] Add validated worker requests and bounded storage for reviewed completion keys, shared across panel instances.
+- [x] Review survives restart, affects only that completion, and leaves Orca unread/status unchanged; failed writes are visible and do not silently hide results.
+- [x] Verify persistence, malformed storage, concurrent requests, pruning and a later completion through mounted-worker tests.
 
 Dependencies: 02. Likely files: src/attention.ts, src/protocol.ts, src/worker.ts, src/worker.test.ts, src/attention.test.ts.
 
 ### Checkpoint A
 
-- [ ] Membership, identity and restore/review semantics pass before building additional UI.
+- [x] Membership, identity and restore/review semantics pass before building additional UI.
 
 ## 04 — End-to-end Attention view (M)
 

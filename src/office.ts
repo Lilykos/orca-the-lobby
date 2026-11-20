@@ -38,6 +38,10 @@ export type Office = {
   rostered: boolean
   /** Each project's place in Orca's sidebar, by repo id and by path. */
   sidebar: Map<string, number>
+  /** Set after the first successful live roster; reset on each worker start. */
+  attentionTracking: boolean
+  /** Latest completion per host-qualified pane, retained briefly across roster disconnects. */
+  completionIdentities: Map<string, NonNullable<OfficeSnapshot['completionIdentities']>[string]>
 }
 
 /** What `orca worktree ps --json` says of a worktree and its agents; only the fields used. */
@@ -62,6 +66,9 @@ export type RosterWorktree = {
     toolName?: string | null
     toolInput?: string | null
     mainAgent?: { outcome?: string }
+    /** Optional stable discriminator on newer Orca roster responses. */
+    turnId?: string | null
+    sessionId?: string | null
     stateStartedAt?: number
     updatedAt?: number
     children?: {
@@ -107,7 +114,9 @@ export function createOffice(): Office {
     today: { day: '', finished: 0, failed: 0, blockedMs: 0 },
     usage: null,
     rostered: false,
-    sidebar: new Map()
+    sidebar: new Map(),
+    attentionTracking: false,
+    completionIdentities: new Map()
   }
 }
 
@@ -133,7 +142,8 @@ export function storable(state: OfficeSnapshot, limit = STORE_BYTES): OfficeSnap
 
 /** What the panel gets: everything but the history, which it does not show. */
 export function forPanel(state: OfficeSnapshot): OfficeSnapshot {
-  return { ...state, journal: [] }
+  const { completionIdentities: _private, ...publicState } = state
+  return { ...publicState, agents: publicState.agents.map((agent) => ({ ...agent, sessionId: null })), journal: [] }
 }
 
 function record(office: Office, agent: AgentView, event: Omit<JournalEvent, 'id' | 'agentId' | 'workspaceId' | 'projectId'>, identity: string): void {
@@ -202,6 +212,9 @@ function add(office: Office, id: string, now: number, fields: Partial<AgentView>
     branch: null,
     hostId: null,
     hostName: null,
+    sessionId: null,
+    completionId: null,
+    completionTracked: false,
     title: null,
     prompt: null,
     reply: null,
@@ -224,6 +237,61 @@ function add(office: Office, id: string, now: number, fields: Partial<AgentView>
   }
   office.agents.set(id, agent)
   return agent
+}
+
+function completionScope(agent: AgentView): string {
+  return createHash('sha256').update(JSON.stringify([agent.hostId || 'local', agent.paneKey || agent.id, agent.sessionId])).digest('hex')
+}
+
+function pruneCompletionIdentities(office: Office, now: number): void {
+  const entries = [...office.completionIdentities]
+    .filter(([, value]) => Number.isFinite(value.observedAt) && value.observedAt > now - JOURNAL_MS)
+    .sort(([keyA, a], [keyB, b]) => a.observedAt - b.observedAt || keyA.localeCompare(keyB))
+    .slice(-500)
+  office.completionIdentities = new Map(entries)
+}
+
+function beginCompletion(
+  office: Office,
+  agent: AgentView,
+  now: number,
+  sourceAt?: number,
+  turnId?: string | null,
+  allowReconnectReuse = false
+): void {
+  const scope = completionScope(agent)
+  const turn = typeof turnId === 'string' && turnId
+    ? createHash('sha256').update(turnId).digest('hex')
+    : null
+  const previous = office.completionIdentities.get(scope)
+  let retainedPrevious = previous?.id === agent.completionId
+  if (!agent.completionId) {
+    const sameSource = sourceAt !== undefined && previous?.sourceAt === sourceAt
+    const sameTurn = turn !== null && previous?.turnId === turn
+    // No source time or session/turn id means a hidden new turn cannot be distinguished on reconnect.
+    const ambiguousReconnect = allowReconnectReuse && previous && sourceAt === undefined && !turn && !previous.sourceAt && !previous.turnId
+    if (previous && (sameSource || sameTurn || ambiguousReconnect)) {
+      agent.completionId = previous.id
+      agent.completionTracked = previous.tracked
+      retainedPrevious = true
+    } else {
+      const discriminator = sourceAt !== undefined
+        ? `time:${sourceAt}`
+        : turn
+          ? `turn:${turn}`
+          : `observed:${now}`
+      agent.completionId = createHash('sha256').update(JSON.stringify([scope, discriminator])).digest('hex')
+      agent.completionTracked = office.attentionTracking
+    }
+  }
+  office.completionIdentities.set(scope, {
+    id: agent.completionId,
+    sourceAt: retainedPrevious ? previous?.sourceAt ?? sourceAt ?? null : sourceAt ?? null,
+    turnId: retainedPrevious ? previous?.turnId ?? turn : turn,
+    observedAt: retainedPrevious ? previous?.observedAt ?? now : now,
+    tracked: agent.completionTracked
+  })
+  pruneCompletionIdentities(office, now)
 }
 
 /** Moves an agent to a state, keeping its history and the day's tally. A no-op if it is there. */
@@ -265,6 +333,15 @@ export function applyStatus(office: Office, event: StatusEvent): void {
   agent.terminalId = event.terminalId ?? agent.terminalId
   agent.workspaceId = event.workspaceId ?? agent.workspaceId
   agent.title = event.title ?? agent.title
+  const sessionId = typeof (event as unknown as { sessionId?: unknown }).sessionId === 'string'
+    ? (event as unknown as { sessionId: string }).sessionId
+    : null
+  const sessionChanged = !!(agent.sessionId && sessionId && agent.sessionId !== sessionId)
+  if (sessionId) agent.sessionId = clip(sessionId, 200)
+  if (sessionChanged && event.state === 'done') {
+    agent.completionId = null
+    agent.completionTracked = false
+  }
   // A chat has no terminal for `agents.list` to name its kind by, but its pane key starts with it.
   agent.agent ??= /^structured-agent-session-([a-z]+)_/.exec(event.paneKey)?.[1] ?? null
   agent.lastSeenAt = now
@@ -279,14 +356,22 @@ export function applyStatus(office: Office, event: StatusEvent): void {
     office,
     agent,
     event.state,
-    event.state === 'done' ? (event.mainAgent?.outcome ?? null) : null,
+    event.state === 'done' ? (event.mainAgent?.outcome ?? (agent.state === 'done' ? agent.outcome : null)) : null,
     now
   )
   if (event.state === 'done') {
     const reportedAt = event.mainAgent?.stateStartedAt
+    const turnId = typeof (event as unknown as { turnId?: unknown }).turnId === 'string'
+      ? (event as unknown as { turnId: string }).turnId
+      : null
     if (typeof reportedAt === 'number' && Number.isFinite(reportedAt)) agent.finishedAt = reportedAt
     else if (transitionedToDone) agent.finishedAt = now
-  } else agent.finishedAt = null
+    beginCompletion(office, agent, now, sourceAt, turnId, !known)
+  } else {
+    agent.finishedAt = null
+    agent.completionId = null
+    agent.completionTracked = false
+  }
   // A turn that ended leaves no call running, whatever `agent.tool.after` we missed.
   if (event.state === 'done' || event.state === 'waiting') {
     for (const call of agent.active) finish(agent, call, now)
@@ -391,6 +476,12 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
       agent.branch = typeof worktree.branch === 'string' && worktree.branch ? worktree.branch : agent.branch
       agent.hostId = typeof worktree.hostId === 'string' && worktree.hostId ? worktree.hostId : agent.hostId
       agent.hostName = typeof worktree.hostName === 'string' && worktree.hostName ? worktree.hostName : agent.hostName
+      const sessionChanged = !!(agent.sessionId && row.sessionId && agent.sessionId !== row.sessionId)
+      if (typeof row.sessionId === 'string' && row.sessionId) agent.sessionId = clip(row.sessionId, 200)
+      if (sessionChanged && row.state === 'done') {
+        agent.completionId = null
+        agent.completionTracked = false
+      }
       agent.parentPaneKey = typeof row.parentPaneKey === 'string' && row.parentPaneKey ? row.parentPaneKey : null
       agent.agent = row.agentType ?? agent.agent
       agent.title = row.conversationName ?? agent.title
@@ -410,7 +501,7 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
         office,
         agent,
         row.state,
-        row.state === 'done' ? (row.mainAgent?.outcome ?? null) : null,
+        row.state === 'done' ? (row.mainAgent?.outcome ?? (wasDone ? agent.outcome : null)) : null,
         row.stateStartedAt ?? now
       )
       agent.stateStartedAt = row.stateStartedAt ?? agent.stateStartedAt
@@ -418,6 +509,11 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
       else if (typeof row.stateStartedAt === 'number' && Number.isFinite(row.stateStartedAt)) {
         agent.finishedAt = row.stateStartedAt
       } else if (!wasDone) agent.finishedAt = now
+      if (row.state === 'done') beginCompletion(office, agent, now, sourceAt, row.turnId, !known)
+      else {
+        agent.completionId = null
+        agent.completionTracked = false
+      }
       agent.unread = row.activity?.unread === true
       agent.lastSeenAt = Math.max(agent.lastSeenAt, row.updatedAt ?? 0)
       const previousChildren = agent.family
@@ -509,6 +605,16 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
     }
   }
   resolveParents(office)
+}
+
+/** Seeds identities for old done agents, then treats later done transitions as reviewable. */
+export function startAttentionTracking(office: Office, now: number): void {
+  for (const agent of office.agents.values()) {
+    if (agent.state !== 'done') continue
+    if (!agent.completionId) agent.completionTracked = false
+    beginCompletion(office, agent, now, agent.finishedAt ?? undefined)
+  }
+  office.attentionTracking = true
 }
 
 /** Links each agent to the one listed agent whose `paneKey` is exactly its `parentPaneKey`, in any
@@ -626,6 +732,7 @@ export function snapshot(office: Office): OfficeSnapshot {
   }
   return {
     journal: office.journal.slice(),
+    completionIdentities: Object.fromEntries(office.completionIdentities),
     agents: [...office.agents.values()].sort((a, b) => a.firstSeenAt - b.firstSeenAt),
     workspaces: Object.fromEntries(office.workspaces),
     projects: Object.fromEntries(office.projects),
@@ -660,7 +767,16 @@ function safeInsight(value: unknown, clearUnverifiedModel = false): Insight | nu
 
 /** Reads back what `snapshot` stored; calls that were running then are not running now. */
 export function restore(office: Office, stored: unknown, now: number): void {
-  const { agents, today, journal } = (stored as Partial<OfficeSnapshot> | null) ?? {}
+  const { agents, today, journal, completionIdentities } = (stored as Partial<OfficeSnapshot> | null) ?? {}
+  if (completionIdentities && typeof completionIdentities === 'object' && !Array.isArray(completionIdentities)) {
+    const identities = Object.entries(completionIdentities).filter(([key, entry]) =>
+      /^[a-f0-9]{64}$/.test(key) && entry && /^[a-f0-9]{64}$/.test(entry.id) &&
+      Number.isFinite(entry.observedAt) && entry.observedAt > now - JOURNAL_MS &&
+      (entry.sourceAt === null || Number.isFinite(entry.sourceAt)) &&
+      (entry.turnId === null || typeof entry.turnId === 'string') && typeof entry.tracked === 'boolean'
+    ).sort(([keyA, a], [keyB, b]) => a.observedAt - b.observedAt || keyA.localeCompare(keyB)).slice(-500)
+    office.completionIdentities = new Map(identities)
+  }
   if (Array.isArray(journal)) {
     const entries = journal.filter((event) => event && typeof event.id === 'string' && typeof event.agentId === 'string' && typeof event.observedAt === 'number')
     office.journal = [...new Map([...entries, ...office.journal].map((event) => [event.id, event])).values()]
@@ -681,6 +797,9 @@ export function restore(office: Office, stored: unknown, now: number): void {
       branch: typeof agent.branch === 'string' ? agent.branch : null,
       hostId: typeof agent.hostId === 'string' ? agent.hostId : null,
       hostName: typeof agent.hostName === 'string' ? agent.hostName : null,
+      sessionId: typeof agent.sessionId === 'string' ? agent.sessionId : null,
+      completionId: typeof agent.completionId === 'string' ? agent.completionId : null,
+      completionTracked: agent.completionTracked === true,
       parentPaneKey: null,
       parentId: null,
       prompt: agent.prompt ?? null,

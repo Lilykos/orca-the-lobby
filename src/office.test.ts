@@ -16,6 +16,7 @@ import {
   prune,
   restore,
   snapshot,
+  startAttentionTracking,
   storable,
   forPanel,
   STORE_BYTES
@@ -42,7 +43,7 @@ const call = (tool: string, input: object, callId?: string) => ({
 })
 
 test('labels paired environments and keeps identically named panes and paths distinct', async () => {
-  const worktrees = [{ path: '/repo', repoId: 'repo', repo: 'Lobby', branch: 'main', agents: [{ paneKey: 'pane', state: 'working' }] }]
+  const worktrees = [{ path: '/repo', repoId: 'repo', repo: 'Lobby', branch: 'main', agents: [{ paneKey: 'pane', state: 'done' }] }]
   let paired = true
   let reachable = true
   let local = true
@@ -60,17 +61,23 @@ test('labels paired environments and keeps identically named panes and paths dis
   assert.equal(office.agents.get(rows![1].agents![0].paneKey)?.hostId, 'server')
   assert.equal(office.agents.get(rows![1].agents![0].paneKey)?.hostName, 'devbox')
   assert.equal(office.agents.get(rows![0].agents![0].paneKey)?.branch, 'main')
+  assert.notEqual(office.agents.get(rows![0].agents![0].paneKey)?.completionId, office.agents.get(rows![1].agents![0].paneKey)?.completionId)
+  const remoteCompletion = office.agents.get(rows![1].agents![0].paneKey)?.completionId
   reachable = false
   const disconnected = await roster()
   assert.deepEqual(disconnected, rows?.slice(0, 1))
   applyRoster(office, disconnected ?? [], Date.now())
   assert.equal(office.agents.size, 1)
   reachable = true
-  assert.deepEqual(await roster(), rows)
+  const reconnected = await roster()
+  assert.deepEqual(reconnected, rows)
+  applyRoster(office, reconnected ?? [], Date.now())
+  assert.equal(office.agents.get(rows![1].agents![0].paneKey)?.completionId, remoteCompletion)
   paired = false
   assert.deepEqual((await roster())?.[0].repo, 'Lobby · local')
   local = false
   assert.equal(await roster(), null)
+  assert.equal(office.agents.size, 2)
 })
 
 test('projects explicit workspace context and omits labels without reported metadata', () => {
@@ -102,7 +109,10 @@ test('projects explicit workspace context and omits labels without reported meta
     history: [],
     branch: 'feature/login',
     hostId: 'host-a',
-    hostName: 'Dev server'
+    hostName: 'Dev server',
+    sessionId: null,
+    completionId: null,
+    completionTracked: false
   }
   const snapshot = {
     agents: [agent], journal: [], workspaces: { [agent.workspaceId]: 'checkout' },
@@ -115,6 +125,82 @@ test('projects explicit workspace context and omits labels without reported meta
   assert.deepEqual(workspaceContext({ ...agent, branch: null, hostId: null, hostName: null, projectId: null, workspaceId: null }, snapshot), {
     project: null, workspace: null, branch: null, host: null
   })
+  assert.equal(workspaceContext({ ...agent, hostName: null }, snapshot).host, 'host-a')
+})
+
+test('completion identity survives event, roster, restart and a late source timestamp', () => {
+  const office = createOffice()
+  office.attentionTracking = true
+  applyStatus(office, status('working', 1000))
+  applyStatus(office, status('done', 2000))
+  const first = snapshot(office).agents[0].completionId
+  assert.ok(first)
+  assert.equal(snapshot(office).agents[0].finishedAt, 2000)
+  applyRoster(office, [{ path: '/w1', agents: [{ paneKey: 'pane-1', state: 'done', lastAssistantMessage: 'same reply' }] }], 3000)
+  assert.equal(snapshot(office).agents[0].completionId, first)
+  applyRoster(office, [{ path: '/w1', agents: [{ paneKey: 'pane-1', state: 'done', lastAssistantMessage: 'same reply' }] }], 4000)
+  assert.equal(snapshot(office).agents[0].completionId, first)
+
+  const restarted = createOffice()
+  restore(restarted, JSON.parse(JSON.stringify(snapshot(office))), 5000)
+  applyRoster(restarted, [{ path: '/w1', agents: [{ paneKey: 'pane-1', state: 'done', stateStartedAt: 1500 }] }], 6000)
+  assert.equal(snapshot(restarted).agents[0].completionId, first)
+  assert.equal(snapshot(restarted).agents[0].finishedAt, 1500)
+
+  applyStatus(restarted, status('working', 7000))
+  applyStatus(restarted, status('done', 8000))
+  assert.notEqual(snapshot(restarted).agents[0].completionId, first)
+})
+
+test('captures a roster transition time once when Orca omits its completion time', () => {
+  const office = createOffice()
+  applyRoster(office, [{ path: '/w', agents: [{ paneKey: 'pane', state: 'working' }] }], 1000)
+  applyRoster(office, [{ path: '/w', agents: [{ paneKey: 'pane', state: 'done' }] }], 2000)
+  const agent = snapshot(office).agents[0]
+  assert.equal(agent.finishedAt, 2000)
+  assert.ok(agent.completionId)
+  applyRoster(office, [{ path: '/w', agents: [{ paneKey: 'pane', state: 'done' }] }], 3000)
+  assert.equal(snapshot(office).agents[0].completionId, agent.completionId)
+})
+
+test('baselines old done work once and reuses an ambiguous completion identity on reconnect', () => {
+  const office = createOffice()
+  applyRoster(office, [{ path: 'environment:["server","/w"]', hostId: 'server', agents: [{ paneKey: 'environment:["server","pane"]', state: 'done', sessionId: 'session-1' }] }], 1000)
+  startAttentionTracking(office, 1000)
+  const first = snapshot(office).agents[0]
+  assert.ok(first.completionId)
+  assert.equal(first.completionTracked, false)
+  const trackedOffice = createOffice()
+  trackedOffice.attentionTracking = true
+  applyStatus(trackedOffice, status('working', 1100))
+  applyStatus(trackedOffice, status('done', 1200))
+  startAttentionTracking(trackedOffice, 1300)
+  assert.equal(snapshot(trackedOffice).agents[0].completionTracked, true)
+  const stored = JSON.parse(JSON.stringify(snapshot(office)))
+  applyRoster(office, [], 2000)
+  const restarted = createOffice()
+  restore(restarted, stored, 2500)
+  restarted.attentionTracking = true
+  applyRoster(restarted, [], 2600)
+  applyRoster(restarted, [{ path: 'environment:["server","/w"]', hostId: 'server', agents: [{ paneKey: 'environment:["server","pane"]', state: 'done', sessionId: 'session-1' }] }], 3000)
+  assert.equal(snapshot(restarted).agents[0].completionId, first.completionId)
+  assert.equal(snapshot(restarted).agents[0].completionTracked, false)
+
+  applyRoster(restarted, [{ path: 'environment:["server","/w"]', hostId: 'server', agents: [{ paneKey: 'environment:["server","pane"]', state: 'done', sessionId: 'session-2' }] }], 4000)
+  assert.notEqual(snapshot(restarted).agents[0].completionId, first.completionId)
+})
+
+test('bounds reconnect identity metadata and omits it from panel payloads', () => {
+  const office = createOffice()
+  for (let i = 0; i < 600; i++) {
+    applyRoster(office, [{ path: '/w', hostId: 'local', agents: [{ paneKey: `pane-${i}`, state: 'done' }] }], i + 1)
+  }
+  const stored = snapshot(office)
+  assert.equal(Object.keys(stored.completionIdentities ?? {}).length, 500)
+  assert.equal(forPanel(stored).completionIdentities, undefined)
+  const restored = createOffice()
+  restore(restored, stored, 24 * 60 * 60 * 1000 + 601)
+  assert.deepEqual(snapshot(restored).completionIdentities, {})
 })
 
 test('sorts tools into what the character does', () => {

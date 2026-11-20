@@ -178,6 +178,12 @@ export type AgentView = {
   branch: string | null
   hostId: string | null
   hostName: string | null
+  /** Orca's session id, when present; helps disambiguate reused panes. */
+  sessionId: string | null
+  /** Opaque identity for this agent's current done turn, retained across polling and restart. */
+  completionId: string | null
+  /** True only when this completion was observed after first-upgrade baseline. */
+  completionTracked: boolean
   /** A terminal's title, or the name Orca gives the conversation. */
   title: string | null
   /** The last thing it was asked, and the last thing it said, when Orca knows. */
@@ -239,6 +245,10 @@ export type Today = {
 
 export type OfficeSnapshot = {
   agents: AgentView[]
+  /** Reviewed completion keys owned by the worker; optional for older snapshots. */
+  reviewedCompletions?: string[]
+  /** Worker persistence for reconnect identity continuity; omitted from panel updates. */
+  completionIdentities?: Record<string, { id: string; sourceAt: number | null; turnId: string | null; observedAt: number; tracked: boolean }>
   /** Locally observed, bounded history, oldest first. */
   journal: JournalEvent[]
   /** Workspace path (an agent's `workspaceId`) to the name Orca gives it, which its agents go by. */
@@ -268,7 +278,7 @@ export function workspaceContext(agent: AgentView, office: Pick<OfficeSnapshot, 
     project: agent.projectId ? office.projects[agent.projectId] ?? null : null,
     workspace: agent.workspaceId ? office.workspaces[agent.workspaceId] ?? null : null,
     branch: agent.branch,
-    host: agent.hostName
+    host: agent.hostName ?? agent.hostId
   }
 }
 
@@ -302,6 +312,8 @@ declare module 'orca' {
     'office.send': { input: { agentId: string; text: string }; output: ActionResult }
     /** Types the provider's compact command into the agent's terminal; only on the person's request. */
     'office.compact': { input: { agentId: string }; output: ActionResult }
+    /** Marks the current completion as reviewed in The Lobby's local state only. */
+    'attention.review': { input: { completionId: string }; output: ActionResult }
   }
   interface PluginPanelEvents {
     /** Posted to every open panel after anything in the office changes. */
