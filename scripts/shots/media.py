@@ -108,6 +108,16 @@ def attention(chrome, html):
     page.shot('attention', through=('.chart-block', 1))
 
 
+def attention_inbox(chrome, html):
+    page = Page(chrome, html, 420, hour=21.5, scenario='attentionmedia')
+    page.shot('attention-inbox', through=('#attention-list', 0))
+
+
+def notification_controls(chrome, html):
+    page = Page(chrome, html, 420, hour=21.5, scenario='notificationmedia')
+    page.shot('notification-controls', through=('#attention-list', 0))
+
+
 def drawer(chrome, html):
     page = Page(chrome, html, 420, height=950, hour=21.5)
     page.click('office-row:a1-quinn')
@@ -186,7 +196,7 @@ def office_animation(chrome, html):
     shutil.rmtree(frames, ignore_errors=True)
 
 
-IMAGES = {fn.__name__.replace('_', '-'): fn for fn in (office, office_grid, office_light, activity, attention, drawer, bubbles, settings, office_animation)}
+IMAGES = {fn.__name__.replace('_', '-'): fn for fn in (office, office_grid, office_light, activity, attention, attention_inbox, notification_controls, drawer, bubbles, settings, office_animation)}
 
 wanted = args.only.split(',') if args.only else list(IMAGES)
 unknown = [name for name in wanted if name not in IMAGES]

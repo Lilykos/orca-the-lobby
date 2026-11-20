@@ -48,6 +48,16 @@ Panel preference changes are validated field patches serialized by the worker, w
 
 Search and project selection share one normalized projection across Attention, Office and Activity. Activity retains reported ancestors needed to locate matching descendants, and the Office and chart manual project order is unchanged. The drawer leads with task, state, result and available primary action, then places calls, context/tokens and other supplemental information behind a native disclosure.
 
+## Notification policy
+
+The worker stores project mutes and episode-scoped reminder snoozes separately from user preferences and Orca settings. A project mute suppresses all Lobby notifications for that project; a 15-minute, one-hour or manual snooze suppresses repeat quiet/blocked reminders for the current episode only. It does not suppress transition alerts, hide/count fewer agents, or catch up on alerts when resumed/unmuted. Snooze expiry is absolute, and a later episode has a separate identity.
+
+Eligible state-transition alerts are grouped by project and kind for a fixed two seconds from the first event; one event keeps its individual message, while a burst produces a project/count summary. Event, roster and restore observations share stable identities so a transition is not replayed on restart. The policy is limited to 200 muted projects, 500 snoozes and 1,000 handled transition/reminder identities; pending groups are capped at 500. Its complete serialized value must fit the 200,000-byte storage budget. A malformed, unreadable or over-capacity policy leaves controls unavailable or unsaved with a visible error; the panel exposes retry, and an unsuccessful write is not acknowledged as saved.
+
+## Verification and release state
+
+1.3 is implemented on the development branch but remains unreleased; the manifest and About version still describe published 1.2.0. Current automated verification runs on macOS with isolated synthetic browser fixtures. Real paired-server behavior and Windows/Linux runtime behavior have not been exercised, and notification checkpoint/live-trial approval remains outstanding. Local Claude transcript enrichment reads titles and recent prompts for heuristic matching plus TodoWrite entries and edited file names; it remains on the machine, and prompt text is not added to the activity journal.
+
 ## Context chain
 
 Per-agent context never comes from titles, times or folders, only an exact id chain:

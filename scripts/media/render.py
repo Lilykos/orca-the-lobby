@@ -104,10 +104,10 @@ POSTERS = {
         side='r', frame=(690, 90, 880, 820), layout=640, cw=550, fit=('.office', 1),
         panel=dict(layout='grid', only='atlas-web,beacon-api', css=FIT + 'body { padding-top: 14px } ' + NO_TABS)),
     'attention': dict(
-        kicker='The Lobby', headline='Know who needs you.',
-        text='Speech bubbles say who needs you, who seems stuck and what just failed.',
-        side='l', frame=(110, 70, 560, 860), layout=340, fit=('.office', 1),
-        panel=dict(fresh=1, only='atlas-web,beacon-api', css='#banner, .room-usage, .roster { display: none } body { padding-top: 12px } ' + NO_TABS)),
+        kicker='The Lobby', headline='Know what needs a look.',
+        text='One live queue for agents who need input and results to review.',
+        side='l', frame=(110, 70, 560, 860), layout=440, fit=('#attention-list', 0),
+        panel=dict(scenario='attentionmedia', css='#banner, #primary-tabs, #view-filters, #prefs-status, .notification-controls { display: none } body { padding-top: 12px }')),
     'activity': dict(
         kicker='The Lobby', headline='See who started whom.',
         text='An org chart per project, with the exact parent and worker links Orca reports. Never guessed.',

@@ -6,9 +6,9 @@ Suggested order: 1 and 2 first (small, felt every day), then 3 and 12, then whic
 
 ## Soon
 
-### Proposed 1.3: Attention and everyday polish
+### In development: proposed 1.3 Attention and everyday polish
 
-The next-release proposal is in [tasks/plan.md](../tasks/plan.md), with an ordered implementation checklist in [tasks/todo.md](../tasks/todo.md). It covers Attention, local Reviewed state, search/project filtering, visual density, drawer hierarchy, quieter notifications, and the full tests/docs/website/release cycle. It is planning only; implementation has not started. Session history, a general timeline, PR/CI integrations and broader host-health work remain later-release candidates.
+The approved plan is in [tasks/plan.md](../tasks/plan.md), with the implementation checklist in [tasks/todo.md](../tasks/todo.md). Attention, local Reviewed state, search/project filtering, visual density, drawer hierarchy, project mute, episode reminder snooze and burst grouping are implemented and reviewed on the development branch. 1.3.0 is still unreleased: the real-panel user trial and notification checkpoint remain pending, and the manifest/About version still identify published 1.2.0. Session history, a general timeline, PR/CI integrations and broader host-health work remain later-release candidates.
 
 ### Release 1.2.0 checklist: paired servers and Orca compatibility
 

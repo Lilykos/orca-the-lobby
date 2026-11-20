@@ -2,6 +2,8 @@
 
 What to submit for The Lobby, checked against the catalog's rules (<https://onorca.dev/plugins/add/>, the [listing policy](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-listing-policy.md) and [plugin authoring](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md), read 2026-11-13).
 
+This entry describes the published 1.2.0 tag. The 1.3.0 material below is not submitted or released; keep the catalog metadata and manifest at 1.2.0 until the separate release gate is authorized.
+
 ## How listing works
 
 There is no form and no queue. The directory lists a public GitHub repository that has the `orca-plugin` topic and a `vX.Y.Z` tag, usually within an hour, if the manifest passes Orca's validator and the safety checks. It lists the newest tag, pinned to its exact commit and content hash; pushes without a new tag change nothing. The plugin's status page is `https://orca.dev/plugins/Lilykos/orca-the-lobby`. Community plugins are checked by machine, not reviewed.
@@ -43,6 +45,10 @@ Run a dozen agents in parallel worktrees and still know, at a glance, who is wor
 
 The plugin has no telemetry or direct network requests. Orca uses its existing connections to list agents on paired servers and navigate to them; Git and Claude Code/Codex log enrichment remain local. Unreachable paired servers disappear until reconnection. It acts only when you press something: it opens a workspace or brings a terminal forward on **Go to agent**, and types into a terminal only on **Send** or a confirmed **Compact conversation**. Plugins cannot type into Orca chat agents, and Claude Code's logs state no context window, so Claude agents show tokens without a percentage; the README lists the other limits.
 
+### Next-release draft — 1.3.0 (not published)
+
+The development branch adds Attention with completion-scoped local Reviewed markers (24-hour retention, 500-key cap), shared search/project filtering, density and drawer disclosures. It also adds local project mute, current-episode reminder snooze (15 minutes, 1 hour or manual resume) and two-second per-project/per-kind notification grouping. These changes preserve the published 1.2.0 catalog entry and its six-image limit until the 1.3 release is reviewed and authorized. See the current [development guide](../README.md) for actual limits and identity ambiguities.
+
 ### Capabilities declared
 
 `agent:read`, `workspace:read`, `storage:own`, `workspace:write` (Go to agent, Previous / Next agent), `notifications:show` (optional notifications), `terminal:send` (instruction box and Compact, only on request). Each is explained in the README's Permissions section.
@@ -56,7 +62,7 @@ Alt text and captions, in the order to show them. Files are in `docs/images/`.
 | cover | `docs/images/catalog/cover.png` | The Lobby: the pixel title and orca mascot, a tagline, and two project rooms with Need you!, Stuck? and Failed speech bubbles |
 | icon | `docs/images/icon.png` | The Lobby icon: the orca mascot |
 | 1 | `docs/images/catalog/office.png` | Every agent, every worktree, one glance |
-| 2 | `docs/images/catalog/attention.png` | Know who needs you |
+| 2 | `docs/images/catalog/attention.png` | Attention queue: Needs input and results to review |
 | 3 | `docs/images/catalog/activity.png` | See who started whom |
 | 4 | `docs/images/catalog/drawer.png` | Jump in without hunting tabs |
 | 5 | `docs/images/catalog/context.png` | Context and tokens, per agent |

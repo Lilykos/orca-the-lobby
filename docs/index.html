@@ -132,8 +132,20 @@
         <p>See three live groups: <strong>Needs input</strong> for blocked agents, <strong>Failed to review</strong> for explicit failures, and <strong>Finished to review</strong> for unread or newly observed completions. Waiting, cancelled, interrupted or unconfirmed work is not called successful.</p>
         <p><strong>Go to agent</strong> is offered only when Orca reports a valid destination. <strong>Review details</strong> opens the drawer; <strong>Mark Reviewed</strong> records a Lobby-only decision. It does not clear Orca's unread flag, change status, or happen when you navigate or open the drawer. Reviewed keys are kept locally for up to 24 hours, with a 500-key cap.</p>
         <p>Search and the project filter also apply to Office and Activity. Search is literal and case-insensitive over reported task, friendly name, provider and known project/workspace/branch/host context. A missing project resets to All projects; Activity keeps reported ancestors needed to place a matching agent.</p>
+        <p>Mute a project to pause all Lobby notifications for it, or snooze an eligible reminder for 15 minutes, 1 hour or until resumed. Snooze affects reminders only. Agents stay visible and counted; clearing a mute or snooze never sends catch-up alerts. Transition alerts group by project and kind for two seconds from the first event.</p>
       </div>
     </article>
+
+    <div class="gallery" aria-label="Attention and notification controls">
+      <figure class="shot">
+        <div class="frame tall"><a href="images/attention-inbox.png" title="Open the full-size image"><img src="images/attention-inbox.png" width="840" height="2314" loading="lazy" alt="The Attention queue with Needs input, Failed to review and Finished to review groups."></a></div>
+        <figcaption>The live review queue. Reviewed is a local decision for that completion only.</figcaption>
+      </figure>
+      <figure class="shot">
+        <div class="frame tall"><a href="images/notification-controls.png" title="Open the full-size image"><img src="images/notification-controls.png" width="840" height="1877" loading="lazy" alt="Project notification mute and current-episode reminder snooze controls, with agents still in Attention."></a></div>
+        <figcaption>Project mute and episode reminder snooze are separate from Orca settings.</figcaption>
+      </figure>
+    </div>
 
     <article class="feature" id="office">
       <div class="text">
@@ -327,10 +339,10 @@
         <tbody>
           <tr><td data-label="Capability"><code>agent:read</code></td><td data-label="What it is for">Seeing your agents: their state, tasks, tool calls and results.</td><td data-label="When it is used">Continuously, to draw Attention, Office and Activity. Tool-call hooks only record the call and return at once; they never deny one.</td></tr>
           <tr><td data-label="Capability"><code>workspace:read</code></td><td data-label="What it is for">Workspace and project names, so rooms can be grouped.</td><td data-label="When it is used">When the roster changes or a workspace is added or removed.</td></tr>
-          <tr><td data-label="Capability"><code>storage:own</code></td><td data-label="What it is for">The plugin's own settings, office snapshot, bounded journal and completion/review metadata.</td><td data-label="When it is used">When settings, observed office state or a local Reviewed decision changes. The journal is at most 24 hours and does not store prompts.</td></tr>
+          <tr><td data-label="Capability"><code>storage:own</code></td><td data-label="What it is for">The plugin's own settings, office snapshot, bounded journal, completion/review metadata and notification policy.</td><td data-label="When it is used">When settings, observed office state, a local Reviewed decision or a mute/snooze choice changes. The journal is at most 24 hours and does not store prompts.</td></tr>
           <tr><td data-label="Capability"><code>workspace:write</code></td><td data-label="What it is for">Opening a workspace or bringing a terminal to the front.</td><td data-label="When it is used">Only when you press <strong>Go to agent</strong> or use the previous / next agent shortcuts.</td></tr>
           <tr><td data-label="Capability"><code>terminal:send</code></td><td data-label="What it is for">Typing into an agent's terminal.</td><td data-label="When it is used">Only when you press <strong>Send</strong> in the instruction box, or confirm <strong>Compact conversation</strong>. Never by itself. Those controls are hidden if the capability is not granted.</td></tr>
-          <tr><td data-label="Capability"><code>notifications:show</code></td><td data-label="What it is for">Optional desktop notifications.</td><td data-label="When it is used">When an agent starts needing you, ends a long turn, or seems stuck, if you left those switches on. All are in Settings.</td></tr>
+          <tr><td data-label="Capability"><code>notifications:show</code></td><td data-label="What it is for">Optional desktop notifications.</td><td data-label="When it is used">For enabled blocked, long-turn and quiet reminders, after project mute, episode snooze and burst grouping are applied.</td></tr>
         </tbody>
         <caption>Terminal actions go through <code>orca terminal send</code>, because the host's own text-sending call only works for the focused workspace.</caption>
       </table>

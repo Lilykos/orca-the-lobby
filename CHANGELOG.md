@@ -2,14 +2,16 @@
 
 ## Unreleased
 
-Draft notes for 1.3; integration review and final fixture media are still pending.
+Development notes for the unreleased 1.3.0 proposal. The catalog install command still serves published 1.2.0; do not treat these notes as a release announcement.
 
 - Add **Attention** for blocked agents, explicit failures and unread or newly observed completions, with Lobby-local **Reviewed** state that never changes Orca's unread or status data.
 - Share literal search and project filtering across Attention, Office and Activity; add Comfortable / Compact density and remember the selected functional view.
 - Preserve Office as the initial view for 1.2 upgrades and open Attention by default only on genuinely new installations.
 - Put task, state, result and available action first in the drawer; progressively disclose calls, tokens and supplementary details.
 - Keep source finish timestamps distinguishable from local observation times. Completion identity remains ambiguous when Orca reports no turn/session discriminator and the transition was not observed.
-- Existing notification settings remain. Project mute, reminder snooze and burst grouping are not included in these draft notes pending their worker integration and review.
+- Add project-local notification mute and episode reminder snooze for 15 minutes, 1 hour or until resumed. Mute affects all Lobby notifications for the project; snooze affects reminders only. Neither hides agents or changes Orca settings, and resuming/unmuting does not replay missed alerts.
+- Group eligible notifications by project and kind over a fixed two-second window from the first event; preserve individual messages for single events and summarize bursts. Bound policy storage and report read/write failures without claiming unsaved changes succeeded.
+- Preserve the pixel Office, Office on 1.2 upgrades, manual project order, palettes, reduced motion, and existing contributor credit.
 
 ## 1.2.0
 

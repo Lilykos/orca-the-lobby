@@ -39,9 +39,9 @@ Orca shows the permissions the plugin asks for ([below](#permissions)) and asks 
 
 ## Screenshots
 
-| Know who needs you | See who started whom |
+| Attention: three live groups | See who started whom |
 | --- | --- |
-| <img src="docs/images/catalog/attention.png" alt="Need you!, Stuck? and Failed bubbles, with Needs attention dimming the rest" width="100%"> | <img src="docs/images/catalog/activity.png" alt="An org chart per project with who started whom" width="100%"> |
+| <img src="docs/images/catalog/attention.png" alt="Attention queue with Needs input, Failed to review and Finished to review groups" width="100%"> | <img src="docs/images/catalog/activity.png" alt="An org chart per project with who started whom" width="100%"> |
 | **Act without hunting through tabs** | **Watch the context fill** |
 | <img src="docs/images/catalog/drawer.png" alt="The agent drawer: Go to agent, an instruction box and Compact" width="100%"> | <img src="docs/images/catalog/context.png" alt="Context fill and tokens per agent" width="100%"> |
 
@@ -55,6 +55,12 @@ The panel itself, with demo data:
 
 <img src="docs/images/office-grid.png" alt="The Office tab in grid layout, two projects per row" width="100%">
 
+Attention queue and its local notification controls:
+
+| Attention | Project mute and reminder snooze |
+| --- | --- |
+| <img src="docs/images/attention-inbox.png" alt="Attention queue with needs-input, failed and finished results" width="320"> | <img src="docs/images/notification-controls.png" alt="Lobby-local project notification mute and episode reminder snooze controls" width="320"> |
+
 ## Features
 
 ### Attention
@@ -64,6 +70,12 @@ Attention groups the current live roster into **Needs input** (blocked), **Faile
 Reviewed markers are stored in Orca's per-plugin storage for up to 24 hours and at most 500 completion keys. Opening a drawer or navigating does not mark anything Reviewed, and a later completion gets its own identity when its transition is observed or Orca reports a distinguishing turn/session value.
 
 Search and the project filter are shared with Office and Activity. Search uses reported task, prompt, friendly name, provider and project/workspace/branch/host labels; chart ancestors remain visible to keep matching agents in context.
+
+### Notification controls
+
+Mute a project to pause all Lobby notifications for it, or snooze an eligible blocked/quiet episode's reminder for 15 minutes, 1 hour or until you resume it. Agents remain visible and counted; snoozing affects reminders only, not transition notifications, and resuming or unmuting does not send missed alerts later. A snooze shows its absolute expiry, and a new episode is treated separately.
+
+Eligible transition alerts are grouped by project and kind over a fixed two-second window from the first event. One event keeps its individual message; a burst becomes one count summary. Duplicate events from the hook, roster and restart are suppressed. These controls are separate from Orca's notification settings.
 
 ### Office
 
@@ -147,6 +159,7 @@ The plugin also reads agent events through hooks (`agent.tool.before` / `agent.t
 - The office state: current agents with their title, short prompt and last-reply excerpts (up to 400 characters), tool-call labels (up to 80 characters), recent state history, and the counts for today.
 - A bounded observation journal of state changes and tool calls: at most 24 hours, oldest dropped first to fit the 200,000-byte storage bound. It may hold clipped tool details and result excerpts; it does not store prompts. **Clear local activity history** in Settings empties it. The journal is never sent to the panel.
 - Bounded completion identity metadata and Reviewed completion keys. Reviewed keys expire after 24 hours and are capped at 500; they are not sent to agents and do not change Orca's unread or status state.
+- Notification policy: muted project ids, reminder snoozes and handled notification identities. It is bounded to the same 200,000-byte serialized storage limit, with caps of 200 muted projects, 500 snoozes and 1,000 handled transitions. If storage is unavailable or a change cannot fit, the control reports the error and does not claim it was saved.
 
 **What it types.** The plugin types into a terminal only after you press **Send** or confirm **Compact conversation**, and only while Orca's own list still shows that agent working in a terminal no other agent shares.
 

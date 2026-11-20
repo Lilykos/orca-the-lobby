@@ -106,6 +106,13 @@
           <li>Search is literal and case-insensitive over reported task/prompt, friendly name, provider and known project/workspace/branch/host labels. Project selection also filters. Activity keeps the reported chart ancestors needed to locate matching agents.</li>
         </ul>
         <p class="note">Completion identity prefers source finish time and reported turn/session identifiers. When those are missing, The Lobby persists the identity of its local observation. If Orca omits every discriminator and an entire new turn happens while unobserved in the same pane, it cannot be distinguished reliably from the previous turn. A source finish is labeled “Finished”; a local timestamp is labeled “Done observed”.</p>
+        <h3 id="notification-guide">Project mute and reminder snooze</h3>
+        <ul>
+          <li>Mute a project to pause all The Lobby notifications for it. Agents remain visible and counted, and this does not change Orca's own notification settings.</li>
+          <li>Snooze an eligible blocked/quiet episode's reminder for 15 minutes, 1 hour or until resumed. The displayed expiry is absolute. Snooze affects reminders only; a later transition or episode is treated separately.</li>
+          <li>Unmuting or resuming does not send missed alerts later. Eligible transition alerts are grouped by project and kind for two seconds from the first event; one event keeps its individual message and a burst becomes one count summary.</li>
+          <li>Policy storage allows up to 200 muted projects, 500 snoozes and 1,000 handled identities within 200,000 serialized bytes. Read and write errors stay visible with a retry; an unsuccessful write is not shown as saved.</li>
+        </ul>
         <h3>Office</h3>
         <ul>
           <li>Click a room sign to open or close its agent area. Rooms follow the order of Orca's sidebar. Point at a room and press ↑ or ↓ to set your own order, shared with Activity; Settings has <strong>Use the sidebar order again</strong>.</li>
@@ -194,6 +201,7 @@
           <li><strong>Git</strong>: <code>git diff --shortstat HEAD</code> for uncommitted changes.</li>
           <li><strong>Local journal</strong>: observed activity for up to 24 hours, oldest dropped first to fit the 200,000-byte serialized storage bound, never sent to the panel. It may hold clipped result or tool details; it does not store prompts.</li>
           <li><strong>Completion and review metadata</strong>: bounded identities let one completion stay reviewed across polling and restart. Reviewed keys are kept for 24 hours, capped at 500, and do not alter Orca's unread or status state.</li>
+          <li><strong>Notification policy</strong>: local project mutes, episode snoozes and handled identities share the 200,000-byte serialized limit; caps are 200 mutes, 500 snoozes and 1,000 handled identities. A failed read/write is reported; a failed write is never acknowledged as saved.</li>
           <li><strong>No money estimate</strong> is ever made from tokens.</li>
         </ul>
       </section>
@@ -203,6 +211,14 @@
         <details>
           <summary>What does Reviewed do?</summary>
           <div><p>It hides that completion from The Lobby's review queue after a successful local save. It does not clear Orca's unread flag or change agent status. Opening details or navigating does not review a result. Reviewed keys expire after 24 hours; at most 500 are retained.</p></div>
+        </details>
+        <details>
+          <summary>What do mute and snooze change?</summary>
+          <div><p>Project mute pauses all Lobby notifications for the selected project while its agents stay visible and counted. Episode snooze pauses repeat reminders for 15 minutes, 1 hour or until resumed; it does not suppress transition alerts. Neither changes Orca notification settings or sends catch-up alerts when cleared.</p></div>
+        </details>
+        <details>
+          <summary>Why does a notification control show an error?</summary>
+          <div><p>The worker could not read or save its bounded local policy. The panel keeps the error visible and offers a retry; a failed write is not treated as saved. The policy allows up to 200 muted projects, 500 snoozes and 1,000 handled identities within 200,000 serialized bytes.</p></div>
         </details>
         <details>
           <summary>When does the panel open to Attention or Office?</summary>

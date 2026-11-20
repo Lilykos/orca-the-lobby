@@ -105,23 +105,23 @@ Status: reviewed two-second grouping and worker dispatch backend passed policy/w
 
 ## 11 — Integrated regression and compatibility checks (M)
 
-- [ ] Extend browser scenarios for search, review, density, migration, empty/error states, burst updates and keyboard focus; retain all existing scenarios.
-- [ ] Verify storage/payload bounds and startup behavior; run the full unit, TypeScript, plugin and screenshot checks in plan.md.
+- [x] Extend browser scenarios for search, review, density, migration, empty/error states, burst updates and keyboard focus; retain all existing scenarios.
+- [x] Verify storage/payload bounds and startup behavior; run the full unit, TypeScript, plugin and screenshot checks in plan.md.
 - [ ] Exercise real paired-server disconnect/reconnect and Windows/Linux where hosts are available; record exact outcomes and remaining limitations rather than treating simulated coverage as hardware validation.
 
 Dependencies: 04–10. Likely files: scripts/shots/fixture.js, scripts/shots/run.py, scripts/shots/demo.js, src/worker.test.ts, docs/ROADMAP.md. Split any newly discovered production fix into its own tested task.
 
-Integration evidence: all seven reviewed notification commits were cherry-picked in order. Combined root checks passed: 237 plugin tests, TypeScript, plugin check and 92 existing browser scenarios. Real paired-server and non-macOS checks, Checkpoint C and the live trial remain pending.
+Integration evidence: all seven reviewed notification commits were cherry-picked in order. Combined root checks passed: 238 plugin tests, `npx --yes --package typescript tsc --noEmit`, plugin check (valid, no errors), and 101 browser scenarios across 280/320/340/420/900px, including keyboard, reduced-motion, storage-failure, notification-control and focus cases. Storage bounds passed; the public image set is 3,681 KB against the 8 MB budget. Real paired-server reconnect and Windows/Linux checks were not available; Checkpoint C and the live trial remain pending.
 
 ## 12 — Docs, website and media (M)
 
-- [ ] Update README/architecture for local Reviewed semantics, retention, permissions, mute/snooze, defaults and the actual platform/API limits.
-- [ ] Update website landing page, guide/FAQ, changelog and contributor credits to match the final scope.
-- [ ] Regenerate fixture-based screenshots/posters; check image limits, links, desktop/mobile rendering and browser errors.
+- [x] Update README/architecture for local Reviewed semantics, retention, permissions, mute/snooze, defaults and the actual platform/API limits.
+- [x] Update website landing page, guide/FAQ, changelog and contributor credits to match the final scope.
+- [x] Regenerate fixture-based screenshots/posters; check image limits, links, desktop/mobile rendering and browser errors.
 
 Dependencies: 11; draft copy may begin earlier. Documentation batch: README.md, docs/ARCHITECTURE.md, docs/index.html, docs/guide.html, CHANGELOG.md. Media/catalog updates are a separate follow-up batch using existing scripts and docs/LISTING.md.
 
-Draft documentation is being updated against implemented root behavior. Final media and notification copy wait for integrated task 09–10 review and task 11 verification.
+Draft documentation now describes reviewed 1.3 development behavior while keeping the published 1.2.0 install/version explicit. Fixture-based media includes the Attention queue and project mute/episode snooze controls; the public image set is 3,681 KB. Local targets/anchors, desktop/mobile rendering at 390px, browser console and image limits passed; paired-server/platform verification and the Checkpoint B/C live trials remain outstanding.
 
 ## 13 — Review, trial and 1.3.0 release
 

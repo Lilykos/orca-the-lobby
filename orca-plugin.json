@@ -25,8 +25,8 @@
     },
     {
       "path": "docs/images/catalog/attention.png",
-      "alt": "Two project rooms with Need you!, Stuck? and Failed speech bubbles over the agents, and a finished agent's reply",
-      "caption": "Know who needs you",
+      "alt": "Attention queue with Needs input, Failed to review and Finished to review groups, with Go to agent and local Mark Reviewed actions",
+      "caption": "Know what needs a look",
       "theme": "dark"
     },
     {

@@ -24,7 +24,7 @@ follow the machine that renders them.
 | `cover` | `docs/images/catalog/cover.png` | 1600 × 1000 | Kicker, the pixel title with the orca, a tagline, four feature pills and two real rooms with speech bubbles |
 | `social` | `docs/images/cover.png` | 1280 × 640 | The same cover, laid out for the GitHub social preview |
 | `office` | `docs/images/catalog/office.png` | 1600 × 1000 | Every agent, every worktree, one glance: the Office in Grid, two rooms |
-| `attention` | `docs/images/catalog/attention.png` | 1600 × 1000 | Know who needs you: two rooms with Need you!, Stuck?, Failed and a finished reply |
+| `attention` | `docs/images/catalog/attention.png` | 1600 × 1000 | The Attention queue: Needs input, Failed to review and Finished to review |
 | `activity` | `docs/images/catalog/activity.png` | 1600 × 1000 | See who started whom: an org chart with a coordinator and its workers |
 | `drawer` | `docs/images/catalog/drawer.png` | 1600 × 1000 | Jump in without hunting tabs: the drawer with Go to agent and the instruction box |
 | `context` | `docs/images/catalog/context.png` | 1600 × 1000 | Context and tokens, per agent: a closer crop of the drawer's context line |
@@ -32,7 +32,7 @@ follow the machine that renders them.
 | `icon` | `docs/images/icon.png` | 256 × 256 | The orca on the dusk backdrop, enlarged 6× without smoothing |
 
 The catalog takes the cover and up to six screenshots (`orca-plugin.json` lists them with their captions and alt
-text). `scripts/shots/media.py` still makes the README and website images.
+text). `scripts/shots/media.py` also makes the README and website images, including the Attention queue and notification controls; those controls show project mute and episode reminder snooze separately.
 
 ## How it works
 
