@@ -9,7 +9,7 @@ const child={id:'b',kind:'agent',name:'Helper',description:'Keyboard review',too
 window.fixture={agents:[agent('a','Update settings layout','working',{family:[child]}),agent('b','Check keyboard navigation','waiting'),agent('c','Review a long task title that must wrap naturally without hiding its status','done',{unread:true})],journal:[{id:'event1',agentId:'a',workspaceId:'/w',projectId:'p',kind:'tool',source:'roster',observedAt:now,coverage:'sampled',tool:'Edit',detail:'panel/main.ts'}],workspaces:{'/w':'Fixture workspace'},projects:{p:'Fixture project'},changes:{'/w':{files:2,added:3,removed:1}},links:{},can:{open:true},today:{day:'',finished:0,failed:0,blockedMs:0}};
 const scenario=new URLSearchParams(location.search).get('scenario')||'linked';if(scenario==='peers')window.fixture.agents[0].family=[];if(scenario==='cycle')window.fixture.agents[1].family=[{...child,id:'a'}];if(scenario==='unknown'||scenario==='noid')window.fixture.agents[0].family=[{...child,id:scenario==='noid'?'':'missing',description:'Review keyboard access',tool:'Read'}];
 if(scenario==='notificationexpiry'){const clock=Date.now.bind(Date);let elapsed=0;Date.now=()=>clock()+elapsed;window.advanceNotificationClock=(ms)=>{elapsed+=ms}}
-if(['notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys'].includes(scenario)){window.fixture.agents=[agent('need','Needs a decision','blocked',{stateStartedAt:now-35*60_000}),agent('quiet','Quiet agent','working',{lastSeenAt:now-35*60_000})];window.fixture.projects.p='Fixture project'}
+if(['notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario)){window.fixture.agents=[agent('need','Needs a decision','blocked',{stateStartedAt:now-35*60_000}),agent('quiet','Quiet agent','working',{lastSeenAt:now-35*60_000})];window.fixture.projects.p='Fixture project'}
 if(['attentionview','attentionkeyboard','attentionfail'].includes(scenario))window.fixture.agents=[agent('need','Needs a decision','blocked'),agent('fail','Failed result','done',{outcome:'failure',finishedAt:now-8000,finishedAtSource:'source',completionId:'a'.repeat(64),completionTracked:true}),agent('done','Successful result','done',{outcome:'success',finishedAt:now-5000,finishedAtSource:'observed',completionId:'b'.repeat(64),completionTracked:true})];
 if(scenario==='attentionemptyview')window.fixture.agents=[agent('quiet','No action needed','working')];
 if(scenario==='attentionlive')window.fixture.agents=Array.from({length:100},(_,i)=>agent('a'+i,'Agent '+i,i===0?'blocked':'working'));
@@ -59,13 +59,13 @@ const storageListeners=[];
 const stored={prefs:{notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:[]}};
 const restartedPrefs=scenario==='prefsreadrecover'?localStorage.getItem('prefs-recovery'):null;
 if(restartedPrefs)stored.prefs=JSON.parse(restartedPrefs);
-if(['newinstall','delayedfresh','legacynoprefs','prefshydration','installationrecover','installationrecoverchoice','notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys'].includes(scenario))delete stored.prefs;
+if(['newinstall','delayedfresh','legacynoprefs','prefshydration','installationrecover','installationrecoverchoice','notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario))delete stored.prefs;
 if(['legacynoprefs','prefshydration'].includes(scenario))stored.office={agents:[],journal:[]};
 if(['projectgone','delayedfresh'].includes(scenario))stored.office={agents:[],journal:[]};
-stored.installation={version:1,kind:['newinstall','delayedfresh','notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys'].includes(scenario)?'fresh':scenario==='installationunknown'?'unknown':'legacy'};
+stored.installation={version:1,kind:['newinstall','delayedfresh','notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario)?'fresh':scenario==='installationunknown'?'unknown':'legacy'};
 if(scenario==='prefsrace')stored.prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:['/old']};
 if(scenario==='prefsreadrecover'&&!restartedPrefs)stored.prefs={notifyBlocked:true,notifyDone:false,animate:true,palette:'paper',layout:'list',density:'comfortable',stuckMinutes:30,projectOrder:['/legacy'],selectedView:'office'};
-window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releasePrefsPatch=null;window.prefsPatchCalls=0;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;window.notificationCalls=[];window.notificationPolicy={muted:false,snoozed:new Map()};window.releaseNotificationWrite=null;window.releaseStaleNotificationWrite=null;window.releaseStaleNotificationRead=null;window.notificationReadCalls=0;
+window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releasePrefsPatch=null;window.prefsPatchCalls=0;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;window.notificationCalls=[];window.notificationPolicy={muted:false,snoozed:new Map()};window.releaseNotificationWrite=null;window.releaseStaleNotificationWrite=null;window.releaseStaleNotificationRead=null;window.releaseNotificationMute=null;window.releaseNotificationSnooze=null;window.notificationSnoozeWrites=0;window.notificationFocusStage='';window.notificationReadCalls=0;
 window.orca={
 storage:{
   get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');if(scenario==='prefsreadrecover'&&k==='prefs'&&!restartedPrefs&&!window.prefsRecovered){window.prefsRecovered=true;throw Error('temporary storage failure')}if(['installationrecover','installationrecoverchoice'].includes(scenario)&&k==='prefs')await new Promise(resolve=>window.releasePrefs=resolve);return stored[k]??null},
@@ -102,11 +102,16 @@ plugin:{
     }
     if(name==='notification.project.mute'){
       window.notificationCalls.push({name,input});
+      if(scenario==='notificationfocus'&&!window.notificationMuteStarted){window.notificationMuteStarted=true;return new Promise(resolve=>window.releaseNotificationMute=()=>{window.notificationPolicy.muted=input.muted;resolve({ok:true})})}
       if(scenario==='notificationerrors'&&!window.notificationWriteFailed){window.notificationWriteFailed=true;return {ok:false,error:'Could not save notification settings. Try again.'}}
+      if(scenario==='notificationerrors'&&window.notificationRetryWrite)return (window.notificationPolicy.muted=input.muted,{ok:true});
       window.notificationPolicy.muted=input.muted;return {ok:true};
     }
     if(name==='notification.reminder.snooze'){
       window.notificationCalls.push({name,input});
+      if(scenario==='notificationfocus'&&window.notificationSnoozeWrites++<2)return new Promise(resolve=>window.releaseNotificationSnooze=()=>{const expiresAt=input.choice==='15m'?Date.now()+15*60_000:null;window.notificationPolicy.snoozed.set(input.episodeId,{expiresAt});resolve({ok:true})})
+      if(scenario==='notificationerrors'&&!window.notificationSnoozeFailed){window.notificationSnoozeFailed=true;return {ok:false,error:'Could not save reminder settings. Try again.'}}
+      if(scenario==='notificationerrors'&&window.notificationRetrySnooze){const expiresAt=input.choice==='15m'?Date.now()+15*60_000:input.choice==='1h'?Date.now()+60*60_000:null;window.notificationPolicy.snoozed.set(input.episodeId,{expiresAt});return {ok:true}}
       if(scenario==='notificationstale'&&!window.notificationStaleWriteStarted){window.notificationStaleWriteStarted=true;return new Promise(resolve=>window.releaseStaleNotificationWrite=()=>resolve({ok:false,error:'That agent episode is no longer current.'}))}
       const expiresAt=input.choice==='15m'?Date.now()+15*60_000:input.choice==='1h'?Date.now()+60*60_000:null;
       if(input.choice==='resume')window.notificationPolicy.snoozed.delete(input.episodeId);else window.notificationPolicy.snoozed.set(input.episodeId,{expiresAt});
@@ -136,7 +141,7 @@ const wait=()=>new Promise(r=>setTimeout(r,80));
 (async()=>{try{
 await wait();
 if(scenario==='media'){await wait();document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return}
-if(['notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys'].includes(scenario)){
+if(['notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario)){
  const must=(ok,m)=>{if(!ok)throw Error(m)}, until=async(test,message)=>{for(let i=0;i<30&&!test();i++)await wait();must(test(),message)}, byKey=(key)=>document.querySelector(`[data-focus-key="${key}"]`), click=async(key)=>{const b=byKey(key);must(b&&!b.disabled,'missing or disabled '+key);b.click();await until(()=>![...document.querySelectorAll('.notification-project-status,.notification-agent-status')].some(x=>x.textContent.includes('Saving')||x.textContent.includes('Loading')),'action stayed pending: '+key)};
  must(document.querySelector('#attention-tab').getAttribute('aria-selected')==='true','fresh install did not start in Attention');
  must(document.documentElement.scrollWidth<=innerWidth,'notification controls overflow the panel at '+innerWidth+'px');
@@ -148,10 +153,59 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
    await until(()=>byKey('notification:project:p:mute')&&!document.querySelector('.notification-error'),'read retry did not recover');
    await click('notification:project:p:mute');
    must(document.querySelector('.notification-error')?.textContent.includes('Could not save notification settings'),'write failure was hidden');
+   window.notificationPolicy.muted=true;listener(window.fixture);await wait();listener(window.fixture);
+   await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted'),'live refresh did not show current persisted state');
+   must(document.querySelector('.notification-project-status')?.textContent.includes('save failed')&&document.querySelector('.notification-error')?.textContent.includes('Could not save')&&byKey('notification:project:p:retry-write'),'live refresh cleared failed write or Retry save');
+   window.notificationPolicy.muted=false;listener(window.fixture);
+   await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications active'),'second live refresh did not show current persisted state');
+   must(document.querySelector('.notification-project-status')?.textContent.includes('save failed')&&document.querySelector('.notification-error')?.textContent.includes('Could not save'),'repeated live update hid unsaved intent');
+   window.notificationRetryWrite=true;
    await click('notification:project:p:retry-write');
-   await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted'),'write retry did not persist');
+   await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted')&&!document.querySelector('.notification-project-status')?.textContent.includes('save failed'),'write retry did not acknowledge durable save');
+   await click('notification:agent:need:snooze:manual');
+   must(document.querySelector('.notification-agent-status')?.textContent.includes('save failed')&&document.querySelector('.notification-error')?.textContent.includes('Could not save reminder settings')&&byKey('notification:agent:need:retry-write'),'snooze write failure was not visible');
+   const episode=window.notificationCalls.filter(c=>c.name==='notification.reminder.snooze').at(-1).input.episodeId;
+   window.notificationPolicy.snoozed.set(episode,{expiresAt:null});listener(window.fixture);await wait();listener(window.fixture);
+   await until(()=>document.querySelector('.notification-agent-status')?.textContent.includes('snoozed until resumed'),'live refresh did not show current saved snooze');
+   must(document.querySelector('.notification-agent-status')?.textContent.includes('save failed')&&document.querySelector('.notification-error')?.textContent.includes('Could not save reminder settings')&&byKey('notification:agent:need:retry-write'),'live refresh cleared failed snooze intent');
+   window.notificationPolicy.snoozed.delete(episode);listener(window.fixture);
+   await until(()=>document.querySelector('.notification-agent-status')?.textContent.includes('Reminders active'),'live refresh did not show current resumed state');
+   must(document.querySelector('.notification-agent-status')?.textContent.includes('save failed')&&byKey('notification:agent:need:retry-write'),'live update hid failed snooze intent');
+   window.notificationRetrySnooze=true;await click('notification:agent:need:retry-write');
+   await until(()=>document.querySelector('.notification-agent-status')?.textContent.includes('snoozed until resumed')&&!document.querySelector('.notification-agent-status')?.textContent.includes('save failed'),'snooze retry did not acknowledge durable save');
+ } else if(scenario==='notificationfocus'){
+   const mute=byKey('notification:project:p:mute');mute.focus();mute.click();
+   await until(()=>typeof window.releaseNotificationMute==='function','mute write was not gated');
+   must(byKey('notification:project:p:mute')?.disabled&&document.querySelector('.notification-project-status')?.textContent.includes('Saving'),'pending mute was not visibly disabled');
+   window.notificationFocusStage='mutePending';await new Promise(resolve=>window.continueNotificationFocusMute=resolve);
+   const search=document.querySelector('#view-filters input'),projectSelect=document.querySelector('#view-filters select');
+   must(document.activeElement===projectSelect,'Tab navigation did not move from search while mute was pending');
+   window.releaseNotificationMute();
+   await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted'),'gated mute did not finish');
+   must(document.activeElement===projectSelect,'mute completion stole focus from keyboard navigation');
+   const readsBefore=window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length;
+   const snooze=byKey('notification:agent:need:snooze:manual');snooze.focus();snooze.click();
+   await until(()=>typeof window.releaseNotificationSnooze==='function','snooze write was not gated');
+   const officeTab=document.querySelector('#office-tab');window.notificationFocusStage='snoozePending';await new Promise(resolve=>window.continueNotificationFocusSnooze=resolve);
+   must(document.activeElement===officeTab&&document.querySelector('#office-page').hidden===false,'keyboard navigation did not leave Attention during snooze');
+   window.releaseNotificationSnooze();
+   await until(()=>window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length>readsBefore,'gated snooze was not reread');
+   await wait();must(document.activeElement===officeTab&&document.querySelector('#office-page').hidden===false,'snooze completion stole focus or navigated back to Attention');
+   document.querySelector('#attention-tab').click();
+   await until(()=>byKey('notification:agent:need:snooze:15m')&&!byKey('notification:agent:need:snooze:15m').disabled,'Attention controls did not reload');
+   const retained=byKey('notification:agent:need:snooze:15m');retained.focus();retained.click();
+   await until(()=>typeof window.releaseNotificationSnooze==='function','retained-focus snooze was not gated');
+   must(byKey('notification:agent:need:snooze:15m')?.disabled,'gated snooze did not disable its action');
+   const retainedReads=window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length;
+   window.releaseNotificationSnooze();
+   await until(()=>window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length>retainedReads,'retained-focus snooze was not reread');await wait();
+   must(document.activeElement?.dataset.focusKey==='notification:agent:need:snooze:15m','focus was not restored when the user stayed on the pending action');
+   const note=document.querySelector('.notification-note')?.textContent??'';
+   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('changes Orca settings')&&note.includes('Attention'),'mute and snooze effects are not distinguished: '+note);
  } else {
    must(document.querySelector('.notification-project-status')?.textContent.includes('Notifications active'),'initial mute state missing');
+   const note=document.querySelector('.notification-note')?.textContent??'';
+   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('changes Orca settings')&&note.includes('Attention'),'mute and snooze effects are not distinguished: '+note);
    if(scenario==='notificationcontrols'){
      window.notificationPolicy.muted=true;listener(window.fixture);
      await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted'),'another panel mute update was not reread');

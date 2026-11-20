@@ -80,10 +80,15 @@ const pages = [...document.querySelectorAll<HTMLElement>('.page')]
 const activityList = document.getElementById('activity-list') as HTMLElement
 const settings = document.getElementById('settings') as HTMLElement
 const attentionList = document.getElementById('attention-list') as HTMLElement
-type NotificationTarget = { signature: string; state: NotificationControlState | null; loading: boolean; busy: boolean; message: string; retry?: () => void; focusKey?: string; generation: number }
+type NotificationTarget = { signature: string; state: NotificationControlState | null; loading: boolean; busy: boolean; message: string; writeFailureMessage?: string; retry?: () => void; retryKind?: 'read' | 'write'; focusKey?: string; focusRevision?: number; generation: number }
 const notificationProjects = new Map<string, NotificationTarget>()
 const notificationReminders = new Map<string, NotificationTarget>()
 const notificationExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let notificationFocusRevision = 0
+let restoringAttentionFocus = false
+document.addEventListener('focusin', () => {
+  if (!restoringAttentionFocus) notificationFocusRevision++
+})
 const attentionFeedback = document.getElementById('attention-feedback') as HTMLElement
 const filterBar = document.getElementById('view-filters') as HTMLElement
 let searchText = ''
@@ -763,8 +768,12 @@ function startNotificationRead(
   if (target.busy || (target.loading && !force) || (!force && target.state)) return
   const generation = ++target.generation
   target.loading = true
-  target.message = ''
-  target.retry = undefined
+  const preserveWriteFailure = target.retryKind === 'write'
+  if (!preserveWriteFailure) {
+    target.message = ''
+    target.retry = undefined
+    target.retryKind = undefined
+  }
   if (input.agentId) {
     const timer = notificationExpiryTimers.get(input.agentId)
     if (timer) clearTimeout(timer)
@@ -775,14 +784,26 @@ function startNotificationRead(
     target.loading = false
     if (state.status === 'error' && state.error?.includes('episode is no longer current') && input.agentId && input.episodeId) {
       target.state = null
+      target.message = ''
+      target.writeFailureMessage = undefined
+      target.retry = undefined
+      target.retryKind = undefined
       startNotificationRead(map, key, target, { projectId: input.projectId, agentId: input.agentId }, stillCurrent, true)
       return
     }
     target.state = state.status === 'loading'
       ? { ...state, status: 'error', error: 'Notification settings are still loading. Retry to check again.' }
       : state
-    target.message = target.state.status === 'error' ? target.state.error ?? 'Notification settings are unavailable.' : ''
-    target.retry = target.state.status === 'ready' ? undefined : () => startNotificationRead(map, key, target, input, stillCurrent, true)
+    if (preserveWriteFailure) {
+      target.message = target.state.status === 'error'
+        ? `${target.writeFailureMessage ?? target.message} Saved state refresh failed: ${target.state.error ?? 'notification settings are unavailable.'}`
+        : target.writeFailureMessage ?? target.message
+    } else {
+      target.message = target.state.status === 'error' ? target.state.error ?? 'Notification settings are unavailable.' : ''
+      target.writeFailureMessage = undefined
+      target.retry = target.state.status === 'ready' ? undefined : () => startNotificationRead(map, key, target, input, stillCurrent, true)
+      target.retryKind = target.state.status === 'ready' ? undefined : 'read'
+    }
     if (input.agentId && target.state.status === 'ready' && target.state.snoozed && target.state.expiresAt !== null && Number.isFinite(target.state.expiresAt)) {
       const expiresAt = target.state.expiresAt
       const delay = Math.max(0, expiresAt - Date.now()) + 25
@@ -806,10 +827,13 @@ function saveNotification(
 ): void {
   const attempt = async (): Promise<void> => {
     if (!stillCurrent() || target.busy) return
-    target.focusKey ??= attentionList.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
+    target.focusKey = attentionList.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
+    target.focusRevision = notificationFocusRevision
     target.busy = true
     target.message = ''
+    target.writeFailureMessage = undefined
     target.retry = undefined
+    target.retryKind = undefined
     renderAttentionPage()
     let result: ActionResult
     try {
@@ -823,11 +847,15 @@ function saveNotification(
     target.busy = false
     if (result.ok) {
       target.message = ''
+      target.writeFailureMessage = undefined
       target.retry = undefined
+      target.retryKind = undefined
       read(true)
     } else {
       target.message = result.error
+      target.writeFailureMessage = result.error
       target.retry = () => { void attempt() }
+      target.retryKind = 'write'
       renderAttentionPage()
     }
   }
@@ -852,7 +880,7 @@ function syncNotificationControls(force = false): { projects: NotificationProjec
     const target = ensureNotificationTarget(notificationProjects, projectId, projectId)
     const current = (): boolean => notificationProjects.get(projectId) === target && projectNames.has(projectId)
     startNotificationRead(notificationProjects, projectId, target, { projectId }, current, force)
-    return { projectId, name, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retry: target.retry }
+    return { projectId, name, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retryKind: target.retryKind, retry: target.retry }
   }).sort((a, b) => projectOrder().indexOf(a.projectId) - projectOrder().indexOf(b.projectId) || a.name.localeCompare(b.name))
 
   const visible = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false)
@@ -878,7 +906,7 @@ function syncNotificationControls(force = false): { projects: NotificationProjec
       ? { projectId, agentId: agent.id, episodeId: target.state.episodeId }
       : { projectId, agentId: agent.id }
     startNotificationRead(notificationReminders, agent.id, target, input, current, force)
-    return { projectId, name: nameOf(agent), agent, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retry: target.retry }
+    return { projectId, name: nameOf(agent), agent, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retryKind: target.retryKind, retry: target.retry }
   })
   return { projects: projectRows, reminders: reminderRows }
 }
@@ -888,6 +916,9 @@ function renderAttentionPage(refreshNotifications = false): void {
   const now = Date.now()
   for (const agent of filtered.agents) refreshActions(agent.id, now)
   const notifications = syncNotificationControls(refreshNotifications)
+  const previousRestoring = restoringAttentionFocus
+  restoringAttentionFocus = true
+  try {
   renderAttention(attentionList, filtered, new Set(office.reviewedCompletions ?? []), {
     go: (agent, done) => {
       void orca.plugin.request('office.goTo', { agentId: agent.id }).then((result: ActionResult) => {
@@ -936,12 +967,21 @@ function renderAttentionPage(refreshNotifications = false): void {
   })
   for (const target of [...notificationProjects.values(), ...notificationReminders.values()]) {
     if (!target.focusKey) continue
+    if (target.focusRevision !== notificationFocusRevision || !attentionList.contains(document.activeElement)) {
+      target.focusKey = undefined
+      target.focusRevision = undefined
+      continue
+    }
     const control = [...attentionList.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
       .find((button) => button.dataset.focusKey === target.focusKey)
     if (control) {
       control.focus({ preventScroll: true })
       target.focusKey = undefined
+      target.focusRevision = undefined
     }
+  }
+  } finally {
+    restoringAttentionFocus = previousRestoring
   }
 }
 

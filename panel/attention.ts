@@ -16,6 +16,7 @@ export type NotificationProjectRow = {
   loading: boolean
   busy: boolean
   message: string
+  retryKind?: 'read' | 'write'
   retry?: () => void
 }
 export type NotificationReminderRow = NotificationProjectRow & { agent: AgentView }
@@ -80,14 +81,14 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
     const heading = el('h2', '', 'Notification controls')
     heading.id = 'notification-controls-heading'
     section.setAttribute('aria-labelledby', heading.id)
-    section.append(heading, el('p', 'notification-note', 'These local controls affect The Lobby reminders only, not Orca settings; agents stay visible in Attention.'))
+    section.append(heading, el('p', 'notification-note', 'Project mute pauses all The Lobby notifications for that project; snooze affects reminders only. Neither changes Orca settings or hides agents from Attention.'))
     for (const row of notifications.projects) {
       const card = el('article', 'notification-card')
       card.append(el('h3', 'notification-title', row.name))
       const status = el('p', 'notification-project-status')
       status.setAttribute('role', 'status')
       status.setAttribute('aria-live', 'polite')
-      status.textContent = row.loading ? 'Loading notification settings…' : row.busy ? 'Saving notification settings…' : row.state?.status === 'ready' ? row.state.muted ? 'Notifications muted' : 'Notifications active' : 'Notification settings unavailable'
+      status.textContent = `${row.loading ? 'Loading notification settings…' : row.busy ? 'Saving notification settings…' : row.state?.status === 'ready' ? row.state.muted ? 'Notifications muted' : 'Notifications active' : 'Notification settings unavailable'}${row.retryKind === 'write' && !row.busy ? ' · save failed' : ''}`
       card.append(status)
       if (row.message || row.state?.status === 'error') {
         const error = el('p', 'notification-error', row.message || row.state?.error || 'Notification settings are unavailable.')
@@ -104,8 +105,8 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
         card.append(button)
       }
       if (row.retry) {
-        const button = el('button', 'action', row.state?.status === 'ready' ? 'Retry save' : 'Retry loading notification settings') as HTMLButtonElement
-        button.dataset.focusKey = `notification:project:${row.projectId}:${row.state?.status === 'ready' ? 'retry-write' : 'retry'}`
+        const button = el('button', 'action', row.retryKind === 'write' ? 'Retry save' : 'Retry loading notification settings') as HTMLButtonElement
+        button.dataset.focusKey = `notification:project:${row.projectId}:${row.retryKind === 'write' ? 'retry-write' : 'retry'}`
         button.disabled = row.busy || row.loading
         button.addEventListener('click', row.retry)
         card.append(button)
@@ -130,6 +131,7 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
           status.append(time)
         }
       } else status.textContent = row.state?.status === 'ready' ? 'Reminders active' : 'Reminder settings unavailable'
+      if (row.retryKind === 'write' && !row.busy) status.append(document.createTextNode(' · save failed'))
       card.append(status)
       if (row.message || row.state?.status === 'error') {
         const error = el('p', 'notification-error', row.message || row.state?.error || 'Reminder settings are unavailable.')
@@ -151,8 +153,8 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
         card.append(controls)
       }
       if (row.retry) {
-        const button = el('button', 'action', row.state?.status === 'ready' ? 'Retry save' : 'Retry loading reminder settings') as HTMLButtonElement
-        button.dataset.focusKey = `notification:agent:${row.agent.id}:${row.state?.status === 'ready' ? 'retry-write' : 'retry'}`
+        const button = el('button', 'action', row.retryKind === 'write' ? 'Retry save' : 'Retry loading reminder settings') as HTMLButtonElement
+        button.dataset.focusKey = `notification:agent:${row.agent.id}:${row.retryKind === 'write' ? 'retry-write' : 'retry'}`
         button.disabled = row.busy || row.loading
         button.addEventListener('click', row.retry)
         card.append(button)
