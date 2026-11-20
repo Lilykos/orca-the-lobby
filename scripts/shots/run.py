@@ -19,7 +19,7 @@ out = args.shots
 if out:
     out.mkdir(parents=True, exist_ok=True)
 
-scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'), (280, 'peers'), (420, 'peers'), (900, 'peers'), (420, 'cycle'), (420, 'unknown'), (420, 'noid'), (420, 'storagefail'), (420, 'clearfail'), (420, 'light'), (420, 'reduced'), (280, 'many'), (420, 'many'), (900, 'many'), (420, 'stale'), (420, 'multiple'), (420, 'states'), (420, 'projects'), (420, 'departure'), (420, 'clearsuccess'), (280, 'attention'), (420, 'attention'), (900, 'attention'), (420, 'attentionempty'), (280, 'attentionempty'), (280, 'big'), (420, 'big'), (900, 'big'), (280, 'parentlink'), (420, 'parentlink'), (900, 'parentlink'), (280, 'parentnote'), (420, 'parentnote'), (340, 'grid'), (420, 'grid'), (900, 'grid'), (280, 'drawer'), (420, 'drawer'), (900, 'drawer')]
+scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'), (280, 'peers'), (420, 'peers'), (900, 'peers'), (420, 'cycle'), (420, 'unknown'), (420, 'noid'), (420, 'storagefail'), (420, 'clearfail'), (420, 'light'), (420, 'reduced'), (280, 'many'), (420, 'many'), (900, 'many'), (420, 'stale'), (420, 'multiple'), (420, 'states'), (420, 'projects'), (420, 'departure'), (420, 'clearsuccess'), (280, 'attention'), (420, 'attention'), (900, 'attention'), (420, 'attentionempty'), (280, 'attentionempty'), (280, 'big'), (420, 'big'), (900, 'big'), (280, 'parentlink'), (420, 'parentlink'), (900, 'parentlink'), (280, 'parentnote'), (420, 'parentnote'), (340, 'grid'), (420, 'grid'), (900, 'grid'), (280, 'drawer'), (420, 'drawer'), (900, 'drawer'), (420, 'drawerkeyboard'), (420, 'drawer-reduced')]
 # Each feature adds its own runs on its own line below.
 scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
     html = args.fixture.resolve() if args.fixture else build_fixture(pathlib.Path(scratch) / 'fixture.html')
     for width, scenario in scenarios:
         command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
-        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario == 'reduced' else 'no-preference'}]})
+        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario in ('reduced', 'drawer-reduced') else 'no-preference'}]})
         command('Page.navigate', {'url': html.as_uri() + '?scenario=' + scenario + ('&theme=light' if scenario == 'light' else '')})
         wait_for_fixture = {'expression': "new Promise(resolve=>{const n=setInterval(()=>{if(document.body?.dataset.fixture){clearInterval(n);resolve({result:document.body.dataset.fixture,width:innerWidth,errors:document.body.dataset.errors})}},25);setTimeout(()=>{clearInterval(n);resolve({result:'TIMEOUT'})},5000)})", 'awaitPromise': True, 'returnByValue': True}
         try:
@@ -60,6 +60,16 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             time.sleep(.15)
             focused = command('Runtime.evaluate', {'expression': "document.activeElement?.classList.contains('attention-heading')", 'returnByValue': True})['result']['value']
             if not focused: raise RuntimeError('reviewing the last result did not focus the queue heading')
+        if scenario == 'drawerkeyboard':
+            command('Runtime.evaluate', {'expression': "document.querySelector('.drawer-extra > summary').focus()"})
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            opened = command('Runtime.evaluate', {'expression': "({open:document.querySelector('.drawer-extra').open,focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if not opened['open'] or opened['focus'] != 'b:drawer-details': raise RuntimeError('keyboard did not open supplementary details and retain focus: ' + str(opened))
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
+            returned = command('Runtime.evaluate', {'expression': "({closed:!document.querySelector('.sheet'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if not returned['closed'] or returned['focus'] != 'chart-node:b': raise RuntimeError('Escape did not close the drawer and return focus: ' + str(returned))
         if scenario == 'attentionarrival':
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})

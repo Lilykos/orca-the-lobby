@@ -254,17 +254,17 @@ must(getComputedStyle(badge('a')).borderTopColor!==getComputedStyle(badge('c')).
 must(badge('a').title.includes('512k of 700k'),'badge lacks its tooltip');
 const open=(id)=>{btn('office-row:'+id).click();return document.querySelector('.sheet')};
 const line=(sheet)=>sheet.querySelector('.drawer-context')?.textContent;
-let sheet=open('a');must(line(sheet)==='Context 73% (512k of 700k) · 2 compactions · 1.2M tokens today','drawer line a: '+line(sheet));
+let sheet=open('a');sheet.querySelector('summary').click();must(line(sheet)==='Context 73% (512k of 700k) · 2 compactions · 1.2M tokens today','drawer line a: '+line(sheet));
 must(sheet.textContent.includes('window is the one the log states'),'drawer fine print lacks the window source');
 esc();await wait();
-sheet=open('b');must(line(sheet)==='Context 69% (69k of 100k) · no compactions','drawer line b: '+line(sheet));esc();await wait();
-sheet=open('c');must(line(sheet)==='Context 95% (190k of 200k) · 1 compaction · 5k tokens today','drawer line c: '+line(sheet));esc();await wait();
-sheet=open('f');must(line(sheet)==='Context 512k tokens · 2 compactions · 1.2M tokens today','drawer line f: '+line(sheet));
+sheet=open('b');sheet.querySelector('summary').click();must(line(sheet)==='Context 69% (69k of 100k) · no compactions','drawer line b: '+line(sheet));esc();await wait();
+sheet=open('c');sheet.querySelector('summary').click();must(line(sheet)==='Context 95% (190k of 200k) · 1 compaction · 5k tokens today','drawer line c: '+line(sheet));esc();await wait();
+sheet=open('f');sheet.querySelector('summary').click();must(line(sheet)==='Context 512k tokens · 2 compactions · 1.2M tokens today','drawer line f: '+line(sheet));
 must(!line(sheet).includes('%')&&sheet.textContent.includes('does not state the context window'),'unknown window should show tokens only, and say why');esc();await wait();
 sheet=open('g');must(!sheet.querySelector('.drawer-context'),'drawer shows context for an agent without any');esc();await wait();
-sheet=open('h');must(line(sheet)==='Context not reported yet · 1 compaction','drawer line h: '+line(sheet));esc();await wait();
+sheet=open('h');sheet.querySelector('summary').click();must(line(sheet)==='Context not reported yet · 1 compaction','drawer line h: '+line(sheet));esc();await wait();
 document.querySelector('#activity-tab').click();await wait();
-btn('chart-node:a').click();await wait();must(line(document.querySelector('.sheet'))==='Context 73% (512k of 700k) · 2 compactions · 1.2M tokens today','Activity drawer lacks the context line');esc();await wait();
+btn('chart-node:a').click();await wait();document.querySelector('.sheet summary').click();must(line(document.querySelector('.sheet'))==='Context 73% (512k of 700k) · 2 compactions · 1.2M tokens today','Activity drawer lacks the context line');esc();await wait();
 document.querySelector('#office-tab').click();await wait();
 btn('office-row:a').click();await wait();
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
@@ -432,16 +432,23 @@ must(!scan().failed,'Failed bubble outlived its twenty seconds');must(scan().nee
 listener(window.fixture);await wait();await wait();
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
-if(scenario==='drawer'){
+if(['drawer','drawerkeyboard','drawer-reduced'].includes(scenario)){
 const must=(ok,m)=>{if(!ok)throw Error(m)}, btn=(k)=>document.querySelector('[data-focus-key="'+k+'"]'), esc=()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
 must(!document.querySelector('.sheet'),'drawer open before any selection');
 btn('office-row:a').click();await wait();
 const sheet=document.querySelector('.sheet');must(sheet&&document.querySelector('.scrim'),'Office row did not open the drawer');
 must(sheet.getAttribute('role')==='dialog'&&sheet.getAttribute('aria-modal')==='true','drawer is not a modal dialog');
 must(document.activeElement?.dataset.focusKey==='drawer-close','focus did not move into the drawer');
-for(const want of ['Update settings layout','Wren','Calls','Current work','View in Activity'])must(sheet.textContent.includes(want),'Office drawer lacks '+want);
+for(const want of ['Update settings layout','Wren','Finished','Result','Go to agent','More details','Calls','Current work','View in Activity'])must(sheet.textContent.includes(want),'Office drawer lacks '+want);
+const info=[sheet.querySelector('.drawer-head'),sheet.querySelector('.drawer-status'),sheet.querySelector('.drawer-result'),sheet.querySelector('.drawer-actions')];
+must(info.every(Boolean)&&info.every((x,i)=>!i||!!(info[i-1].compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING)),'task, state, result and primary action are not presented in order');
+const extra=sheet.querySelector('details.drawer-extra');must(extra&&!extra.open,'supplementary details should start collapsed');must(extra.querySelector('[role="tablist"]'),'calls and supplementary tabs were removed');
+must(sheet.querySelector('.drawer-result').checkVisibility()&&[...extra.querySelectorAll('.tabbox,.drawer-usage')].every(x=>!x.checkVisibility()),'the primary result is hidden or supplementary calls/tokens are visible before disclosure');
+if(scenario==='drawer-reduced')must(getComputedStyle(sheet).animationName==='none'&&getComputedStyle(document.querySelector('.scrim')).animationName==='none','drawer animates with reduced motion requested');
 must(!document.querySelector('#offices .details'),'details still expand inline in the roster');
-listener({...window.fixture,agents:window.fixture.agents.map(x=>({...x,lastSeenAt:x.lastSeenAt+1}))});await wait();
+extra.open=true;
+listener({...window.fixture,agents:window.fixture.agents.map(x=>({...x,lastSeenAt:x.lastSeenAt+1,toolCount:x.id==='a'?x.toolCount+1:x.toolCount}))});await wait();
+must(document.querySelector('.drawer-extra').open,'live information update closed the expanded details section');
 must(document.querySelector('.sheet')===sheet&&document.activeElement?.dataset.focusKey==='drawer-close','live update closed the drawer or lost focus');
 esc();await wait();must(!document.querySelector('.sheet'),'Escape did not close the drawer');
 must(document.activeElement?.dataset.focusKey==='office-row:a','focus did not return to the Office row');

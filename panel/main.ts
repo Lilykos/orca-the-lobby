@@ -528,32 +528,49 @@ function tabBox(agentId: string, list: Tab[]): HTMLElement {
   return box
 }
 
-function details(agent: AgentView, now: number, full = false): HTMLElement {
+function details(agent: AgentView, now: number): HTMLElement {
+  const disclosure = element('details', 'drawer-extra') as HTMLDetailsElement
+  disclosure.dataset.agentId = agent.id
+  const summary = element('summary', '', 'More details')
+  summary.dataset.focusKey = `${agent.id}:drawer-details`
+  disclosure.append(summary)
   const box = element('div', 'details')
+  disclosure.append(box)
   const part = (name: string): string => `${agent.id}:${name}`
   /** The agent as the office knows it now: the drawer is not rebuilt for every roster poll. */
   const live = (): AgentView => office.agents.find((other) => other.id === agent.id) ?? agent
 
-  if (full) {
-    const identity = [
-      agent.workspaceId ? `Workspace: ${office.workspaces[agent.workspaceId] ?? agent.workspaceId}` : '',
-      agent.title ? `Title: ${agent.title}` : ''
-    ].filter(Boolean)
-    if (identity.length) box.append(element('p', 'agent-identity', identity.join(' · ')))
-  }
+  const identity = [
+    agent.workspaceId ? `Workspace: ${office.workspaces[agent.workspaceId] ?? agent.workspaceId}` : '',
+    agent.title ? `Title: ${agent.title}` : ''
+  ].filter(Boolean)
+  if (identity.length) box.append(element('p', 'agent-identity', identity.join(' · ')))
   const change = agent.workspaceId ? office.changes[agent.workspaceId] : undefined
 
-  if (!full) {
-    if (agent.prompt) box.append(note(part('asked'), 'asked', 'Asked (excerpt)', agent.prompt))
-    if (agent.reply) box.append(note(part('replied'), 'replied', 'Result (excerpt)', agent.reply))
-    return box
-  }
-
   if (agent.prompt) box.append(note(part('asked'), 'asked', 'Asked (excerpt)', agent.prompt))
-  if (agent.reply) box.append(note(part('replied'), 'replied', 'Result (excerpt)', agent.reply))
   box.append(timed(element('p', 'tab-note'), (at) => `Current work: ${doing(live(), at).text || 'Not reported'}`, now))
   if (change?.files) {
     box.append(element('p', 'tab-note', `Workspace shared changes: +${change.added} −${change.removed} · ${change.files} file${change.files === 1 ? '' : 's'}`))
+  }
+  const context = contextLine(agent.context)
+  const used = agent.workspaceId ? office.usage?.workspaces[agent.workspaceId] : undefined
+  if (context || (used && usageTotal(used))) {
+    const usage = element('div', 'drawer-usage')
+    if (context) {
+      const provider = agent.agent ? `${agent.agent[0].toUpperCase()}${agent.agent.slice(1)} ` : ''
+      usage.append(
+        element('p', 'drawer-line drawer-context', context),
+        element('p', 'drawer-fine', `Read from this agent's own ${provider}log, which Orca's session record names. ${agent.context?.window ? "The window is the one the log states." : 'The log does not state the context window, so there is no percentage.'} Tokens today count only this agent's current ${provider}session (the latest in Orca's record), cache included; an earlier one before a resume or /clear is not added.`)
+      )
+    }
+    if (used && usageTotal(used)) {
+      usage.append(
+        element('p', context ? 'drawer-line drawer-workspace' : 'drawer-line', `Workspace ${usageLine(used)}`),
+        element('p', 'drawer-models', usageModels(used)),
+        element('p', 'drawer-fine', `${tokens(used.input)} input · ${tokens(used.output)} output · ${tokens(used.cacheRead)} cache read · ${tokens(used.cacheWrite)} cache write. Counted from Claude Code and Codex logs on this machine for everyone working in this workspace, not only this agent.`)
+      )
+    }
+    box.append(usage)
   }
 
   // The rest waits behind tabs in one box, closed until asked for.
@@ -646,7 +663,7 @@ function details(agent: AgentView, now: number, full = false): HTMLElement {
   })
   box.append(tabBox(agent.id, tabs))
 
-  return box
+  return disclosure
 }
 
 /** Shows an agent in Activity; `open` also opens its drawer, otherwise its node is only found and focused. */
@@ -1531,9 +1548,13 @@ function renderDrawer(): void {
     drawerKey = key
     const inInfo = topHost.contains(document.activeElement) || restHost.contains(document.activeElement)
     const focused = inInfo ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
+    const previousDetails = restHost.querySelector<HTMLDetailsElement>('details.drawer-extra')
+    const keepDetailsOpen = !!previousDetails && previousDetails.dataset.agentId === agent?.id && previousDetails.open
     const top = sheetBody.scrollTop
     clockNodes = []
     const [upper, lower] = agent ? agentDrawer(agent, now) : [helperDrawer(helper!, now), []]
+    const nextDetails = lower.find((node): node is HTMLDetailsElement => node instanceof HTMLDetailsElement && node.classList.contains('drawer-extra'))
+    if (nextDetails) nextDetails.open = !!keepDetailsOpen
     topHost.replaceChildren(...upper)
     restHost.replaceChildren(...lower)
     placeDrawer(agent)
@@ -1611,30 +1632,15 @@ function agentDrawer(agent: AgentView, now: number): [HTMLElement[], HTMLElement
       return !current ? '' : current.kind === 'quiet' ? `No activity seen for ${since(current.since, at)}` : `Has needed you for ${since(current.since, at)}`
     }, now))
   }
-  const used = agent.workspaceId ? office.usage?.workspaces[agent.workspaceId] : undefined
   const summary = element('div', 'drawer-status')
   summary.append(state, ...lines)
   const upper = [drawerHead(taskLabel(agent), sub, face), summary]
-  const context = contextLine(agent.context)
-  if (context || (used && usageTotal(used))) {
-    const usage = element('div', 'drawer-usage')
-    if (context) {
-      const provider = agent.agent ? `${agent.agent[0].toUpperCase()}${agent.agent.slice(1)} ` : ''
-      usage.append(
-        element('p', 'drawer-line drawer-context', context),
-        element('p', 'drawer-fine', `Read from this agent's own ${provider}log, which Orca's session record names. ${agent.context?.window ? "The window is the one the log states." : 'The log does not state the context window, so there is no percentage.'} Tokens today count only this agent's current ${provider}session (the latest in Orca's record), cache included; an earlier one before a resume or /clear is not added.`)
-      )
-    }
-    if (used && usageTotal(used)) {
-      usage.append(
-        element('p', context ? 'drawer-line drawer-workspace' : 'drawer-line', `Workspace ${usageLine(used)}`),
-        element('p', 'drawer-models', usageModels(used)),
-        element('p', 'drawer-fine', `${tokens(used.input)} input · ${tokens(used.output)} output · ${tokens(used.cacheRead)} cache read · ${tokens(used.cacheWrite)} cache write. Counted from Claude Code and Codex logs on this machine for everyone working in this workspace, not only this agent.`)
-      )
-    }
-    upper.push(usage)
+  if (agent.reply) {
+    const result = note(`${agent.id}:replied`, 'replied', 'Result (excerpt)', agent.reply)
+    result.classList.add('drawer-result')
+    upper.push(result)
   }
-  return [upper, [details(agent, now, true)]]
+  return [upper, [details(agent, now)]]
 }
 
 function helperDrawer(node: FamilyNode, now: number): HTMLElement[] {

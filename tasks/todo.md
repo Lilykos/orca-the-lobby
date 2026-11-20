@@ -56,9 +56,9 @@ Dependencies: 04. Likely files: src/protocol.ts, panel/main.ts, panel/index.html
 
 ## 07 — Drawer hierarchy (M)
 
-- [ ] Put task/state/result/primary action first and progressively disclose calls, tokens and supplementary details.
-- [ ] Preserve Send drafts, confirmation state, helper details, focus return and all existing action restrictions; extract only necessary drawer code.
-- [ ] Verify existing drawer/action scenarios and new hierarchy with keyboard and reduced motion.
+- [x] Put task/state/result/primary action first and progressively disclose calls, tokens and supplementary details.
+- [x] Preserve Send drafts, confirmation state, helper details, focus return and all existing action restrictions; extract only necessary drawer code.
+- [x] Verify existing drawer/action scenarios and new hierarchy with keyboard and reduced motion.
 
 Dependencies: 04, 06. Likely files: panel/drawer.ts, panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py.
 

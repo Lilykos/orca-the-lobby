@@ -1075,6 +1075,10 @@
       .drawer-close { flex: none; min-width: 32px; min-height: 32px; font-size: 16px; }
       .drawer-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
       .drawer-line { margin: 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .drawer-extra { padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: var(--radius); }
+      .drawer-extra > summary { min-height: 28px; color: var(--ui-primary); font-weight: 650; cursor: pointer; }
+      .drawer-extra > summary:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+      .drawer-extra[open] > summary { margin-bottom: 8px; }
       .sheet .details { padding: 0; background: none; }
       .drawer-part { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
       .drawer-part:empty { display: none; }
@@ -1082,6 +1086,7 @@
       @keyframes fade-in { from { opacity: 0; } }
       @keyframes sheet-up { from { transform: translateY(100%); } }
       @media (prefers-reduced-motion: reduce) {
+        .scrim, .sheet { animation: none; }
         .tab.grew {
           animation: none;
         }
