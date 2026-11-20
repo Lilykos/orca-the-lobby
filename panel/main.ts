@@ -436,8 +436,7 @@ function projectOrder(): string[] {
 
 function moveRoom(id: string, step: -1 | 1): void {
   slideSoon()
-  prefs = { ...prefs, projectOrder: moveProject(projectOrder(), id, step) }
-  void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+  persistPrefsPatch({ projectOrder: moveProject(projectOrder(), id, step) })
   renderSettings()
   showOrder()
 }
@@ -711,8 +710,7 @@ function setPage(id: string, persist = true): void {
   if (id === 'attention') renderAttentionPage()
   if (refreshOffice) { listed = ''; renderList() }
   if (persist && id !== 'settings') {
-    prefs = { ...prefs, selectedView: id as Prefs['selectedView'] }
-    void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+    persistPrefsPatch({ selectedView: id as Prefs['selectedView'] })
   }
   renderDrawer()
 }
@@ -993,9 +991,8 @@ function layoutToggle(): HTMLElement {
   for (const [value, label] of [['list', 'List'], ['grid', 'Grid']] as const) {
     const button = action(label, () => {
       if (prefs.layout === value) return
-      prefs = { ...prefs, layout: value }
+      persistPrefsPatch({ layout: value })
       applyLayout()
-      void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
     })
     button.dataset.layout = value
     button.dataset.focusKey = `layout:${value}`
@@ -2014,9 +2011,8 @@ function renderSettings(): void {
   preview.setAttribute('role', 'status')
   preview.setAttribute('aria-live', 'polite')
   paletteSelect.addEventListener('change', () => {
-    prefs = { ...prefs, palette: paletteSelect.value as PaletteChoice }
+    persistPrefsPatch({ palette: paletteSelect.value as PaletteChoice })
     applyPalette()
-    void orca.storage.set(PREFS_KEY, prefs)
   })
   paletteLabel.append(paletteSelect, preview)
   const controls = choices.map(([key, label]) => {
@@ -2025,8 +2021,7 @@ function renderSettings(): void {
     box.type = 'checkbox'
     box.checked = prefs[key]
     box.addEventListener('change', () => {
-      prefs = { ...prefs, [key]: box.checked }
-      void orca.storage.set(PREFS_KEY, prefs)
+      persistPrefsPatch({ [key]: box.checked })
     })
     row.append(box, label)
     return row
@@ -2058,8 +2053,7 @@ function renderSettings(): void {
   }
   stuckSelect.value = String(prefs.stuckMinutes)
   stuckSelect.addEventListener('change', () => {
-    prefs = { ...prefs, stuckMinutes: Number(stuckSelect.value) }
-    void orca.storage.set(PREFS_KEY, prefs)
+    persistPrefsPatch({ stuckMinutes: Number(stuckSelect.value) })
   })
   stuckLabel.append(stuckSelect, element('span', 'setting-hint', 'Working with no activity seen, or still needing you, for that long.'))
   const densityLabel = element('label', 'palette-setting', 'Display density')
@@ -2075,9 +2069,8 @@ function renderSettings(): void {
   }
   densitySelect.value = prefs.density
   densitySelect.addEventListener('change', () => {
-    prefs = { ...prefs, density: densitySelect.value as Prefs['density'] }
+    persistPrefsPatch({ density: densitySelect.value as Prefs['density'] })
     applyLayout()
-    void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
   })
   densityLabel.append(densitySelect)
   const orderSetting = element('section', 'history-settings')
@@ -2085,8 +2078,7 @@ function renderSettings(): void {
     ? 'Projects are in the order you set with their ↑ ↓ buttons, in both Office and Activity.'
     : 'Projects follow the order of Orca\'s sidebar. Use the ↑ ↓ buttons on a room or chart to set your own.'))
   if (prefs.projectOrder.length) orderSetting.append(action('Use the sidebar order again', () => {
-    prefs = { ...prefs, projectOrder: [] }
-    void orca.storage.set(PREFS_KEY, prefs).catch(() => {})
+    persistPrefsPatch({ projectOrder: [] })
     renderSettings()
     showOrder()
   }))
@@ -2111,6 +2103,11 @@ renderSettings()
 const prefsStatus = document.getElementById('prefs-status') as HTMLElement
 let preferencesReady = false
 let prefsRevision = 0
+let installationRevision = 0
+let prefsWritable = false
+let prefsWriteActive = false
+let prefsRefreshPending = false
+let pendingPrefsPatch: Partial<Prefs> = {}
 let officeStorageWarning = ''
 let prefsStorageWarning = ''
 let installationKind: 'fresh' | 'legacy' | 'unknown' = 'unknown'
@@ -2121,7 +2118,7 @@ function hasStoredView(value: unknown): boolean {
   return stored.selectedView === 'office' || stored.selectedView === 'activity' || stored.selectedView === 'attention'
 }
 function applyStoredPrefs(value: unknown): void {
-  prefs = readPrefs(value, prefs.selectedView)
+  prefs = { ...readPrefs(value, prefs.selectedView), ...pendingPrefsPatch }
   viewPreferenceExplicit ||= hasStoredView(value)
   renderSettings()
   applyLayout()
@@ -2129,8 +2126,50 @@ function applyStoredPrefs(value: unknown): void {
   renderFilters()
   if (currentPage === 'attention') renderAttentionPage()
 }
+function persistPrefsPatch(patch: Partial<Prefs>): void {
+  prefs = { ...prefs, ...patch }
+  pendingPrefsPatch = { ...pendingPrefsPatch, ...patch }
+  if (!prefsWritable) {
+    prefsStorageWarning = 'Saved settings are unavailable; changes are waiting to merge.'
+    prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
+    return
+  }
+  void flushPrefsWrites()
+}
+async function flushPrefsWrites(): Promise<void> {
+  if (prefsWriteActive || !prefsWritable || !preferencesReady) return
+  prefsWriteActive = true
+  while (Object.keys(pendingPrefsPatch).length) {
+    const patch = pendingPrefsPatch
+    pendingPrefsPatch = {}
+    try {
+      let stored = await orca.storage.get(PREFS_KEY)
+      let revision = prefsRevision
+      while (revision !== prefsRevision) {
+        stored = await orca.storage.get(PREFS_KEY)
+        revision = prefsRevision
+      }
+      await orca.storage.set(PREFS_KEY, { ...readPrefs(stored, prefs.selectedView), ...patch })
+      prefsStorageWarning = ''
+    } catch {
+      pendingPrefsPatch = { ...patch, ...pendingPrefsPatch }
+      prefsWritable = false
+      prefsStorageWarning = 'Could not save Lobby settings; changes are waiting for storage to recover.'
+      prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
+      break
+    }
+  }
+  prefsWriteActive = false
+  if (prefsRefreshPending) {
+    prefsRefreshPending = false
+    void refreshStoredPrefs()
+  } else if (!Object.keys(pendingPrefsPatch).length) {
+    prefsStatus.textContent = officeStorageWarning
+  }
+}
 async function hydratePreferences(): Promise<void> {
   let revision = prefsRevision
+  let markerRevision = installationRevision
   let [prefsResult, installResult] = await Promise.allSettled([
     orca.storage.get(PREFS_KEY),
     orca.plugin.request('office.installation')
@@ -2142,13 +2181,22 @@ async function hydratePreferences(): Promise<void> {
       (reason) => ({ status: 'rejected', reason } as const)
     )
   }
+  while (markerRevision !== installationRevision) {
+    markerRevision = installationRevision
+    installResult = await Promise.resolve(orca.plugin.request('office.installation')).then(
+      (value) => ({ status: 'fulfilled', value } as const),
+      (reason) => ({ status: 'rejected', reason } as const)
+    )
+  }
   const installLoaded = installResult.status === 'fulfilled'
   const savedPrefs = prefsResult.status === 'fulfilled' ? prefsResult.value : null
   const prefsLoaded = prefsResult.status === 'fulfilled'
   installationKind = installResult.status === 'fulfilled' ? installResult.value.kind : 'unknown'
   viewPreferenceExplicit = hasStoredView(savedPrefs)
   const fallbackView = installationKind === 'fresh' ? 'attention' : 'office'
-  prefs = prefsLoaded ? readPrefs(savedPrefs, fallbackView) : readPrefs(null, 'office')
+  prefs = { ...(prefsLoaded ? readPrefs(savedPrefs, fallbackView) : readPrefs(null, 'office')), ...pendingPrefsPatch }
+  if (userSelectedView) prefs = { ...prefs, selectedView: currentPage as Prefs['selectedView'] }
+  prefsWritable = prefsLoaded
   prefsStorageWarning = prefsResult.status === 'rejected' ? 'Could not load saved Lobby settings; keeping Office open.' : ''
   officeStorageWarning = !installLoaded || installationKind === 'unknown' ? 'Could not confirm Lobby installation state; keeping Office open.' : ''
   prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
@@ -2158,14 +2206,19 @@ async function hydratePreferences(): Promise<void> {
   setPage(prefs.selectedView, false)
   preferencesReady = true
   document.body.classList.add('prefs-ready')
+  if (prefsWritable && Object.keys(pendingPrefsPatch).length) void flushPrefsWrites()
 }
 async function refreshStoredPrefs(): Promise<void> {
+  if (prefsWriteActive) { prefsRefreshPending = true; return }
   try {
     const value = await orca.storage.get(PREFS_KEY)
+    prefsWritable = true
     prefsStorageWarning = ''
     prefsStatus.textContent = officeStorageWarning
     applyStoredPrefs(value)
+    if (Object.keys(pendingPrefsPatch).length) void flushPrefsWrites()
   } catch {
+    prefsWritable = false
     prefsStorageWarning = 'Could not refresh saved Lobby settings; your current view is unchanged.'
     prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
   }
@@ -2190,7 +2243,10 @@ orca.storage.onDidChange(({ key }) => {
   if (key === PREFS_KEY) {
     prefsRevision++
     if (preferencesReady) void refreshStoredPrefs()
-  } else if (key === INSTALLATION_KEY && preferencesReady) void refreshInstallation()
+  } else if (key === INSTALLATION_KEY) {
+    installationRevision++
+    if (preferencesReady) void refreshInstallation()
+  }
 })
 void hydratePreferences()
 if (!officeBar.querySelector('.agent-counts')) officeBar.append(countsLine())

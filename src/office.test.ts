@@ -883,9 +883,11 @@ test('bounds complete JSON payloads by UTF-8 bytes, including live rows and revi
     ...(i === 1 ? { parentPaneKey } : {}),
     state: 'done' as const, stateStartedAt: i + 1
   }))
-  applyRoster(office, [{ path: '/repo', agents: rows }], 1000)
+  const initialRows = rows.map((row, i) => i === 1 ? { ...row, state: 'working' as const } : row)
+  applyRoster(office, [{ path: '/repo', agents: initialRows }], 1000)
+  applyRoster(office, [{ path: '/repo', agents: rows.map((row, i) => i === 1 ? { ...row, stateStartedAt: undefined } : row) }], 1001)
   const original = snapshot(office)
-  applyRoster(office, [{ path: '/repo', agents: rows.slice(0, 200) }], 1001)
+  applyRoster(office, [{ path: '/repo', agents: rows.slice(0, 200).map((row, i) => i === 1 ? { ...row, stateStartedAt: undefined } : row) }], 1002)
   for (const agent of office.agents.values()) {
     agent.prompt = '💩'.repeat(10_000)
     agent.completionTracked = true
@@ -902,6 +904,8 @@ test('bounds complete JSON payloads by UTF-8 bytes, including live rows and revi
   assert.ok(bytes <= STORE_BYTES)
   assert.ok(panelBytes <= STORE_BYTES)
   assert.equal(kept.agents.length, 200)
+  assert.equal(kept.agents[0].finishedAtSource, 'source')
+  assert.equal(kept.agents[1].finishedAtSource, 'observed')
   assert.equal(panel.agents.length, 200)
   assert.equal(panel.reviewedCompletions?.length, 500)
   assert.deepEqual(panel.reviewedCompletions, reviewKeys.slice().sort())
@@ -912,10 +916,12 @@ test('bounds complete JSON payloads by UTF-8 bytes, including live rows and revi
   assert.equal(keptChild.parentId, parent.id)
   const restored = createOffice()
   restore(restored, JSON.parse(JSON.stringify(kept)), 1002)
+  assert.equal(snapshot(restored).agents[0].finishedAtSource, 'source')
+  assert.equal(snapshot(restored).agents[1].finishedAtSource, 'observed')
   const restoredBeforeRoster = snapshot(restored).agents.find((agent) => agent.paneKey === rows[1].paneKey)!
   assert.equal(restoredBeforeRoster.parentPaneKey, parentPaneKey)
   assert.equal(restoredBeforeRoster.parentId, parent.id)
-  applyRoster(restored, [{ path: '/repo', agents: rows.slice(0, 200) }], 1002)
+  applyRoster(restored, [{ path: '/repo', agents: rows.slice(0, 200).map((row, i) => i === 1 ? { ...row, stateStartedAt: undefined } : row) }], 1002)
   const restoredChild = snapshot(restored).agents.find((agent) => agent.paneKey === rows[1].paneKey)!
   assert.equal(restoredChild.parentPaneKey, parentPaneKey)
   assert.equal(restoredChild.parentId, parent.id)

@@ -55,15 +55,18 @@ if(scenario==='attention'||scenario==='attentionempty'||scenario==='big'){
 let listener;
 const storageListeners=[];
 const stored={prefs:{notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:[]}};
-if(['newinstall','delayedfresh','legacynoprefs','prefshydration'].includes(scenario))delete stored.prefs;
+const restartedPrefs=scenario==='prefsreadrecover'?localStorage.getItem('prefs-recovery'):null;
+if(restartedPrefs)stored.prefs=JSON.parse(restartedPrefs);
+if(['newinstall','delayedfresh','legacynoprefs','prefshydration','installationrecover','installationrecoverchoice'].includes(scenario))delete stored.prefs;
 if(['legacynoprefs','prefshydration'].includes(scenario))stored.office={agents:[],journal:[]};
 if(['projectgone','delayedfresh'].includes(scenario))stored.office={agents:[],journal:[]};
 stored.installation={version:1,kind:['newinstall','delayedfresh'].includes(scenario)?'fresh':scenario==='installationunknown'?'unknown':'legacy'};
 if(scenario==='prefsrace')stored.prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:['/old']};
-window.releaseReview=null;window.releaseOffice=null;window.releaseOldAction=null;window.actionRequestCount=0;window.goToCalls=0;
+if(scenario==='prefsreadrecover'&&!restartedPrefs)stored.prefs={notifyBlocked:true,notifyDone:false,animate:true,palette:'paper',layout:'list',density:'comfortable',stuckMinutes:30,projectOrder:['/legacy'],selectedView:'office'};
+window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;
 window.orca={
 storage:{
-  get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');return stored[k]??null},
+  get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');if(scenario==='prefsreadrecover'&&k==='prefs'&&!restartedPrefs&&!window.prefsRecovered){window.prefsRecovered=true;throw Error('temporary storage failure')}if(['installationrecover','installationrecoverchoice'].includes(scenario)&&k==='prefs')await new Promise(resolve=>window.releasePrefs=resolve);return stored[k]??null},
   set:async(k,v)=>{if(scenario==='storagefail'&&k==='activity-view-cursors')throw Error('storage denied');stored[k]=v;queueMicrotask(()=>storageListeners.forEach(fn=>fn({key:k})))},
   onDidChange:fn=>storageListeners.push(fn)
 },
@@ -72,6 +75,7 @@ plugin:{
   request:async(name,input)=>{
     if(name==='office.installation'){
       if(['prefshydration','prefsrace'].includes(scenario))await new Promise(resolve=>window.releaseOffice=resolve);
+      if(['installationrecover','installationrecoverchoice'].includes(scenario)&&++window.installRequests===1)return {kind:'unknown'};
       return {kind:stored.installation.kind};
     }
     if(name==='office.snapshot')return window.fixture;
@@ -279,6 +283,29 @@ if(document.querySelector('#office-tab').getAttribute('aria-selected')!=='true'|
 }
 if(scenario==='prefshydration'){
 if(document.body.classList.contains('prefs-ready'))throw Error('panel became visible before legacy view detection completed');window.releaseOffice();await wait();if(!document.body.classList.contains('prefs-ready')||document.querySelector('#office-tab').getAttribute('aria-selected')!=='true')throw Error('delayed legacy hydration selected the wrong view');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='prefsreadrecover'){
+const must=(ok,m)=>{if(!ok)throw Error(m)};
+if(restartedPrefs){await wait();must(document.querySelector('#activity-tab').getAttribute('aria-selected')==='true','restart lost the selected view');must(document.querySelector('select[name="density"]').value==='compact','restart lost the queued density');must(document.querySelector('select[name="palette"]').value==='dracula','restart lost the concurrent palette');must(document.querySelectorAll('#settings input[type="checkbox"]')[0].checked===false&&document.querySelectorAll('#settings input[type="checkbox"]')[1].checked===true,'restart lost preserved notification preferences');must(JSON.stringify(stored.prefs.projectOrder)===JSON.stringify(['/concurrent']),'restart lost the concurrent project order');localStorage.removeItem('prefs-recovery');}
+else{
+await wait();must(document.querySelector('#prefs-status').textContent.includes('Could not load saved Lobby settings'),'failed initial read was not reported');
+document.querySelector('#activity-tab').click();document.querySelector('#settings-tab').click();
+const notify=document.querySelectorAll('#settings input[type="checkbox"]')[0];notify.checked=false;notify.dispatchEvent(new Event('change',{bubbles:true}));
+const density=document.querySelector('select[name="density"]');density.value='compact';density.dispatchEvent(new Event('change',{bubbles:true}));
+must(stored.prefs.palette==='paper'&&stored.prefs.notifyDone===false&&JSON.stringify(stored.prefs.projectOrder)==='["/legacy"]','actions overwrote stored preferences before a successful reread');
+stored.prefs={...stored.prefs,palette:'dracula',layout:'grid',notifyDone:true,stuckMinutes:60,projectOrder:['/concurrent']};storageListeners.forEach(fn=>fn({key:'prefs'}));await wait();await wait();
+must(stored.prefs.selectedView==='activity'&&stored.prefs.notifyBlocked===false&&stored.prefs.density==='compact','queued user changes were not saved after recovery');
+must(stored.prefs.palette==='dracula'&&stored.prefs.layout==='grid'&&stored.prefs.notifyDone===true&&stored.prefs.stuckMinutes===60&&JSON.stringify(stored.prefs.projectOrder)==='["/concurrent"]','recovery overwrote unrelated or concurrent settings: '+JSON.stringify(stored.prefs));
+must(!document.querySelector('#prefs-status').textContent.includes('Could not load'),'successful recovery left the read warning in place');localStorage.setItem('prefs-recovery',JSON.stringify(stored.prefs));location.reload();return;
+}
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(['installationrecover','installationrecoverchoice'].includes(scenario)){
+if(document.body.classList.contains('prefs-ready'))throw Error('installation race fixture was already hydrated');if(scenario==='installationrecoverchoice')document.querySelector('#office-tab').click();stored.installation.kind='fresh';storageListeners.forEach(fn=>fn({key:'lobby.installation'}));window.releasePrefs();await wait();
+const expected=scenario==='installationrecoverchoice'?'office':'attention';if(document.querySelector(`#${expected}-tab`).getAttribute('aria-selected')!=='true'||document.querySelector('#prefs-status').textContent.includes('Could not confirm Lobby installation state'))throw Error('a fresh installation marker received during hydration was lost: '+JSON.stringify({requests:window.installRequests,view:expected,status:document.querySelector('#prefs-status').textContent}));
+document.querySelector('#office-tab').click();storageListeners.forEach(fn=>fn({key:'lobby.installation'}));await wait();
+if(document.querySelector('#office-tab').getAttribute('aria-selected')!=='true')throw Error('marker refresh navigated away from the user-selected view');
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='prefsrace'){
 if(document.body.classList.contains('prefs-ready'))throw Error('panel became visible before its worker state was ready');

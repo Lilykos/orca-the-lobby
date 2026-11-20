@@ -185,7 +185,8 @@ function bounded<T extends OfficeSnapshot>(input: T, limit: number, compactAgent
         projectId: agent.projectId, parentPaneKey: agent.parentPaneKey, parentId: agent.parentId,
         hostId: agent.hostId, sessionId: agent.sessionId, state: agent.state,
         outcome: agent.outcome, unread: agent.unread, stateStartedAt: agent.stateStartedAt,
-        finishedAt: agent.finishedAt, firstSeenAt: agent.firstSeenAt, lastSeenAt: agent.lastSeenAt,
+        finishedAt: agent.finishedAt, finishedAtSource: agent.finishedAtSource,
+        firstSeenAt: agent.firstSeenAt, lastSeenAt: agent.lastSeenAt,
         completionId: agent.completionId, completionTracked: agent.completionTracked
       }))
     }
