@@ -5,6 +5,8 @@ import {
   flushTransitionQueue,
   isProjectMuted,
   isReminderSnoozed,
+  NotificationPolicyRestoreError,
+  notificationForTransition,
   queueTransition,
   readNotificationPolicy,
   reminderNotification,
@@ -15,6 +17,8 @@ import {
   type TransitionCandidate
 } from './notifications'
 import { STORE_BYTES, jsonBytes } from './office'
+
+const isRestoreFailure = (error: unknown): boolean => error instanceof NotificationPolicyRestoreError
 
 test('suppresses a transition notification on first observation', () => {
   assert.equal(
@@ -72,10 +76,12 @@ const candidate = (
   episodeId: string,
   projectId: string,
   kind: 'blocked' | 'finished' | 'failed',
-  agentName: string
+  agentName: string,
+  observedAt = 0
 ): TransitionCandidate => ({
   transitionId,
   episodeId,
+  observedAt,
   projectId,
   projectName: projectId.toUpperCase(),
   kind,
@@ -103,6 +109,8 @@ test('manual reminder snooze is episode-scoped, resume clears it, and a later ep
 test('rejects a 501st active snooze without evicting any manual or timed control', () => {
   for (const expiresAt of [null, 3_601_000]) {
     const policy = readNotificationPolicy({
+    mutedProjects: [],
+    handledTransitions: [],
       reminderSnoozes: Array.from({ length: 500 }, (_, index) => ({
         episodeId: `episode-${index}`,
         expiresAt,
@@ -111,7 +119,7 @@ test('rejects a 501st active snooze without evicting any manual or timed control
     }, 2_000)
     const result = setReminderSnooze(policy, 'new-episode', 2_000, 'manual')
     assert.equal(result.ok, false)
-    assert.equal(result.policy, policy)
+    assert.deepEqual(result.policy, policy)
     assert.equal(result.policy.reminderSnoozes.length, 500)
     assert.equal(result.policy.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-0'), true)
   }
@@ -119,51 +127,49 @@ test('rejects a 501st active snooze without evicting any manual or timed control
 
 test('prunes expired snoozes before admitting a new active control', () => {
   const policy = readNotificationPolicy({
+    mutedProjects: [],
+    handledTransitions: [],
     reminderSnoozes: [
       ...Array.from({ length: 499 }, (_, index) => ({ episodeId: `active-${index}`, expiresAt: null, setAt: 1_000 })),
-      { episodeId: 'expired', expiresAt: 1_901_000, setAt: 1_000 }
+      { episodeId: 'expired', expiresAt: 901_000, setAt: 1_000 }
     ]
-  }, 1_800_000)
-  const result = setReminderSnooze(policy, 'new-episode', 1_902_000, '15m')
+  }, 800_000)
+  const result = setReminderSnooze(policy, 'new-episode', 902_000, '15m')
   assert.equal(result.ok, true)
   assert.equal(result.policy.reminderSnoozes.length, 500)
   assert.equal(result.policy.reminderSnoozes.some(({ episodeId }) => episodeId === 'expired'), false)
   assert.equal(result.policy.reminderSnoozes.some(({ episodeId }) => episodeId === 'new-episode'), true)
 })
 
-test('rejects malformed snoozes, drops expired entries and bounds parsed controls deterministically', () => {
+test('drops valid expired snoozes and restores bounded controls deterministically', () => {
+  const now = 100_000_000
   const snoozes = Array.from({ length: 500 }, (_, index) => ({
     episodeId: `episode-${index}`,
     expiresAt: null,
     setAt: index
   }))
   const parsed = readNotificationPolicy({
-    mutedProjects: [...Array.from({ length: 200 }, (_, index) => `project-${String(index).padStart(3, '0')}`), '', 4],
-    reminderSnoozes: [
-      ...snoozes,
-      { episodeId: 'expired', expiresAt: 99, setAt: 1 },
-      { episodeId: 'bad-expiry', expiresAt: 'later', setAt: 1 },
-      { episodeId: 'future', expiresAt: null, setAt: 2_000 }
-    ],
     handledTransitions: [
       ...Array.from({ length: 1_005 }, (_, index) => ({
         episodeId: `episode-${index}`,
         transitionId: `transition-${index}`,
-        consumedAt: index < 5 ? 1_000 - TRANSITION_IDENTITY_RETENTION_MS : index - 5
-      })),
-      null, ''
+        consumedAt: index < 5 ? now - TRANSITION_IDENTITY_RETENTION_MS : now - (1_000 - (index - 5))
+      }))
+    ],
+    mutedProjects: Array.from({ length: 200 }, (_, index) => `project-${String(index).padStart(3, '0')}`),
+    reminderSnoozes: [
+      ...snoozes,
+      { episodeId: 'expired', expiresAt: 900_001, setAt: 1 }
     ]
-  }, 1_000)
+  }, now)
   assert.equal(parsed.mutedProjects.length, 200)
   assert.deepEqual(parsed.mutedProjects[0], 'project-000')
   assert.deepEqual(parsed.reminderSnoozes.length, 500)
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'expired'), false)
-  assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'bad-expiry'), false)
-  assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'future'), false)
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-3'), true)
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-2'), true)
   assert.equal(parsed.handledTransitions.length, 1_000)
-  assert.deepEqual(parsed.handledTransitions[0], { episodeId: 'episode-5', transitionId: 'transition-5', consumedAt: 0 })
+  assert.deepEqual(parsed.handledTransitions[0], { episodeId: 'episode-5', transitionId: 'transition-5', consumedAt: now - 1_000 })
 })
 
 test('reads only own persisted fields and accepts only manual, 15-minute, or one-hour snoozes', () => {
@@ -172,26 +178,53 @@ test('reads only own persisted fields and accepts only manual, 15-minute, or one
     reminderSnoozes: [{ episodeId: 'inherited-episode', expiresAt: null, setAt: 1_000 }],
     handledTransitions: [{ episodeId: 'inherited', transitionId: 'inherited' }]
   })
-  const inheritedOnly = readNotificationPolicy(inheritedPolicy, 5_000)
-  assert.deepEqual(inheritedOnly, emptyNotificationPolicy())
-  const inheritedEntry = Object.assign(Object.create({ expiresAt: null, setAt: 1_000 }), { episodeId: 'nested-inherited' })
+  assert.throws(() => readNotificationPolicy(inheritedPolicy, 5_000), isRestoreFailure)
   const parsed = readNotificationPolicy({
     mutedProjects: ['own-project'],
+    handledTransitions: [],
     reminderSnoozes: [
       { episodeId: 'manual', expiresAt: null, setAt: 1_000 },
       { episodeId: 'fifteen', expiresAt: 901_000, setAt: 1_000 },
-      { episodeId: 'hour', expiresAt: 3_601_000, setAt: 1_000 },
-      { episodeId: 'too-long', expiresAt: Number.MAX_SAFE_INTEGER, setAt: 1_000 },
-      { episodeId: 'unsupported-duration', expiresAt: 1_201_000, setAt: 1_000 },
-      { episodeId: 'inconsistent', expiresAt: 1_000, setAt: 1_000 },
-      { episodeId: 'missing-expiry', setAt: 1_000 },
-      { episodeId: 'missing-set-at', expiresAt: null },
-      inheritedEntry
+      { episodeId: 'hour', expiresAt: 3_601_000, setAt: 1_000 }
     ]
   }, 5_000)
   assert.deepEqual(parsed.mutedProjects, ['own-project'])
   assert.deepEqual(parsed.reminderSnoozes.map(({ episodeId }) => episodeId), ['fifteen', 'hour', 'manual'])
   assert.deepEqual(parsed.handledTransitions, [])
+  const inheritedEntry = Object.assign(Object.create({ setAt: 1_000 }), { episodeId: 'nested-inherited', expiresAt: null })
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: ['own-project'], handledTransitions: [],
+    reminderSnoozes: [{ episodeId: 'manual', expiresAt: null, setAt: 1_000 }, inheritedEntry]
+  }, 5_000), isRestoreFailure)
+})
+
+test('fails closed on corrupt stored policy and live controls instead of returning an empty writable policy', () => {
+  assert.deepEqual(readNotificationPolicy(null, 5_000), emptyNotificationPolicy())
+  assert.deepEqual(readNotificationPolicy(undefined, 5_000), emptyNotificationPolicy())
+  for (const value of [[], 'corrupt', 7, {}, { mutedProjects: null, reminderSnoozes: [], handledTransitions: [] },
+    { mutedProjects: [], reminderSnoozes: {}, handledTransitions: [] },
+    { mutedProjects: [], reminderSnoozes: [], handledTransitions: null }]) {
+    assert.throws(() => readNotificationPolicy(value, 5_000), isRestoreFailure)
+  }
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: ['valid-project', 'bad'.repeat(100)], reminderSnoozes: [], handledTransitions: []
+  }, 5_000), isRestoreFailure)
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: ['valid-project'], reminderSnoozes: [null], handledTransitions: []
+  }, 5_000), isRestoreFailure)
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: [], reminderSnoozes: [
+      { episodeId: 'valid', expiresAt: null, setAt: 1_000 },
+      { episodeId: 'bad-live', expiresAt: null, setAt: 'invalid' }
+    ], handledTransitions: []
+  }, 5_000), isRestoreFailure)
+  const inheritedSnooze = Object.assign(Object.create({ setAt: 1_000 }), { episodeId: 'inherited', expiresAt: null })
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: [], reminderSnoozes: [inheritedSnooze], handledTransitions: []
+  }, 5_000), isRestoreFailure)
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: [], reminderSnoozes: [], handledTransitions: [{ episodeId: 'e', transitionId: 't' }]
+  }, 5_000), isRestoreFailure)
 })
 
 test('project mute suppresses a transition immediately and unmute does not replay it', () => {
@@ -224,6 +257,29 @@ test('holds one eligible event for two seconds and preserves its useful individu
   assert.deepEqual(flushTransitionQueue(first.queue, first.policy, 3_000, () => true).notifications, [
     { title: 'Ada finished', body: 'Useful detail' }
   ])
+})
+
+test('copies admitted candidates and isolates input, returned queue, policy, and flushed messages', () => {
+  const event = candidate('copy-1', 'episode-copy', 'project-copy', 'blocked', 'Ada', 1_000)
+  const first = queueTransition(emptyNotificationQueue(), emptyNotificationPolicy(), event, 1_000, () => true)
+  event.transitionId = 'mutated-id'
+  event.notification.title = 'mutated title'
+  event.notification.body = '🙂'.repeat(STORE_BYTES)
+  assert.equal(first.queue.pending[0].candidates[0].transitionId, 'copy-1')
+  assert.equal(first.queue.pending[0].candidates[0].notification.title, 'Ada blocked')
+  assert.ok(jsonBytes(first.queue.pending) <= STORE_BYTES)
+
+  const second = queueTransition(first.queue, first.policy, candidate('copy-2', 'episode-copy-2', 'project-copy', 'blocked', 'Bea', 1_100), 1_100, () => true)
+  second.queue.pending[0].candidates[0].notification.body = 'changed output'
+  second.policy.handledTransitions[0].transitionId = 'changed output'
+  assert.equal(first.queue.pending[0].candidates[0].notification.body, 'Useful detail')
+  assert.equal(first.policy.handledTransitions[0].transitionId, 'copy-1')
+  assert.ok(jsonBytes(first.queue.pending) <= STORE_BYTES)
+
+  const flushed = flushTransitionQueue(first.queue, first.policy, 3_000, () => true)
+  flushed.notifications[0].title = 'changed dispatch output'
+  assert.equal(first.queue.pending[0].candidates[0].notification.title, 'Ada blocked')
+  assert.equal(flushed.queue.pending.length, 0)
 })
 
 test('groups same-project same-kind arrivals but keeps project and kind boundaries separate', () => {
@@ -266,6 +322,40 @@ test('deduplicates event and roster observations by episode and transition ident
   assert.equal(nextTransition.queue.pending.length, 2)
 })
 
+test('rejects the same stale observation at expiry and after restart, but accepts a new transition', () => {
+  const old = candidate('blocked-old', 'episode-a', 'project-a', 'blocked', 'Ada', 10_000)
+  const first = queueTransition(emptyNotificationQueue(), emptyNotificationPolicy(), old, 10_000, () => true)
+  const expiry = 10_000 + TRANSITION_IDENTITY_RETENTION_MS
+  const restored = readNotificationPolicy(JSON.parse(JSON.stringify(first.policy)), expiry)
+  const atExpiry = queueTransition(emptyNotificationQueue(), restored, old, expiry, () => true)
+  assert.deepEqual(atExpiry.notifications, [])
+  assert.deepEqual(atExpiry.queue.pending, [])
+  assert.equal(atExpiry.refusals[0].reason, 'stale-candidate')
+
+  const afterRestart = readNotificationPolicy(JSON.parse(JSON.stringify(atExpiry.policy)), expiry + 1)
+  const repeatedOld = queueTransition(emptyNotificationQueue(), afterRestart, old, expiry + 1, () => true)
+  assert.deepEqual(repeatedOld.notifications, [])
+  assert.deepEqual(repeatedOld.queue.pending, [])
+  assert.equal(repeatedOld.refusals[0].reason, 'stale-candidate')
+
+  const newTransition = candidate('blocked-new', 'episode-b', 'project-a', 'blocked', 'Bea', expiry + 1)
+  const accepted = queueTransition(emptyNotificationQueue(), repeatedOld.policy, newTransition, expiry + 1, () => true)
+  assert.deepEqual(accepted.refusals, [])
+  assert.equal(accepted.queue.pending[0].candidates[0].observedAt, expiry + 1)
+})
+
+test('notificationForTransition only builds candidates for a state transition', () => {
+  const identity = { transitionId: 'blocked-1', episodeId: 'episode-a', projectId: 'project-a', projectName: 'Project A' }
+  const current = { state: 'blocked' as const, stateStartedAt: 1_000, name: 'Ada', title: 'Review', outcome: null }
+  assert.equal(notificationForTransition(undefined, current, { notifyBlocked: true, notifyDone: true }, identity, 1_000), null)
+  const candidate = notificationForTransition(
+    { state: 'working', since: 500 }, current, { notifyBlocked: true, notifyDone: true }, identity, 1_000
+  )
+  assert.deepEqual(candidate, {
+    ...identity, kind: 'blocked', agentName: 'Ada', notification: { title: 'Ada needs you', body: 'Review' }, observedAt: 1_000
+  })
+})
+
 test('retains handled identities for 24 hours, recovers after expiry, and never restores a queue backlog', () => {
   let queue = emptyNotificationQueue()
   let policy = emptyNotificationPolicy()
@@ -291,19 +381,19 @@ test('retains handled identities for 24 hours, recovers after expiry, and never 
   const restartAt = 2_100_000 + TRANSITION_IDENTITY_RETENTION_MS
   const restored = readNotificationPolicy(JSON.parse(JSON.stringify(saturated.policy)), restartAt)
   assert.deepEqual(flushTransitionQueue(emptyNotificationQueue(), restored, restartAt, () => true).notifications, [])
-  const recovered = queueTransition(emptyNotificationQueue(), restored, candidate('after-expiry', 'episode-new', 'project-new', 'blocked', 'New'), restartAt, () => true)
+  const recovered = queueTransition(emptyNotificationQueue(), restored, candidate('after-expiry', 'episode-new', 'project-new', 'blocked', 'New', restartAt), restartAt, () => true)
   assert.deepEqual(recovered.refusals, [])
   assert.equal(recovered.policy.handledTransitions.length, 1)
 })
 
 test('restores and updates combined multibyte controls within the total UTF-8 budget', () => {
-  const now = 2_000_000
+  const now = 200_000_000
   const id = (prefix: string, index: number) => `${prefix}-${'🙂'.repeat(120)}-${index}`
   const restored = readNotificationPolicy({
     mutedProjects: Array.from({ length: 20 }, (_, index) => id('project', index)),
     reminderSnoozes: Array.from({ length: 330 }, (_, index) => ({ episodeId: id('episode', index), expiresAt: null, setAt: now })),
     handledTransitions: Array.from({ length: 300 }, (_, index) => ({
-      episodeId: id('old-episode', index), transitionId: id('old-transition', index), consumedAt: now - TRANSITION_IDENTITY_RETENTION_MS
+      episodeId: id('old-e', index), transitionId: id('old-t', index), consumedAt: now - TRANSITION_IDENTITY_RETENTION_MS
     }))
   }, now)
   assert.equal(restored.reminderSnoozes.length, 330)
@@ -333,7 +423,7 @@ test('restores and updates combined multibyte controls within the total UTF-8 bu
   let queue = emptyNotificationQueue()
   let notificationRefused = false
   for (let index = 0; index < 300; index++) {
-    const next = queueTransition(queue, current, candidate(`bounded-${index}`, `bounded-episode-${index}`, `bounded-project-${index}`, 'blocked', 'Ada'), now, () => true)
+    const next = queueTransition(queue, current, candidate(`bounded-${index}`, `bounded-episode-${index}`, `bounded-project-${index}`, 'blocked', 'Ada', now), now, () => true)
     if (next.refusals.length) {
       assert.equal(next.refusals[0].reason, 'policy-too-large')
       notificationRefused = true
@@ -351,7 +441,7 @@ test('restores and updates combined multibyte controls within the total UTF-8 bu
     const result = setProjectMuted(current, projectId, true, now)
     if (!result.ok) {
       assert.equal(result.error, 'policy-too-large')
-      assert.equal(result.policy, current)
+      assert.deepEqual(result.policy, current)
       muteRefused = true
       break
     }
@@ -365,9 +455,9 @@ test('restores and updates combined multibyte controls within the total UTF-8 bu
     mutedProjects: Array.from({ length: 200 }, (_, index) => id('project', index)),
     reminderSnoozes: Array.from({ length: 500 }, (_, index) => ({ episodeId: id('episode', index), expiresAt: null, setAt: now })),
     handledTransitions: Array.from({ length: 1_000 }, (_, index) => ({
-      episodeId: id('handled-episode', index), transitionId: id('handled-transition', index), consumedAt: now
+      episodeId: id('he', index), transitionId: id('ht', index), consumedAt: now
     }))
-  }, now), /notification policy exceeds the storage byte limit/)
+  }, now), /storage byte limit/)
 })
 
 test('rechecks mute at dispatch and discards a pending group without replay after unmute', () => {

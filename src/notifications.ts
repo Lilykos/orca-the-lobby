@@ -83,6 +83,17 @@ export const MAX_PENDING_GROUPS = 500
 export const MAX_GROUP_CANDIDATES = 500
 export const MAX_NOTIFICATION_BYTES = STORE_BYTES
 
+export class NotificationPolicyRestoreError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NotificationPolicyRestoreError'
+  }
+}
+
+function restoreError(reason: string): never {
+  throw new NotificationPolicyRestoreError(`notification policy restore failed: ${reason}`)
+}
+
 function validId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH
 }
@@ -101,66 +112,85 @@ function own(record: Record<string, unknown>, key: string): unknown {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
 }
 
+function copyNotificationPolicy(policy: NotificationPolicy): NotificationPolicy {
+  return {
+    mutedProjects: [...policy.mutedProjects],
+    reminderSnoozes: policy.reminderSnoozes.map((entry) => ({ ...entry })),
+    handledTransitions: policy.handledTransitions.map((entry) => ({ ...entry }))
+  }
+}
+
 /**
  * A bounded, restart-safe view of persisted controls. Throws when live controls exceed count or byte limits;
  * callers must surface that restore error instead of saving a partial policy.
  */
 export function readNotificationPolicy(value: unknown, now: number): NotificationPolicy {
+  if (value === null || value === undefined) return emptyNotificationPolicy()
+  if (!Number.isFinite(now) || now < 0) restoreError('invalid restore time')
   const stored = object(value)
-  if (!stored || !Number.isFinite(now) || now < 0) return emptyNotificationPolicy()
+  if (!stored) restoreError('stored policy is not an object')
 
   const mutedValue = own(stored, 'mutedProjects')
-  const mutedProjects = Array.isArray(mutedValue) ? [...new Set(mutedValue.filter(validId))].sort(compareText) : []
-  if (mutedProjects.length > MAX_MUTED_PROJECTS) throw new RangeError('notification policy exceeds the project mute limit')
+  const snoozeValue = own(stored, 'reminderSnoozes')
+  const handledValue = own(stored, 'handledTransitions')
+  if (!Array.isArray(mutedValue) || !Array.isArray(snoozeValue) || !Array.isArray(handledValue)) {
+    restoreError('required control arrays are missing or malformed')
+  }
+  const muted = new Set<string>()
+  for (const projectId of mutedValue) {
+    if (!validId(projectId)) restoreError('a project mute has an invalid identifier')
+    muted.add(projectId)
+  }
+  const mutedProjects = [...muted].sort(compareText)
+  if (mutedProjects.length > MAX_MUTED_PROJECTS) restoreError('project mute limit exceeded')
 
   const snoozes = new Map<string, ReminderSnooze>()
-  const snoozeValue = own(stored, 'reminderSnoozes')
-  if (Array.isArray(snoozeValue)) {
-    for (const value of snoozeValue) {
-      const entry = object(value)
-      if (!entry) continue
-      const episodeId = own(entry, 'episodeId')
-      const setAt = own(entry, 'setAt')
-      const expiresAt = own(entry, 'expiresAt')
-      if (!validId(episodeId) || !Number.isFinite(setAt) || (setAt as number) < 0 || (setAt as number) > now || expiresAt === undefined) continue
-      if (expiresAt !== null && (!Number.isFinite(expiresAt) ||
-          ((expiresAt as number) !== (setAt as number) + 15 * 60_000 &&
-           (expiresAt as number) !== (setAt as number) + 60 * 60_000) ||
-          (expiresAt as number) <= now)) continue
-      const parsed = { episodeId, expiresAt: expiresAt as number | null, setAt: setAt as number }
-      const previous = snoozes.get(parsed.episodeId)
-      if (!previous || parsed.setAt > previous.setAt) snoozes.set(parsed.episodeId, parsed)
+  for (const value of snoozeValue) {
+    const entry = object(value)
+    if (!entry) restoreError('a reminder snooze is not an object')
+    const episodeId = own(entry, 'episodeId')
+    const setAt = own(entry, 'setAt')
+    const expiresAt = own(entry, 'expiresAt')
+    if (!validId(episodeId) || !Number.isFinite(setAt) || (setAt as number) < 0 || (setAt as number) > now || expiresAt === undefined) {
+      restoreError('a reminder snooze has invalid identity or timestamps')
     }
+    if (expiresAt !== null && (!Number.isFinite(expiresAt) ||
+        ((expiresAt as number) !== (setAt as number) + 15 * 60_000 &&
+         (expiresAt as number) !== (setAt as number) + 60 * 60_000))) {
+      restoreError('a reminder snooze has an unsupported expiry')
+    }
+    if (expiresAt !== null && (expiresAt as number) <= now) continue
+    const parsed = { episodeId, expiresAt: expiresAt as number | null, setAt: setAt as number }
+    const previous = snoozes.get(parsed.episodeId)
+    if (!previous || parsed.setAt > previous.setAt) snoozes.set(parsed.episodeId, parsed)
   }
-  if (snoozes.size > MAX_REMINDER_SNOOZES) throw new RangeError('notification policy exceeds the reminder snooze limit')
+  if (snoozes.size > MAX_REMINDER_SNOOZES) restoreError('reminder snooze limit exceeded')
   const reminderSnoozes = [...snoozes.values()].sort((a, b) => compareText(a.episodeId, b.episodeId))
 
   const handledTransitions: HandledTransition[] = []
-  const handledValue = own(stored, 'handledTransitions')
-  if (Array.isArray(handledValue)) {
-    for (const value of handledValue) {
-      const entry = object(value)
-      if (!entry) continue
-      const episodeId = own(entry, 'episodeId')
-      const transitionId = own(entry, 'transitionId')
-      const consumedAt = own(entry, 'consumedAt')
-      // Legacy identities without a timestamp cannot be retained safely and are treated as obsolete.
-      if (!validId(episodeId) || !validId(transitionId) || !Number.isFinite(consumedAt) ||
-          (consumedAt as number) < 0 || (consumedAt as number) > now ||
-          now - (consumedAt as number) >= TRANSITION_IDENTITY_RETENTION_MS) continue
-      const identity = { episodeId, transitionId, consumedAt: consumedAt as number }
-      const priorIndex = handledTransitions.findIndex((prior) => sameTransition(prior, identity))
-      if (priorIndex >= 0) {
-        if (identity.consumedAt > handledTransitions[priorIndex].consumedAt) handledTransitions[priorIndex] = identity
-        continue
-      }
-      handledTransitions.push(identity)
+  for (const value of handledValue) {
+    const entry = object(value)
+    if (!entry) restoreError('a handled transition is not an object')
+    const episodeId = own(entry, 'episodeId')
+    const transitionId = own(entry, 'transitionId')
+    const consumedAt = own(entry, 'consumedAt')
+    if (!validId(episodeId) || !validId(transitionId)) restoreError('a handled transition has an invalid identity')
+    if (!Number.isFinite(consumedAt) || (consumedAt as number) < 0 || (consumedAt as number) > now) {
+      restoreError('a handled transition has an invalid observation time')
     }
+    if (now - (consumedAt as number) >= TRANSITION_IDENTITY_RETENTION_MS) continue
+    const identity = { episodeId, transitionId, consumedAt: consumedAt as number }
+    const priorIndex = handledTransitions.findIndex((prior) => sameTransition(prior, identity))
+    if (priorIndex >= 0) {
+      if (identity.consumedAt > handledTransitions[priorIndex].consumedAt) handledTransitions[priorIndex] = identity
+      continue
+    }
+    handledTransitions.push(identity)
   }
   handledTransitions.sort((a, b) => a.consumedAt - b.consumedAt || compareText(a.episodeId, b.episodeId) || compareText(a.transitionId, b.transitionId))
-  if (handledTransitions.length > MAX_HANDLED_TRANSITIONS) throw new RangeError('notification policy exceeds the handled transition limit')
+  if (handledTransitions.length > MAX_HANDLED_TRANSITIONS) restoreError('handled transition limit exceeded')
   const policy = { mutedProjects, reminderSnoozes, handledTransitions }
-  if (jsonBytes(policy) > STORE_BYTES) throw new RangeError('notification policy exceeds the storage byte limit')
+  if (jsonBytes(policy) > STORE_BYTES) restoreError('serialized policy exceeds the storage byte limit')
   return policy
 }
 
@@ -169,15 +199,15 @@ export function emptyNotificationPolicy(): NotificationPolicy {
 }
 
 export function setProjectMuted(policy: NotificationPolicy, projectId: string, muted: boolean, now: number): MuteUpdateResult {
-  if (!validId(projectId) || !Number.isFinite(now) || now < 0) return { ok: false, policy, error: 'invalid-update' }
+  if (!validId(projectId) || !Number.isFinite(now) || now < 0) return { ok: false, policy: copyNotificationPolicy(policy), error: 'invalid-update' }
   const projects = new Set(policy.mutedProjects)
   if (muted) {
-    if (!projects.has(projectId) && projects.size >= MAX_MUTED_PROJECTS) return { ok: false, policy, error: 'mute-limit' }
+    if (!projects.has(projectId) && projects.size >= MAX_MUTED_PROJECTS) return { ok: false, policy: copyNotificationPolicy(policy), error: 'mute-limit' }
     projects.add(projectId)
   }
   else projects.delete(projectId)
   const next = pruneHandledTransitions({ ...policy, mutedProjects: [...projects].sort(compareText) }, now)
-  if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy, error: 'policy-too-large' }
+  if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy: copyNotificationPolicy(policy), error: 'policy-too-large' }
   return { ok: true, policy: next }
 }
 
@@ -192,29 +222,29 @@ export function setReminderSnooze(
   choice: SnoozeChoice
 ): SnoozeUpdateResult {
   if (!validId(episodeId) || !Number.isFinite(now) || now < 0 || !['15m', '1h', 'manual', 'resume'].includes(choice)) {
-    return { ok: false, policy, error: 'invalid-update' }
+    return { ok: false, policy: copyNotificationPolicy(policy), error: 'invalid-update' }
   }
-  const reminderSnoozes = policy.reminderSnoozes.filter((entry) =>
+  const reminderSnoozes = policy.reminderSnoozes.map((entry) => ({ ...entry })).filter((entry) =>
     entry.expiresAt === null || entry.expiresAt > now
   )
   const existing = reminderSnoozes.some((entry) => entry.episodeId === episodeId)
   const withoutEpisode = reminderSnoozes.filter((entry) => entry.episodeId !== episodeId)
   if (choice !== 'resume' && !existing && withoutEpisode.length >= MAX_REMINDER_SNOOZES) {
-    return { ok: false, policy, error: 'snooze-limit' }
+    return { ok: false, policy: copyNotificationPolicy(policy), error: 'snooze-limit' }
   }
   if (choice === 'resume') {
     const next = pruneHandledTransitions({ ...policy, reminderSnoozes: withoutEpisode }, now)
-    if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy, error: 'policy-too-large' }
+    if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy: copyNotificationPolicy(policy), error: 'policy-too-large' }
     return { ok: true, policy: next }
   }
   const expiresAt = choice === '15m' ? now + 15 * 60_000 : choice === '1h' ? now + 60 * 60_000 : null
   const nextSnoozes = [...withoutEpisode, { episodeId, expiresAt, setAt: now }]
-  if (nextSnoozes.length > MAX_REMINDER_SNOOZES) return { ok: false, policy, error: 'snooze-limit' }
+  if (nextSnoozes.length > MAX_REMINDER_SNOOZES) return { ok: false, policy: copyNotificationPolicy(policy), error: 'snooze-limit' }
   const next = pruneHandledTransitions({
     ...policy,
     reminderSnoozes: nextSnoozes.sort((a, b) => compareText(a.episodeId, b.episodeId))
   }, now)
-  if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy, error: 'policy-too-large' }
+  if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy: copyNotificationPolicy(policy), error: 'policy-too-large' }
   return { ok: true, policy: next }
 }
 
@@ -227,11 +257,37 @@ export type TransitionCandidate = {
   /** Stable source transition id; combine with episodeId so a later turn is always distinct. */
   transitionId: string
   episodeId: string
+  /** Captured once when this actual state transition is first observed; retries reuse this time. */
+  readonly observedAt: number
   projectId: string
   projectName: string
   kind: 'blocked' | 'finished' | 'failed'
   agentName: string
   notification: NotificationMessage
+}
+
+export type TransitionSourceIdentity = Pick<TransitionCandidate, 'transitionId' | 'episodeId' | 'projectId' | 'projectName'>
+
+/** Build an enqueueable event only from a real previous/current state transition. */
+export function notificationForTransition(
+  previous: PreviousNotificationState | undefined,
+  current: TransitionNotificationAgent,
+  prefs: NotificationPrefs,
+  identity: TransitionSourceIdentity,
+  observedAt: number
+): TransitionCandidate | null {
+  const notification = transitionNotification(previous, current, prefs)
+  if (!notification) return null
+  const kind: TransitionCandidate['kind'] = current.state === 'blocked'
+    ? 'blocked'
+    : current.outcome === 'failure' ? 'failed' : 'finished'
+  return {
+    ...identity,
+    observedAt,
+    kind,
+    agentName: current.name,
+    notification: { ...notification }
+  }
 }
 export type PendingTransitionGroup = {
   projectId: string
@@ -242,7 +298,7 @@ export type PendingTransitionGroup = {
   candidates: TransitionCandidate[]
 }
 export type NotificationQueue = { pending: PendingTransitionGroup[] }
-export type QueueRefusal = { reason: 'invalid-candidate' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' | 'policy-too-large' }
+export type QueueRefusal = { reason: 'invalid-candidate' | 'stale-candidate' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' | 'policy-too-large' }
 export type QueueResult = { queue: NotificationQueue; policy: NotificationPolicy; notifications: NotificationMessage[]; refusals: QueueRefusal[] }
 
 export function emptyNotificationQueue(): NotificationQueue {
@@ -253,12 +309,34 @@ function sameTransition(a: Pick<HandledTransition, 'episodeId' | 'transitionId'>
   return a.episodeId === b.episodeId && a.transitionId === b.transitionId
 }
 
+function copyCandidate(candidate: TransitionCandidate): TransitionCandidate {
+  return {
+    transitionId: candidate.transitionId,
+    episodeId: candidate.episodeId,
+    observedAt: candidate.observedAt,
+    projectId: candidate.projectId,
+    projectName: candidate.projectName,
+    kind: candidate.kind,
+    agentName: candidate.agentName,
+    notification: { ...candidate.notification }
+  }
+}
+
+function copyQueue(queue: NotificationQueue): NotificationQueue {
+  return {
+    pending: queue.pending.map((group) => ({
+      ...group,
+      candidates: group.candidates.map(copyCandidate)
+    }))
+  }
+}
+
 function pruneHandledTransitions(policy: NotificationPolicy, now: number): NotificationPolicy {
   return {
-    ...policy,
+    ...copyNotificationPolicy(policy),
     handledTransitions: policy.handledTransitions.filter((entry) =>
       Number.isFinite(entry.consumedAt) && entry.consumedAt <= now && now - entry.consumedAt < TRANSITION_IDENTITY_RETENTION_MS
-    )
+    ).map((entry) => ({ ...entry }))
   }
 }
 
@@ -268,6 +346,7 @@ function transitionIdentity(candidate: TransitionCandidate): Pick<HandledTransit
 
 function validCandidate(candidate: TransitionCandidate): boolean {
   return validId(candidate.episodeId) && validId(candidate.transitionId) && validId(candidate.projectId) &&
+    Number.isFinite(candidate.observedAt) && candidate.observedAt >= 0 &&
     (candidate.kind === 'blocked' || candidate.kind === 'finished' || candidate.kind === 'failed') &&
     typeof candidate.projectName === 'string' && typeof candidate.agentName === 'string' &&
     typeof candidate.notification?.title === 'string' && candidate.notification.title.length > 0 &&
@@ -292,7 +371,8 @@ function summarize(group: PendingTransitionGroup): NotificationMessage {
 }
 
 /**
- * Integration contract: persist consumed identities before dispatch and retain them for 24 hours; discard pending groups on restart;
+ * Integration contract: use notificationForTransition(previous, current, ...) before enqueue, capture observedAt once on that real transition,
+ * and reuse it on retries; persist consumed identities before dispatch and retain them for 24 hours; discard pending groups on restart;
  * recheck live eligibility and mute at dispatch; schedule at most one qualifying reminder at snooze expiry;
  * resume/unmute never triggers historical catch-up.
  */
@@ -303,14 +383,15 @@ export function flushTransitionQueue(
   now: number,
   isEligible: (candidate: TransitionCandidate) => boolean
 ): QueueResult {
-  const currentPolicy = Number.isFinite(now) && now >= 0 ? pruneHandledTransitions(policy, now) : policy
-  const due = queue.pending.filter((group) => group.deadline <= now)
+  const ownedQueue = copyQueue(queue)
+  const currentPolicy = Number.isFinite(now) && now >= 0 ? pruneHandledTransitions(policy, now) : copyNotificationPolicy(policy)
+  const due = ownedQueue.pending.filter((group) => group.deadline <= now)
     .sort((a, b) => a.deadline - b.deadline || compareText(a.projectId, b.projectId) || compareText(a.kind, b.kind))
   const notifications: NotificationMessage[] = []
   const refusals: QueueRefusal[] = []
   for (const group of due) {
     if (currentPolicy.mutedProjects.includes(group.projectId)) continue
-    const eligible = { ...group, candidates: group.candidates.filter(isEligible) }
+    const eligible = { ...group, candidates: group.candidates.filter((candidate) => isEligible(copyCandidate(candidate))) }
     if (eligible.candidates.length === 0) continue
     const notification = summarize(eligible)
     if (jsonBytes(notification) > MAX_NOTIFICATION_BYTES) refusals.push({ reason: 'notification-too-large' })
@@ -318,7 +399,7 @@ export function flushTransitionQueue(
   }
   const dueGroups = new Set(due)
   return {
-    queue: { pending: queue.pending.filter((group) => !dueGroups.has(group)) },
+    queue: { pending: ownedQueue.pending.filter((group) => !dueGroups.has(group)) },
     policy: currentPolicy,
     notifications,
     refusals
@@ -336,9 +417,11 @@ export function queueTransition(
   const elapsed = flushTransitionQueue(queue, policy, now, isEligible)
   const refuse = (reason: QueueRefusal['reason']): QueueResult => ({ ...elapsed, refusals: [...elapsed.refusals, { reason }] })
   if (!Number.isFinite(now) || now < 0 || !validCandidate(candidate)) return refuse('invalid-candidate')
-  if (jsonBytes(candidate) > MAX_NOTIFICATION_BYTES) return refuse('candidate-too-large')
-  if (!isEligible(candidate)) return elapsed
-  const identity = transitionIdentity(candidate)
+  const admitted = copyCandidate(candidate)
+  if (jsonBytes(admitted) > MAX_NOTIFICATION_BYTES) return refuse('candidate-too-large')
+  if (admitted.observedAt > now || now - admitted.observedAt >= TRANSITION_IDENTITY_RETENTION_MS) return refuse('stale-candidate')
+  if (!isEligible(copyCandidate(admitted))) return elapsed
+  const identity = transitionIdentity(admitted)
   if (elapsed.policy.handledTransitions.some((prior) => sameTransition(prior, identity)) ||
       elapsed.queue.pending.some((group) => group.candidates.some((prior) => sameTransition(transitionIdentity(prior), identity)))) return elapsed
   if (elapsed.policy.handledTransitions.length >= MAX_HANDLED_TRANSITIONS) return refuse('handled-identity-limit')
@@ -348,22 +431,22 @@ export function queueTransition(
   }
   if (nextPolicy.handledTransitions.length > MAX_HANDLED_TRANSITIONS) return refuse('handled-identity-limit')
   if (jsonBytes(nextPolicy) > STORE_BYTES) return refuse('policy-too-large')
-  if (elapsed.policy.mutedProjects.includes(candidate.projectId)) return { ...elapsed, policy: nextPolicy }
+  if (elapsed.policy.mutedProjects.includes(admitted.projectId)) return { ...elapsed, policy: nextPolicy }
 
   const pending = [...elapsed.queue.pending]
-  const index = pending.findIndex((group) => groupKey(group, candidate))
+  const index = pending.findIndex((group) => groupKey(group, admitted))
   if (index < 0) {
     pending.push({
-      projectId: candidate.projectId,
-      projectName: candidate.projectName,
-      kind: candidate.kind,
+      projectId: admitted.projectId,
+      projectName: admitted.projectName,
+      kind: admitted.kind,
       firstAt: now,
       deadline: now + GROUP_WINDOW_MS,
-      candidates: [candidate]
+      candidates: [admitted]
     })
   } else {
     if (pending[index].candidates.length >= MAX_GROUP_CANDIDATES) return refuse('group-candidate-limit')
-    pending[index] = { ...pending[index], candidates: [...pending[index].candidates, candidate] }
+    pending[index] = { ...pending[index], candidates: [...pending[index].candidates, admitted] }
   }
   if (pending.length > MAX_PENDING_GROUPS || jsonBytes(pending) > STORE_BYTES) return refuse('pending-queue-full')
   pending.sort((a, b) => a.firstAt - b.firstAt || compareText(a.projectId, b.projectId) || compareText(a.kind, b.kind))
