@@ -29,7 +29,6 @@ import { agentOrder, checkInstruction, compactCommand, mayType, sharedTerminal, 
 import { createContextReader, createSessionTail } from './context'
 import {
   PREFS_KEY,
-  overdue,
   readPrefs,
   type ActionResult,
   type AgentActions,
@@ -37,6 +36,7 @@ import {
   type AgentState,
   type Prefs
 } from './protocol'
+import { reminderNotification, transitionNotification } from './notifications'
 import { cli, environmentTarget } from './roster'
 import { createReader } from './transcript'
 import { createUsageCounter, dayOf } from './usage'
@@ -55,8 +55,6 @@ const CHANGES_MS = 15000
 const REPOS_MS = 10000
 /** How often today's tokens are counted from the agents' logs. */
 const USAGE_MS = 30000
-/** A turn shorter than this ends without a notification: you were probably watching. */
-const WORTH_TELLING_MS = 60000
 /** Presses of the previous / next shortcuts closer together than this walk one fixed order. */
 const WALK_MS = 2500
 
@@ -273,16 +271,16 @@ export default function activate(orca: OrcaWorkerApi): void {
       if (!was || was.state === agent.state || !granted('notifications:show')) continue
       const name =
         (agent.workspaceId && office.workspaces.get(agent.workspaceId)) || agent.title || 'An agent'
-      const long = agent.stateStartedAt - was.since > WORTH_TELLING_MS
-      const title =
-        agent.state === 'blocked' && prefs.notifyBlocked
-          ? `${name} needs you`
-          : agent.state === 'done' && was.state === 'working' && long && prefs.notifyDone
-            ? `${name} ${agent.outcome === 'failure' ? 'failed' : 'finished'}`
-            : null
-      if (title) {
+      const notification = transitionNotification(was, {
+        state: agent.state,
+        stateStartedAt: agent.stateStartedAt,
+        name,
+        title: agent.title,
+        outcome: agent.outcome
+      }, prefs)
+      if (notification) {
         void orca.host
-          .call('notifications.show', { title, body: agent.title ?? undefined })
+          .call('notifications.show', notification)
           .catch(() => {})
       }
     }
@@ -293,19 +291,14 @@ export default function activate(orca: OrcaWorkerApi): void {
   const nudge = (): void => {
     const now = Date.now()
     for (const agent of office.agents.values()) {
-      const late = overdue(agent, now, prefs.stuckMinutes)
-      const spell = late && `${late.kind}:${late.since}`
-      if (!late || nudged.get(agent.id) === spell) continue
-      nudged.set(agent.id, spell!)
-      if (!granted('notifications:show')) continue
       const name =
         (agent.workspaceId && office.workspaces.get(agent.workspaceId)) || agent.title || 'An agent'
-      const minutes = Math.floor((now - late.since) / 60_000)
+      const reminder = reminderNotification({ ...agent, name }, now, prefs.stuckMinutes, nudged.get(agent.id))
+      if (!reminder) continue
+      nudged.set(agent.id, reminder.spell)
+      if (!granted('notifications:show')) continue
       void orca.host
-        .call('notifications.show', {
-          title: late.kind === 'quiet' ? `${name} may be stuck` : `${name} still needs you`,
-          body: `${late.kind === 'quiet' ? 'No activity seen' : 'Waiting on you'} for ${minutes} min${agent.title ? ` · ${agent.title}` : ''}`
-        })
+        .call('notifications.show', reminder.notification)
         .catch(() => {})
     }
     for (const id of nudged.keys()) if (!office.agents.has(id)) nudged.delete(id)

@@ -357,6 +357,40 @@ test('keeps quiet about what the person turned off', async () => {
   }
 })
 
+test('does not replay startup notifications and deduplicates an event when the roster catches up', async () => {
+  listed = [{
+    path: '/notifications',
+    agents: [
+      { paneKey: 'agent', state: 'working', agentType: 'claude' },
+      { paneKey: 'already-done', state: 'done', agentType: 'claude' }
+    ]
+  }]
+  const originalRoster = cli.roster
+  let rosterCalls = 0
+  cli.roster = async () => (rosterCalls++, listed)
+  const host = mockHost()
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('initial roster announcement baseline', () => host.callsOf('statusBar.update').length > 0)
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/notifications', paneKey: 'agent', state: 'blocked', receivedAt: Date.now()
+    })
+    await waitUntil('the transition notification', () => host.callsOf('notifications.show').length === 1)
+    listed![0].agents![0].state = 'blocked'
+    await waitUntil('the roster to observe the event transition', () => rosterCalls > 1)
+    assert.deepEqual(host.callsOf('notifications.show'), [{ title: 'An agent needs you', body: undefined }])
+  } finally {
+    try {
+      await worker.deactivate()
+    } finally {
+      cli.roster = originalRoster
+      listed = null
+    }
+  }
+})
+
 test('clears local history without changing agents or unread', async () => {
   listed = [{ path: '/w', agents: [{ paneKey: 'chat', state: 'done', activity: { unread: true } }] }]
   const host = mockHost()
