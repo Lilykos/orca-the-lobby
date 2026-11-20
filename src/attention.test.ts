@@ -45,3 +45,11 @@ test('validates and deterministically bounds local review metadata to one day', 
   assert.ok(new TextEncoder().encode(JSON.stringify(bounded)).byteLength < 100_000)
   assert.deepEqual(readReviewed({ version: 4, entries: { [id]: 5 } }, 10), { version: 1, entries: {} })
 })
+
+test('does not classify Orca cancellation, superseded, interruption or unconfirmed outcomes as finished', () => {
+  const excluded = ['cancellation', 'superseded', 'interruption', 'unconfirmed']
+    .map((outcome, i) => agent(`excluded-${i}`, 'done', { outcome, completionId: i.toString(16).padStart(64, '0'), completionTracked: true }))
+  const groups = attentionGroups(excluded, new Set())
+  assert.deepEqual(groups.failedToReview, [])
+  assert.deepEqual(groups.finishedToReview, [])
+})

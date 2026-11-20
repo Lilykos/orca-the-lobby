@@ -458,6 +458,91 @@ test('a failed review write reports an error and leaves the current completion u
   }
 })
 
+test('commits the identity validated before a pending write and keeps later turns separate', async () => {
+  listed = [{ path: '/review', agents: [{ paneKey: 'p', state: 'done', turnId: 'turn-a', stateStartedAt: 10, mainAgent: { outcome: 'failure' } }] }]
+  let began!: () => void
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const started = new Promise<void>((resolve) => { began = resolve })
+  let first = true
+  let reviewedStorage: unknown
+  let host: ReturnType<typeof mockHost>
+  host = mockHost({ results: {
+    'storage.get': (params: unknown) => ({ value: (params as { key: string }).key === 'attention.reviewed' ? reviewedStorage ?? null : null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'attention.reviewed' && first) {
+        first = false
+        began()
+        await gate
+      }
+      if (key === 'attention.reviewed') reviewedStorage = value
+      return { ok: true }
+    }
+  } })
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('event completion before review', async () => !!(await worker.request('office.snapshot')).agents[0]?.completionId)
+    const completionId = (await worker.request('office.snapshot')).agents[0].completionId!
+    const currentAgent = (await worker.request('office.snapshot')).agents[0]
+    assert.equal(currentAgent.outcome, 'failure')
+    assert.ok(attentionGroups([currentAgent], new Set()).failedToReview.some((agent) => agent.completionId === completionId))
+    const review = worker.request('attention.review', { completionId })
+    const beganInTime = await Promise.race([started.then(() => true), review.then(() => false)])
+    assert.equal(beganInTime, true, 'review must reach the gated storage write')
+    const transition = worker.emit('agent.status.changed', { workspaceId: '/review', paneKey: 'p', state: 'done', receivedAt: 11, mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: 11 }, turnId: 'turn-b' } as never)
+    release()
+    assert.deepEqual(await review, { ok: true })
+    await transition
+    assert.notEqual((await worker.request('office.snapshot')).agents[0]?.completionId, completionId)
+    assert.deepEqual(Object.keys((reviewedStorage as { entries: Record<string, number> }).entries), [completionId])
+    listed![0].agents![0].turnId = 'turn-b'
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('restart after pending review commit', async () => (await worker.request('office.snapshot')).agents.length > 0)
+    const restarted = await worker.request('office.snapshot')
+    assert.deepEqual(restarted.reviewedCompletions, [completionId])
+    assert.notEqual(restarted.agents[0].completionId, completionId)
+    assert.ok(attentionGroups(restarted.agents, new Set(restarted.reviewedCompletions)).failedToReview.some((agent) => agent.completionId === restarted.agents[0].completionId))
+  } finally {
+    release()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('restores each storage side independently and refuses review when review storage could not load', async () => {
+  listed = null
+  const now = Date.now()
+  const oldOffice = { agents: [{ id: 'old', terminalId: null, paneKey: 'old', state: 'waiting', stateStartedAt: now, firstSeenAt: now, lastSeenAt: now, active: [], recent: [], helpers: [], family: [], history: [] }], workspaces: {} }
+  const failedReviewHost = mockHost({ storage: { office: oldOffice }, results: { 'storage.get': (params: unknown) => {
+    const { key } = params as { key: string }
+    if (key === 'attention.reviewed') throw new Error('unavailable')
+    return { value: failedReviewHost.data().storage[key] ?? null }
+  } } })
+  let worker = await mountWorker(main, { host: failedReviewHost })
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(worker.logs.some((message) => message.startsWith('office restore:')), false)
+    assert.ok((await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'old'))
+    await worker.emit('agent.status.changed', { workspaceId: '/w', paneKey: 'done', state: 'done', receivedAt: 3, mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: 3 } })
+    const id = (await worker.request('office.snapshot')).agents.find((agent) => agent.id === 'done')?.completionId!
+    assert.deepEqual(await worker.request('attention.review', { completionId: id }), { ok: false, error: 'Reviewed storage is unavailable. Try again after restarting Orca.' })
+  } finally { await worker.deactivate() }
+
+  const failedOfficeHost = mockHost({ storage: { 'attention.reviewed': { version: 1, entries: { ['a'.repeat(64)]: Date.now() } } }, results: { 'storage.get': (params: unknown) => {
+    const { key } = params as { key: string }
+    if (key === 'office') throw new Error('unavailable')
+    return { value: failedOfficeHost.data().storage[key] ?? null }
+  } } })
+  worker = await mountWorker(main, { host: failedOfficeHost })
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const state = await worker.request('office.snapshot')
+    assert.ok(state.reviewedCompletions?.includes('a'.repeat(64)), JSON.stringify({ logs: worker.logs, state, calls: failedOfficeHost.callsOf('storage.get') }))
+  } finally { await worker.deactivate() }
+})
+
 test('repairs malformed review storage and keeps a later turn reviewable', async () => {
   listed = [{ path: '/review', hostId: 'local', agents: [{ paneKey: 'review-pane', state: 'done', stateStartedAt: 1234, mainAgent: { outcome: 'failure' } }] }]
   const host = mockHost({ storage: { 'attention.reviewed': { version: 9, entries: { invalid: 'yes' } } } })

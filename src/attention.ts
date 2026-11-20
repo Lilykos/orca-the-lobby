@@ -13,7 +13,7 @@ export type AttentionGroups = {
 export type ReviewedState = { version: 1; entries: Record<string, number> }
 export const isCompletionId = (value: unknown): value is string => typeof value === 'string' && COMPLETION_KEY.test(value)
 
-/** The current live roster as a work queue; waiting and unconfirmed outcomes stay out. */
+/** The current live roster as a work queue; known non-completions stay out. */
 export function attentionGroups(agents: AgentView[], reviewed: Set<string>): AttentionGroups {
   const needsInput = agents.filter((agent) => agent.state === 'blocked')
     .sort((a, b) => a.stateStartedAt - b.stateStartedAt || a.id.localeCompare(b.id))
@@ -21,7 +21,7 @@ export function attentionGroups(agents: AgentView[], reviewed: Set<string>): Att
   const finishedToReview: AgentView[] = []
   for (const agent of agents) {
     const outcome = agent.outcome?.toLowerCase()
-    if (agent.state !== 'done' || outcome === 'cancelled' || outcome === 'canceled' || outcome === 'cancel' || outcome === 'cancellation' || !agent.completionId || reviewed.has(agent.completionId)) continue
+    if (agent.state !== 'done' || ['cancellation', 'cancelled', 'canceled', 'cancel', 'interruption', 'interrupted', 'unconfirmed', 'superseded'].includes(outcome ?? '') || !agent.completionId || reviewed.has(agent.completionId)) continue
     if (agent.outcome === 'failure') failedToReview.push(agent)
     else if (agent.unread || agent.completionTracked) finishedToReview.push(agent)
   }

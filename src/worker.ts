@@ -102,6 +102,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   let storedReviews = readReviewed(null, Date.now())
   let reviewWrites: Promise<void> = Promise.resolve()
   let reviewsLoaded = false
+  let reviewStorageAvailable = false
   let reviewsNeedSave = false
 
   // Events name a workspace `<project>::<path>` and `workspace.list` by another id; the path is
@@ -129,9 +130,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     postTimer = undefined
     pruneReviews()
     prune(office, Date.now())
-    const state = forPanel(snapshot(office))
-    state.reviewedCompletions = [...reviewed].sort()
-    const size = JSON.stringify(state).length
+    const state = forPanel(snapshot(office), [...reviewed].sort())
+    const size = new TextEncoder().encode(JSON.stringify(state)).byteLength
     if (size > STORE_BYTES) orca.log(`office.update is ${size} bytes, near Orca's 256 KiB limit`)
     orca.panels.post('office.update', state)
     saveTimer ??= setTimeout(save, SAVE_MS)
@@ -393,10 +393,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     changed()
   })
 
-  orca.panels.handle('office.snapshot', () => ({
-    ...forPanel(snapshot(office)),
-    reviewedCompletions: [...reviewed].sort()
-  }))
+  orca.panels.handle('office.snapshot', () => forPanel(snapshot(office), [...reviewed].sort()))
 
   orca.panels.handle('attention.review', async (input): Promise<ActionResult> => {
     await loaded
@@ -404,6 +401,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       ? (input as { completionId?: unknown }).completionId
       : undefined
     if (!isCompletionId(completionId)) return { ok: false, error: 'That completion cannot be reviewed.' }
+    if (!reviewStorageAvailable) return { ok: false, error: 'Reviewed storage is unavailable. Try again after restarting Orca.' }
     const operation = reviewWrites.then(async () => {
       const current = (): boolean => {
         const groups = attentionGroups([...office.agents.values()], new Set())
@@ -415,7 +413,8 @@ export default function activate(orca: OrcaWorkerApi): void {
       next.add(completionId)
       const state = reviewedState(next, Date.now(), storedReviews)
       await orca.storage.set(REVIEWED, state)
-      if (!current()) return { ok: false, error: 'The completion changed before review was saved.' } as const
+      // The id was current when this serialized transaction began. A later turn gets a different
+      // key, so committing this identity remains valid even if the live roster advances meanwhile.
       storedReviews = state
       reviewed = new Set(Object.keys(state.entries))
       reviewsNeedSave = false
@@ -574,18 +573,22 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.commands.register('office.previousAgent', () => step(-1))
   orca.commands.register('office.nextAgent', () => step(1))
 
-  const loaded = Promise.all([orca.storage.get(STORED), orca.storage.get(REVIEWED)])
-    .then(([stored, reviews]) => {
-      restore(office, stored, Date.now())
-      storedReviews = readReviewed(reviews, Date.now())
-      reviewed = new Set(Object.keys(storedReviews.entries))
-      reviewsLoaded = true
-      reviewsNeedSave = reviews !== undefined && reviews !== null && JSON.stringify(reviews) !== JSON.stringify(storedReviews)
-      if (reviewsNeedSave) pruneReviews()
+  const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED)])
+    .then((results) => {
+      const [officeResult, reviewResult] = results
+      if (officeResult.status === 'fulfilled') restore(office, officeResult.value, Date.now())
+      else orca.log(`office restore: ${officeResult.reason}`)
+      if (reviewResult.status === 'fulfilled') {
+        const reviews = reviewResult.value
+        storedReviews = readReviewed(reviews, Date.now())
+        reviewed = new Set(Object.keys(storedReviews.entries))
+        reviewsLoaded = reviewStorageAvailable = true
+        reviewsNeedSave = reviews !== undefined && reviews !== null && JSON.stringify(reviews) !== JSON.stringify(storedReviews)
+        if (reviewsNeedSave) pruneReviews()
+      } else orca.log(`review restore: ${reviewResult.reason}`)
       for (const agent of snapshot(office).agents) place(agent.workspaceId)
       return nameWorkspaces()
     })
-    .catch((error) => orca.log(`restore: ${error}`))
     .then(() => lookSoon())
 
   stop = () => {

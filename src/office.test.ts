@@ -152,6 +152,20 @@ test('completion identity survives event, roster, restart and a late source time
   assert.notEqual(snapshot(restarted).agents[0].completionId, first)
 })
 
+test('completion identity keeps compatible late evidence after reconnect but changes for a known new turn', () => {
+  const office = createOffice()
+  office.attentionTracking = true
+  applyRoster(office, [{ path: '/w', agents: [{ paneKey: 'p', state: 'done' }] }], 1000)
+  const first = snapshot(office).agents[0].completionId
+  const restarted = createOffice()
+  restore(restarted, JSON.parse(JSON.stringify(snapshot(office))), 1100)
+  applyRoster(restarted, [], 1200)
+  applyRoster(restarted, [{ path: '/w', agents: [{ paneKey: 'p', state: 'done', stateStartedAt: 999, turnId: 'turn-a' }] }], 1300)
+  assert.equal(snapshot(restarted).agents[0].completionId, first)
+  applyRoster(restarted, [{ path: '/w', agents: [{ paneKey: 'p', state: 'done', stateStartedAt: 999, turnId: 'turn-b' }] }], 1400)
+  assert.notEqual(snapshot(restarted).agents[0].completionId, first)
+})
+
 test('captures a roster transition time once when Orca omits its completion time', () => {
   const office = createOffice()
   applyRoster(office, [{ path: '/w', agents: [{ paneKey: 'pane', state: 'working' }] }], 1000)
@@ -774,4 +788,16 @@ test('a full day of history is trimmed to fit Orca\'s storage limit, oldest firs
   assert.equal(kept.journal[kept.journal.length - 1].id, 'event-4999')
   assert.equal(storable(state), state)
   assert.deepEqual(forPanel(big).journal, [])
+})
+
+test('bounds complete JSON payloads by UTF-8 bytes, including live rows and review markers', () => {
+  const base = snapshot(createOffice())
+  const huge = { ...base, agents: Array.from({ length: 200 }, (_, i) => ({ ...snapshot(createOffice()).agents[0], id: `a${i}`, prompt: '💩'.repeat(5000) })) }
+  const panel = forPanel({ ...huge, reviewedCompletions: Array.from({ length: 500 }, (_, i) => i.toString(16).padStart(64, '0')) } as never)
+  const bytes = new TextEncoder().encode(JSON.stringify(storable(huge))).byteLength
+  const panelBytes = new TextEncoder().encode(JSON.stringify(panel)).byteLength
+  assert.ok(bytes <= STORE_BYTES)
+  assert.ok(panelBytes <= STORE_BYTES)
+  assert.equal(panel.agents.length, 200)
+  assert.equal(panel.reviewedCompletions?.length, 500)
 })

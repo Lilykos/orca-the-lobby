@@ -133,17 +133,45 @@ function pruneJournal(office: Office, now: number): void {
 /** Orca refuses a stored value or panel message over 256 KiB; stay well under it. */
 export const STORE_BYTES = 200_000
 
+export function jsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+function trimPayload(value: unknown, maxText: number, key = ''): unknown {
+  if (typeof value === 'string') {
+    if (/^(id|agentId|completionId|paneKey|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId)$/.test(key) || key === 'reviewedCompletions') return value
+    return Array.from(value).slice(0, maxText).join('')
+  }
+  if (Array.isArray(value)) return value.map((item) => trimPayload(item, maxText, key))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, trimPayload(item, maxText, name)]))
+  return value
+}
+
+function bounded<T extends OfficeSnapshot>(input: T, limit: number): T {
+  let state = input
+  if (jsonBytes(state) <= limit) return state
+  while (state.journal.length && jsonBytes(state) > limit) {
+    state = { ...state, journal: state.journal.slice(Math.ceil(state.journal.length / 4)) }
+  }
+  for (let maxText = 2000; jsonBytes(state) > limit && maxText > 16; maxText = Math.floor(maxText / 2)) {
+    state = trimPayload(state, maxText) as T
+  }
+  if (jsonBytes(state) > limit) {
+    // Keep live agent rows and review keys; drop only bounded supplementary histories.
+    state = { ...state, agents: state.agents.map((agent) => ({ ...agent, recent: [], history: [], helpers: [], family: [], active: [] })) }
+  }
+  return state
+}
+
 /** The state to store, with the oldest history dropped until it fits Orca's size limit. */
 export function storable(state: OfficeSnapshot, limit = STORE_BYTES): OfficeSnapshot {
-  let journal = state.journal
-  while (journal.length && JSON.stringify({ ...state, journal }).length > limit) journal = journal.slice(Math.ceil(journal.length / 4))
-  return journal === state.journal ? state : { ...state, journal }
+  return bounded(state, limit)
 }
 
 /** What the panel gets: everything but the history, which it does not show. */
-export function forPanel(state: OfficeSnapshot): OfficeSnapshot {
+export function forPanel(state: OfficeSnapshot, reviewedCompletions: string[] = []): OfficeSnapshot {
   const { completionIdentities: _private, ...publicState } = state
-  return { ...publicState, agents: publicState.agents.map((agent) => ({ ...agent, sessionId: null })), journal: [] }
+  return bounded({ ...publicState, agents: publicState.agents.map((agent) => ({ ...agent, sessionId: null })), journal: [], reviewedCompletions: reviewedCompletions.length ? reviewedCompletions : (state.reviewedCompletions ?? []) }, STORE_BYTES)
 }
 
 function record(office: Office, agent: AgentView, event: Omit<JournalEvent, 'id' | 'agentId' | 'workspaceId' | 'projectId'>, identity: string): void {
@@ -265,21 +293,23 @@ function beginCompletion(
     : null
   const previous = office.completionIdentities.get(scope)
   let retainedPrevious = previous?.id === agent.completionId
+  const conflicts = !!previous && ((sourceAt !== undefined && previous.sourceAt !== null && sourceAt !== previous.sourceAt) ||
+    (turn !== null && previous.turnId !== null && turn !== previous.turnId))
+  if (agent.completionId && retainedPrevious && conflicts) {
+    agent.completionId = null
+    agent.completionTracked = false
+    retainedPrevious = false
+  }
   if (!agent.completionId) {
-    const sameSource = sourceAt !== undefined && previous?.sourceAt === sourceAt
-    const sameTurn = turn !== null && previous?.turnId === turn
-    // No source time or session/turn id means a hidden new turn cannot be distinguished on reconnect.
-    const ambiguousReconnect = allowReconnectReuse && previous && sourceAt === undefined && !turn && !previous.sourceAt && !previous.turnId
-    if (previous && (sameSource || sameTurn || ambiguousReconnect)) {
+    // Compatible late evidence enriches an observation; absent discriminators remain ambiguous.
+    if (previous && !conflicts && (allowReconnectReuse || sourceAt !== undefined || turn !== null)) {
       agent.completionId = previous.id
       agent.completionTracked = previous.tracked
       retainedPrevious = true
     } else {
-      const discriminator = sourceAt !== undefined
-        ? `time:${sourceAt}`
-        : turn
-          ? `turn:${turn}`
-          : `observed:${now}`
+      const discriminator = sourceAt !== undefined || turn !== null
+        ? `evidence:${sourceAt ?? ''}:${turn ?? ''}`
+        : `observed:${now}`
       agent.completionId = createHash('sha256').update(JSON.stringify([scope, discriminator])).digest('hex')
       agent.completionTracked = office.attentionTracking
     }
