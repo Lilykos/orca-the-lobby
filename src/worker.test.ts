@@ -607,6 +607,132 @@ test('notification controls are target-specific, persisted, and reject stale epi
   }
 })
 
+test('a successful snooze waits for durable status-transition identity before acknowledging', async () => {
+  listed = [{ path: '/durable-snooze', agents: [{ paneKey: 'durable-agent', state: 'working', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
+  let gateOfficeWrite = false
+  let officeWriteStarted = false
+  let releaseOfficeWrite!: () => void
+  const officeGate = new Promise<void>((resolve) => { releaseOfficeWrite = resolve })
+  const host = mockHost({ results: {
+    'storage.get': (params: unknown) => ({ value: backing[(params as { key: string }).key] ?? null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office' && gateOfficeWrite) {
+        gateOfficeWrite = false
+        officeWriteStarted = true
+        await officeGate
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  } })
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('durable snooze initial office save', () => Array.isArray((backing.office as OfficeSnapshot | undefined)?.agents))
+    gateOfficeWrite = true
+    const observedAt = Date.now()
+    listed![0].agents![0].state = 'blocked'
+    listed![0].agents![0].stateStartedAt = observedAt
+    const transition = worker.emit('agent.status.changed', {
+      workspaceId: '/durable-snooze', paneKey: 'durable-agent', state: 'blocked', receivedAt: observedAt
+    })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    assert.equal(officeWriteStarted, true, 'the observed episode should begin saving before the normal save timer')
+    const episodeId = `durable-agent@${observedAt}`
+    let snoozeSettled = false
+    const snooze = worker.request('notification.reminder.snooze', {
+      projectId: '/durable-snooze', agentId: 'durable-agent', episodeId, choice: 'manual'
+    }).then((result) => { snoozeSettled = true; return result })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(snoozeSettled, false)
+    assert.equal(backing['notification.policy'], undefined)
+    releaseOfficeWrite()
+    await transition
+    assert.deepEqual(await snooze, { ok: true })
+    const savedAgent = (backing.office as OfficeSnapshot).agents.find((agent) => agent.id === 'durable-agent')!
+    assert.equal(savedAgent.notificationEpisodeId ?? `${savedAgent.id}@${savedAgent.stateStartedAt}`, episodeId)
+    const savedPolicy = backing['notification.policy'] as { reminderSnoozes: { episodeId: string }[] } | undefined
+    assert.equal(savedPolicy?.reminderSnoozes[0].episodeId, episodeId)
+
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('durable snooze restart baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'durable-agent'))
+    const restored = await worker.request('notification.control.read', { projectId: '/durable-snooze', agentId: 'durable-agent' })
+    assert.equal(restored.episodeId, episodeId)
+    assert.equal(restored.snoozed, true)
+  } finally {
+    releaseOfficeWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a failed or stale office episode save refuses a snooze without writing policy', async () => {
+  listed = [{ path: '/snooze-save-failure', agents: [{ paneKey: 'failure-agent', state: 'working', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
+  let failOfficeWrites = false
+  let gateOfficeWrite = false
+  let officeWriteStarted = false
+  let releaseOfficeWrite!: () => void
+  let officeGate = new Promise<void>((resolve) => { releaseOfficeWrite = resolve })
+  const host = mockHost({ results: {
+    'storage.get': (params: unknown) => ({ value: backing[(params as { key: string }).key] ?? null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office' && failOfficeWrites) throw new Error('office unavailable')
+      if (key === 'office' && gateOfficeWrite) {
+        officeWriteStarted = true
+        await officeGate
+        gateOfficeWrite = false
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  } })
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('failed snooze initial office save', () => Array.isArray((backing.office as OfficeSnapshot | undefined)?.agents))
+    const initial = (backing.office as OfficeSnapshot).agents.find((agent) => agent.id === 'failure-agent')!
+    failOfficeWrites = true
+    listed![0].agents![0].state = 'blocked'
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/snooze-save-failure', paneKey: 'failure-agent', state: 'blocked', receivedAt: Date.now()
+    })
+    const blocked = await worker.request('notification.control.read', { projectId: '/snooze-save-failure', agentId: 'failure-agent' })
+    assert.deepEqual(await worker.request('notification.reminder.snooze', {
+      projectId: '/snooze-save-failure', agentId: 'failure-agent', episodeId: blocked.episodeId!, choice: 'manual'
+    }), { ok: false, error: 'Could not save the current agent episode. Try again.' })
+    assert.equal(backing['notification.policy'], undefined)
+    assert.equal((backing.office as OfficeSnapshot).agents.find((agent) => agent.id === 'failure-agent')?.state, initial.state)
+
+    failOfficeWrites = false
+    officeWriteStarted = false
+    gateOfficeWrite = true
+    const workingAt = Date.now() + 1
+    const nextTransition = worker.emit('agent.status.changed', {
+      workspaceId: '/snooze-save-failure', paneKey: 'failure-agent', state: 'working', receivedAt: workingAt
+    })
+    await waitUntil('racing status office write begins', () => officeWriteStarted)
+    const staleEpisode = `failure-agent@${workingAt}`
+    const staleSnooze = worker.request('notification.reminder.snooze', {
+      projectId: '/snooze-save-failure', agentId: 'failure-agent', episodeId: staleEpisode, choice: 'manual'
+    })
+    listed![0].agents![0].state = 'blocked'
+    const changedAgain = worker.emit('agent.status.changed', {
+      workspaceId: '/snooze-save-failure', paneKey: 'failure-agent', state: 'blocked', receivedAt: Date.now() + 2
+    })
+    releaseOfficeWrite()
+    await Promise.all([nextTransition, changedAgain])
+    assert.deepEqual(await staleSnooze, { ok: false, error: 'That agent episode is no longer current.' })
+    assert.equal(backing['notification.policy'], undefined)
+  } finally {
+    releaseOfficeWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
 test('a snoozed observed episode survives roster time correction and restart, but observed transitions rotate it', async () => {
   listed = [{ path: '/notification-episode', agents: [{ paneKey: 'episode-agent', state: 'working', agentType: 'claude' }] }]
   const host = mockHost()

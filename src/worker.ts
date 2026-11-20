@@ -638,13 +638,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     const before = [...office.agents.values()].find((agent) =>
       (event.terminalId && agent.terminalId === event.terminalId) || agent.paneKey === event.paneKey
     )
+    const previousEpisodeId = before?.notificationEpisodeId
+    const previousTransitionId = before?.notificationTransitionId
+    const previousCompletionId = before?.completionId
     applyStatus(office, { ...event, workspaceId })
     const current = [...office.agents.values()].find((agent) =>
       (event.terminalId && agent.terminalId === event.terminalId) || agent.paneKey === event.paneKey
     )
-    const notificationEpisodeChanged = !!current && (current.notificationEpisodeId !== before?.notificationEpisodeId ||
-      current.notificationTransitionId !== before?.notificationTransitionId)
-    const completionChanged = event.state === 'done' && !!current?.completionId && current.completionId !== before?.completionId
+    const notificationEpisodeChanged = !!current && (current.notificationEpisodeId !== previousEpisodeId ||
+      current.notificationTransitionId !== previousTransitionId)
+    const completionChanged = event.state === 'done' && !!current?.completionId && current.completionId !== previousCompletionId
     if (officeStorageAvailable && (notificationEpisodeChanged || completionChanged)) {
       void persist().catch((error) => orca.log(`${completionChanged ? 'completion identity' : 'notification episode'}: ${error}`))
     }
@@ -798,6 +801,17 @@ export default function activate(orca: OrcaWorkerApi): void {
       }
       const update = setReminderSnooze(base, episodeId, now, choice)
       if (!update.ok) return { ok: false, error: `Could not update reminder snooze: ${update.error}.` }
+      try {
+        // A snooze is keyed by this episode, so make the matching office identity durable before
+        // acknowledging the control. This also queues behind any in-flight roster/event save.
+        await persist()
+      } catch {
+        return { ok: false, error: 'Could not save the current agent episode. Try again.' }
+      }
+      const current = office.agents.get(agentId)
+      if (!current || episodeOfAgent(current) !== episodeId || projectOfAgent(current) !== projectId) {
+        return { ok: false, error: 'That agent episode is no longer current.' }
+      }
       if (!await persistNotificationPolicy(update.policy)) return { ok: false, error: 'Could not save notification settings. Try again.' }
       scheduleNotificationTimer()
       return { ok: true }
