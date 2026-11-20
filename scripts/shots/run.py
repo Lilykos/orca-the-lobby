@@ -24,7 +24,7 @@ scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'),
 scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
-scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionfail'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall')]  # inbox, shared filters and startup preference
+scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'officereadfail'), (420, 'prefshydration')]  # inbox, shared filters and startup preference
 
 if args.only:
     wanted = set(args.only.split(','))
@@ -48,6 +48,12 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             time.sleep(.15)
             state = command('Runtime.evaluate', {'expression': "({removed:!document.querySelector('[data-focus-key=\\\"finished:done:review\\\"]'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
             if not state['removed'] or state['focus'] != 'failed:fail:review': raise RuntimeError('keyboard review did not advance to the next actionable item: ' + str(state))
+        if scenario == 'attentionlast':
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            time.sleep(.15)
+            focused = command('Runtime.evaluate', {'expression': "document.activeElement?.classList.contains('attention-heading')", 'returnByValue': True})['result']['value']
+            if not focused: raise RuntimeError('reviewing the last result did not focus the queue heading')
         if scenario in ('linked', 'unknown', 'noid'):
             selector = 'button.chart-helper' if scenario in ('unknown', 'noid') else 'button.chart-node-button:not(.chart-helper)'
             command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]')?.click();document.querySelector(" + json.dumps(selector) + ").focus({preventScroll:true})"})

@@ -35,7 +35,7 @@ import { assignAgentNames, readAgentNames } from './names'
 import { moveProject, orderProjects, projectGroups, taskLabel } from './work-map'
 import { chartLayout, needsAttention, hasAttention, attentionBranches, NODE_WIDTH, NODE_HEIGHT } from './chart'
 import { buildFamilyTree, syncFamilyExpansion, type FamilyNode } from './family'
-import { renderAttention } from './attention'
+import { refreshAttentionTimes, renderAttention } from './attention'
 import { filterAgents } from './search'
 import { PALETTES, PALETTE_OPTIONS, paletteVariables } from './palettes'
 import {
@@ -716,6 +716,8 @@ function setPage(id: string, persist = true): void {
 
 function renderAttentionPage(): void {
   const filtered = { ...office, agents: filterAgents(office.agents, office, searchText, projectFilter, nameOf, false) }
+  const now = Date.now()
+  for (const agent of filtered.agents) refreshActions(agent.id, now)
   renderAttention(attentionList, filtered, new Set(office.reviewedCompletions ?? []), {
     go: (agent, done) => {
       void orca.plugin.request('office.goTo', { agentId: agent.id }).then((result: ActionResult) => {
@@ -723,6 +725,11 @@ function renderAttentionPage(): void {
         attentionFeedback.textContent = message
         done(message)
       }).catch(() => { attentionFeedback.textContent = 'Could not open this agent in Orca.'; done('Could not open this agent in Orca.') })
+    },
+    canGo: (agent) => {
+      const actions = actionsOf.get(agent.id)
+      if (!actions || actions.signature !== actionSignature(agent) || !actions.ready) return null
+      return actions.value.goTo !== null
     },
     details: (agent) => { selected = agent.id; setPage('office'); listed = ''; renderList() },
     review: (agent, done) => {
@@ -761,10 +768,11 @@ function renderFilters(): void {
     project.dataset.options = key
   }
   if (query.value !== searchText) query.value = searchText
+  if (!options.includes(projectFilter)) projectFilter = 'all'
   project.value = options.includes(projectFilter) ? projectFilter : 'all'
   const matches = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false).length
   const count = document.getElementById('filter-count')!
-  count.textContent = searchText || projectFilter !== 'all' ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : `${office.agents.length} agents`
+  count.textContent = searchText || projectFilter !== 'all' ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : `${office.agents.length} ${office.agents.length === 1 ? 'agent' : 'agents'}`
 }
 
 const searchInput = document.createElement('input')
@@ -845,6 +853,7 @@ function renderActivity(): void {
     })
   }
   placeChildren(activityList, children)
+  applyLayout()
   placeInColumns(activityColumns, items)
   const firstShown: HTMLElement[] = []
   for (const viewport of activityList.querySelectorAll<HTMLElement>('.chart-viewport')) {
@@ -1194,7 +1203,12 @@ function chartView(projectId: string, projectName: string, roots: FamilyNode[], 
 const ACTIONS_FRESH_MS = 15000
 const NO_ACTIONS: AgentActions = { goTo: null, send: false, compact: null }
 /** What the worker last said each agent allows, and when it was asked. */
-const actionsOf = new Map<string, { at: number; value: AgentActions }>()
+const actionsOf = new Map<string, { at: number; value: AgentActions; signature: string; ready: boolean }>()
+const actionRequests = new Map<string, number>()
+let actionRequestId = 0
+function actionSignature(agent: AgentView): string {
+  return JSON.stringify([agent.sessionId, agent.terminalId, agent.paneKey, agent.workspaceId, agent.hostId, agent.state])
+}
 /** What an action is doing, or last said, for one agent; cleared when the drawer closes or moves on. */
 const acting = new Map<string, { busy?: 'go' | 'send' | 'compact'; confirm?: boolean; note?: string; error?: string }>()
 
@@ -1225,15 +1239,26 @@ let controls: Controls | null = null
 
 /** Asks the worker what this agent allows, unless it was asked a moment ago. */
 function refreshActions(agentId: string, now: number): void {
+  const agent = office.agents.find((item) => item.id === agentId)
+  if (!agent) return
+  const signature = actionSignature(agent)
   const known = actionsOf.get(agentId)
-  if (known && now - known.at < ACTIONS_FRESH_MS) return
-  actionsOf.set(agentId, { at: now, value: known?.value ?? NO_ACTIONS })
+  if (known?.signature === signature && now - known.at < ACTIONS_FRESH_MS) return
+  const requestId = ++actionRequestId
+  actionRequests.set(agentId, requestId)
+  const matching = known?.signature === signature
+  actionsOf.set(agentId, { at: now, value: matching ? known.value : NO_ACTIONS, signature, ready: matching && known.ready })
   void orca.plugin
     .request('office.actions', { agentId })
     .catch((): AgentActions => NO_ACTIONS)
     .then((value) => {
-      actionsOf.set(agentId, { at: Date.now(), value })
+      if (actionRequests.get(agentId) !== requestId) return
+      const current = office.agents.find((item) => item.id === agentId)
+      if (!current) { actionsOf.delete(agentId); return }
+      if (actionSignature(current) !== signature) { refreshActions(agentId, Date.now()); return }
+      actionsOf.set(agentId, { at: Date.now(), value, signature, ready: true })
       redrawDrawer()
+      if (currentPage === 'attention') renderAttentionPage()
     })
 }
 
@@ -1846,6 +1871,11 @@ function frame(): void {
 function refreshVisibleTimes(): void {
   if (currentPage === 'office') renderList()
   else if (currentPage === 'activity') renderActivity()
+  else if (currentPage === 'attention') {
+    const now = Date.now()
+    for (const agent of office.agents) refreshActions(agent.id, now)
+    refreshAttentionTimes(attentionList, office.agents, now)
+  }
 }
 
 async function acceptSnapshot(snapshot: OfficeSnapshot): Promise<void> {
@@ -2068,25 +2098,65 @@ for (const tab of primaryTabs) {
     }
   })
 }
-setPage('attention', false)
 renderSettings()
-const loadPrefs = (): void =>
-  void orca.storage
-    .get(PREFS_KEY)
-    .then((value) => {
-      prefs = readPrefs(value)
-      renderSettings()
-      applyLayout()
-      showOrder()
-      setPage(prefs.selectedView, false)
-    })
-    .catch(() => {})
-orca.storage.onDidChange(({ key }) => key === PREFS_KEY && loadPrefs())
+const prefsStatus = document.getElementById('prefs-status') as HTMLElement
+let preferencesReady = false
+let prefsChangedDuringHydration = false
+let officeStorageWarning = ''
+let prefsStorageWarning = ''
+function applyStoredPrefs(value: unknown): void {
+  prefs = readPrefs(value, prefs.selectedView)
+  renderSettings()
+  applyLayout()
+  showOrder()
+  renderFilters()
+  if (currentPage === 'attention') renderAttentionPage()
+}
+async function hydratePreferences(): Promise<void> {
+  const [prefsResult, officeResult] = await Promise.allSettled([orca.storage.get(PREFS_KEY), orca.storage.get('office')])
+  const prefsLoaded = prefsResult.status === 'fulfilled'
+  const officeLoaded = officeResult.status === 'fulfilled'
+  const savedPrefs = prefsLoaded ? prefsResult.value : null
+  const savedOffice = officeLoaded ? officeResult.value : null
+  const fallbackView = prefsLoaded && officeLoaded && savedPrefs == null && savedOffice == null ? 'attention' : 'office'
+  prefs = prefsLoaded ? readPrefs(savedPrefs, fallbackView) : readPrefs(null, 'office')
+  prefsStorageWarning = prefsResult.status === 'rejected' ? 'Could not load saved Lobby settings; keeping Office open.' : ''
+  officeStorageWarning = officeResult.status === 'rejected'
+    ? savedPrefs == null ? 'Could not check for an older Lobby installation; keeping Office open.' : 'Could not check older Lobby data; applying the saved view where available.'
+    : ''
+  prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
+  renderSettings()
+  applyLayout()
+  renderFilters()
+  setPage(prefs.selectedView, false)
+  preferencesReady = true
+  document.body.classList.add('prefs-ready')
+  if (prefsLoaded && officeLoaded && (savedPrefs == null || !savedPrefs || typeof savedPrefs !== 'object' || !('selectedView' in savedPrefs))) {
+    void orca.storage.set(PREFS_KEY, prefs).catch(() => { prefsStatus.textContent = 'Could not save the initial Lobby view preference.' })
+  }
+  if (prefsChangedDuringHydration) void refreshStoredPrefs()
+}
+async function refreshStoredPrefs(): Promise<void> {
+  try {
+    const value = await orca.storage.get(PREFS_KEY)
+    prefsStorageWarning = ''
+    prefsStatus.textContent = officeStorageWarning
+    applyStoredPrefs(value)
+  } catch {
+    prefsStorageWarning = 'Could not refresh saved Lobby settings; your current view is unchanged.'
+    prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
+  }
+}
+orca.storage.onDidChange(({ key }) => {
+  if (key !== PREFS_KEY) return
+  if (!preferencesReady) { prefsChangedDuringHydration = true; return }
+  void refreshStoredPrefs()
+})
+void hydratePreferences()
 if (!officeBar.querySelector('.agent-counts')) officeBar.append(countsLine())
 officeBar.append(layoutToggle())
 offices.before(officeBar)
 new ResizeObserver(applyLayout).observe(document.documentElement)
-loadPrefs()
 
 orca.plugin.on('office.update', (snapshot) => {
   void acceptSnapshot(snapshot)

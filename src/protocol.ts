@@ -34,7 +34,7 @@ const PALETTE_CHOICES: PaletteChoice[] = [
 ]
 
 /** Stored preferences, with the default for anything missing or of the wrong type. */
-export function readPrefs(value: unknown): Prefs {
+export function readPrefs(value: unknown, missingView: Prefs['selectedView'] = 'office'): Prefs {
   const stored = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
   const pick = (key: 'notifyBlocked' | 'notifyDone' | 'animate'): boolean =>
     typeof stored[key] === 'boolean' ? (stored[key] as boolean) : DEFAULT_PREFS[key]
@@ -44,7 +44,7 @@ export function readPrefs(value: unknown): Prefs {
   const legacyPrefs = ['notifyBlocked', 'notifyDone', 'animate', 'palette', 'layout', 'stuckMinutes', 'projectOrder'].some((key) => key in stored)
   const selectedView = stored.selectedView === 'office' || stored.selectedView === 'activity' || stored.selectedView === 'attention'
     ? stored.selectedView
-    : legacyPrefs ? 'office' : DEFAULT_PREFS.selectedView
+    : legacyPrefs ? 'office' : missingView
   return {
     notifyBlocked: pick('notifyBlocked'),
     notifyDone: pick('notifyDone'),

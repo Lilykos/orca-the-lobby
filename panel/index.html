@@ -48,6 +48,9 @@
         color: var(--ui-foreground);
         background: var(--ui-background);
       }
+      body:not(.prefs-ready) { visibility: hidden; }
+      #prefs-status:empty { display: none; }
+      #prefs-status { margin: 0 0 6px; color: var(--ui-muted-foreground); }
       #banner {
         margin-bottom: 8px;
         border-radius: var(--radius);
@@ -65,13 +68,16 @@
       #view-filters select, #view-filters input { min-height: 34px; padding: 4px 8px; color: var(--ui-foreground); background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); font: inherit; }
       #filter-count { align-self: center; color: var(--ui-muted-foreground); white-space: nowrap; }
       #attention-list { display: grid; gap: 8px; }
+      .attention-heading { margin: 4px 0; font-size: 18px; }
       .attention-counts { margin: 0; color: var(--ui-muted-foreground); }
       .attention-group h2 { margin: 12px 0 6px; font-size: 13px; }
       .attention-card { min-width: 0; padding: 10px; background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); }
       .attention-title { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
       .attention-state, .attention-meta, .attention-feedback { margin: 4px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .attention-time { display: block; margin: 4px 0; color: var(--ui-muted-foreground); font-size: 11px; }
       .attention-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
       .attention-actions .action { min-height: 36px; }
+      .attention-unavailable { align-self: center; color: var(--ui-muted-foreground); font-size: 11px; }
       .attention-empty { padding: 14px; border: 1px dashed var(--ui-border); border-radius: var(--radius); }
       .brand-toggle { margin: 0 0 8px; }
       :root.compact .attention-card { padding: 6px; }
@@ -1145,6 +1151,7 @@
       <button class="primary-tab" id="attention-tab" role="tab" aria-controls="attention-page" aria-selected="false">Attention</button>
       <button class="primary-tab" id="settings-tab" role="tab" aria-controls="settings-page" aria-selected="false">Settings</button>
     </nav>
+    <p id="prefs-status" class="quiet" role="status" aria-live="polite">Restoring your Lobby view…</p>
     <div id="view-filters" role="search"><span id="filter-count" aria-live="polite"></span></div>
     <main id="office-page" class="page" role="tabpanel" aria-labelledby="office-tab">
       <button id="brand-toggle" class="action brand-toggle" aria-expanded="true">Hide Office banner</button>

@@ -4,8 +4,26 @@ import { taskLabel } from './work-map'
 
 export type AttentionActions = {
   go: (agent: AgentView, done: (error?: string) => void) => void
+  canGo: (agent: AgentView) => boolean | null
   details: (agent: AgentView) => void
   review: (agent: AgentView, done: (error?: string) => void) => void
+}
+
+const elapsed = (from: number, now: number): string => {
+  const seconds = Math.max(0, Math.round((now - from) / 1000))
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`
+}
+
+export function attentionTimeText(agent: Pick<AgentView, 'state' | 'stateStartedAt' | 'finishedAt'>, now: number): string {
+  if (agent.state === 'blocked') return Number.isFinite(agent.stateStartedAt) ? `Needs you for ${elapsed(agent.stateStartedAt, now)}` : 'Needs you · time unavailable'
+  if (agent.state === 'done') {
+    if (typeof agent.finishedAt === 'number' && Number.isFinite(agent.finishedAt)) return `Finished ${elapsed(agent.finishedAt, now)} ago`
+    return Number.isFinite(agent.stateStartedAt) ? `Done observed ${elapsed(agent.stateStartedAt, now)} ago` : 'Finish time unavailable'
+  }
+  return 'Time unavailable'
 }
 
 const el = (tag: string, className = '', text = ''): HTMLElement => {
@@ -17,8 +35,9 @@ const el = (tag: string, className = '', text = ''): HTMLElement => {
 
 /** Rebuilds only the inbox, preserving its reading position and current control where possible. */
 export function renderAttention(root: HTMLElement, office: OfficeSnapshot, reviewed: Set<string>, actions: AttentionActions, liveAgentCount = office.agents.length, filteredOut = false, nameOf: (agent: AgentView) => string = () => ''): void {
-  const focused = root.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
-  const previousControls = [...root.querySelectorAll<HTMLElement>('[data-focus-key]')]
+  const active = root.contains(document.activeElement) ? document.activeElement as HTMLElement : null
+  const focused = active?.dataset.focusKey
+  const previousControls = [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
   const focusIndex = focused ? previousControls.findIndex((control) => control.dataset.focusKey === focused) : -1
   const scroll = root.scrollTop
   const pageScroll = document.scrollingElement?.scrollTop ?? 0
@@ -29,6 +48,10 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
     ['finished', 'Finished to review', groups.finishedToReview]
   ] as const
   const fragment = document.createDocumentFragment()
+  const title = el('h1', 'attention-heading', 'Attention')
+  title.tabIndex = -1
+  title.dataset.focusKey = 'attention-heading'
+  fragment.append(title)
   const summary = el('p', 'attention-counts', `${groups.needsInput.length} need input · ${groups.failedToReview.length} failed · ${groups.finishedToReview.length} finished to review`)
   summary.setAttribute('aria-live', 'polite')
   fragment.append(summary)
@@ -44,6 +67,16 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
       const name = taskLabel(agent)
       card.append(el('h3', 'attention-title', name), el('p', 'attention-state', agent.state === 'blocked' ? 'Needs you' : agent.outcome === 'failure' ? 'Failed' : `Finished · ${agent.outcome ?? 'outcome unknown'}`))
       if (nameOf(agent)) card.append(el('p', 'attention-name', nameOf(agent)))
+      const time = document.createElement('time')
+      time.className = 'attention-time'
+      time.textContent = attentionTimeText(agent, Date.now())
+      time.dataset.attentionTime = ''
+      time.dataset.agentId = agent.id
+      if (agent.state === 'done' && agent.finishedAt !== null && Number.isFinite(agent.finishedAt)) {
+        const date = new Date(agent.finishedAt)
+        if (Number.isFinite(date.getTime())) time.dateTime = date.toISOString()
+      }
+      card.append(time)
       const context = workspaceContext(agent, office)
       const meta = [agent.agent ? agent.agent[0].toUpperCase() + agent.agent.slice(1) : '', context.project, context.workspace, context.branch, context.host].filter(Boolean)
       if (meta.length) card.append(el('p', 'attention-meta', meta.join(' · ')))
@@ -59,9 +92,10 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
         return control
       }
       const controls = el('div', 'attention-actions')
-      const go = button('Go to agent', () => actions.go(agent, (message) => { status.textContent = message ?? '' }), 'go', !office.can.open)
-      if (!office.can.open) go.title = 'Orca navigation is unavailable'
+      const canGo = actions.canGo(agent)
+      const go = button('Go to agent', () => actions.go(agent, (message) => { status.textContent = message ?? '' }), 'go', !canGo)
       controls.append(go, button('Review details', () => actions.details(agent), 'details'))
+      if (canGo !== true) controls.append(el('span', 'attention-unavailable', canGo === null ? 'Checking navigation…' : 'Navigation unavailable'))
       if (key !== 'needs-input') controls.append(button('Mark Reviewed', () => actions.review(agent, (error) => {
         status.textContent = error ?? 'Reviewed in The Lobby.'
         if (!error) {
@@ -78,9 +112,20 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   root.scrollTop = scroll
   if (document.scrollingElement) document.scrollingElement.scrollTop = pageScroll
   if (focused) {
-    const target = root.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(focused)}"]`)
-    const controls = [...root.querySelectorAll<HTMLElement>('[data-focus-key]')]
-    target?.focus({ preventScroll: true })
-    if (!target && controls.length) controls[Math.min(Math.max(focusIndex, 0), controls.length - 1)].focus({ preventScroll: true })
+    const target = root.querySelector<HTMLButtonElement>(`button[data-focus-key="${CSS.escape(focused)}"]:not(:disabled)`)
+    const controls = [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
+    if (target) target.focus({ preventScroll: true })
+    else if (controls.length) controls[Math.min(Math.max(focusIndex, 0), controls.length - 1)].focus({ preventScroll: true })
+    else root.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
+  } else if (active?.classList.contains('attention-heading')) {
+    root.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
+  }
+}
+
+export function refreshAttentionTimes(root: HTMLElement, agents: readonly AgentView[], now: number): void {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]))
+  for (const node of root.querySelectorAll<HTMLElement>('[data-attention-time]')) {
+    const agent = byId.get(node.dataset.agentId ?? '')
+    if (agent) node.textContent = attentionTimeText(agent, now)
   }
 }
