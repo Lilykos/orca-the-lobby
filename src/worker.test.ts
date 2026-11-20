@@ -892,6 +892,139 @@ test('deactivation drains notification policy recovery and prevents a late resto
   }
 })
 
+test('deactivation drains its office save before a replacement episode and snooze are persisted', async () => {
+  listed = [{ path: '/drain-office', agents: [{ paneKey: 'office-agent', state: 'working', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
+  let gateShutdownSave = false
+  let officeSaveStarted = false
+  let releaseOfficeSave!: () => void
+  const officeSaveGate = new Promise<void>((resolve) => { releaseOfficeSave = resolve })
+  const host = mockHost({ results: {
+    'storage.get': (params: unknown) => ({ value: backing[(params as { key: string }).key] ?? null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office' && gateShutdownSave) {
+        gateShutdownSave = false
+        officeSaveStarted = true
+        await officeSaveGate
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  } })
+  let worker = await mountWorker(main, { host })
+  let replacement: Awaited<ReturnType<typeof mountWorker>> | undefined
+  try {
+    await waitUntil('office drain initial roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'office-agent'))
+    await waitUntil('office drain notification baseline', () => worker.posts.some((post) => post.event === 'office.update'))
+    await new Promise((resolve) => setTimeout(resolve, 3_100))
+    const firstObservedAt = Date.now()
+    listed![0].agents![0].state = 'blocked'
+    listed![0].agents![0].stateStartedAt = firstObservedAt
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/drain-office', paneKey: 'office-agent', state: 'blocked', receivedAt: firstObservedAt
+    })
+    await waitUntil('old blocked episode persisted', () => {
+      const saved = (backing.office as OfficeSnapshot | undefined)?.agents.find((agent) => agent.id === 'office-agent')
+      return saved?.state === 'blocked'
+    })
+    await waitUntil('old blocked office update posted', () => worker.posts.some((post) =>
+      post.event === 'office.update' && (post.payload as OfficeSnapshot).agents.some((agent) => agent.id === 'office-agent' && agent.state === 'blocked')
+    ))
+    const oldControl = await worker.request('notification.control.read', { projectId: '/drain-office', agentId: 'office-agent' })
+    assert.equal(oldControl.status, 'ready')
+    assert.ok(oldControl.episodeId)
+    gateShutdownSave = true
+    let stopped = false
+    const shutdown = main.deactivate().then(() => { stopped = true })
+    await waitUntil('shutdown office save gate', () => officeSaveStarted)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    assert.equal(stopped, false, 'deactivation must wait for the shutdown office write')
+    releaseOfficeSave()
+    await shutdown
+    await worker.deactivate()
+
+    const savedBeforeRestart = (backing.office as OfficeSnapshot).agents.find((agent) => agent.id === 'office-agent')!
+    const oldEpisodeId = oldControl.episodeId
+    assert.equal(savedBeforeRestart.notificationEpisodeId ?? `${savedBeforeRestart.id}@${savedBeforeRestart.stateStartedAt}`, oldEpisodeId)
+    replacement = await mountWorker(main, { host })
+    await waitUntil('replacement restores saved blocked row', async () => (await replacement!.request('office.snapshot')).agents.some((agent) => agent.id === 'office-agent'))
+    const restored = await replacement.request('notification.control.read', { projectId: '/drain-office', agentId: 'office-agent' })
+    assert.equal(restored.status, 'ready')
+    assert.equal(restored.episodeId, oldEpisodeId)
+
+    const secondObservedAt = Date.now() + 1
+    listed![0].agents![0].state = 'working'
+    await replacement.emit('agent.status.changed', {
+      workspaceId: '/drain-office', paneKey: 'office-agent', state: 'working', receivedAt: secondObservedAt
+    })
+    const thirdObservedAt = secondObservedAt + 1
+    listed![0].agents![0].state = 'blocked'
+    await replacement.emit('agent.status.changed', {
+      workspaceId: '/drain-office', paneKey: 'office-agent', state: 'blocked', receivedAt: thirdObservedAt
+    })
+    const current = await replacement.request('notification.control.read', { projectId: '/drain-office', agentId: 'office-agent' })
+    assert.ok(current.episodeId)
+    assert.notEqual(current.episodeId, oldEpisodeId)
+    assert.deepEqual(await replacement.request('notification.reminder.snooze', {
+      projectId: '/drain-office', agentId: 'office-agent', episodeId: current.episodeId, choice: 'manual'
+    }), { ok: true })
+    const finalOffice = (backing.office as OfficeSnapshot).agents.find((agent) => agent.id === 'office-agent')!
+    const finalPolicy = backing['notification.policy'] as { reminderSnoozes: { episodeId: string }[] }
+    assert.equal(finalOffice.notificationEpisodeId ?? `${finalOffice.id}@${finalOffice.stateStartedAt}`, current.episodeId)
+    assert.equal(finalPolicy.reminderSnoozes[0]?.episodeId, current.episodeId)
+  } finally {
+    releaseOfficeSave()
+    await worker.deactivate()
+    await replacement?.deactivate()
+    listed = null
+  }
+})
+
+test('office recovery completing after shutdown cannot enqueue a late save', async () => {
+  listed = [{ path: '/late-office-recovery', agents: [{ paneKey: 'recovery-agent', state: 'waiting', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { office: snapshot(createOffice()) }
+  let officeReads = 0
+  let gateInstallWrite = true
+  let installWriteStarted = false
+  let officeWrites = 0
+  let releaseInstallWrite!: () => void
+  const installGate = new Promise<void>((resolve) => { releaseInstallWrite = resolve })
+  const host = mockHost({ results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'office' && officeReads++ === 0) throw new Error('temporary office read failure')
+      return { value: backing[key] ?? null }
+    },
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office') officeWrites++
+      if (key === 'lobby.installation' && gateInstallWrite) {
+        gateInstallWrite = false
+        installWriteStarted = true
+        await installGate
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('office recovery retry installation gate', () => installWriteStarted)
+    const postsBeforeShutdown = worker.posts.length
+    await main.deactivate()
+    releaseInstallWrite()
+    await worker.deactivate()
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    assert.equal(officeWrites, 0)
+    assert.equal(worker.posts.length, postsBeforeShutdown)
+  } finally {
+    releaseInstallWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
 test('a failed or stale office episode save refuses a snooze without writing policy', async () => {
   listed = [{ path: '/snooze-save-failure', agents: [{ paneKey: 'failure-agent', state: 'working', agentType: 'claude' }] }]
   const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }

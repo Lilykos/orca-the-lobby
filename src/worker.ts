@@ -339,7 +339,8 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   let writes: Promise<void> = Promise.resolve()
-  const persist = (): Promise<void> => {
+  const persist = (duringShutdown = false): Promise<void> => {
+    if (stopped && !duringShutdown) return Promise.reject(new Error('The worker is stopping.'))
     if (!officeStorageAvailable) return Promise.reject(new Error('Office storage is unavailable; saved data was left untouched.'))
     let state
     try {
@@ -351,13 +352,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     writes = write.catch(() => {})
     return write
   }
-  const save = (): void => {
+  const save = (duringShutdown = false): void => {
     saveTimer = undefined
-    void persist().catch((error) => orca.log(`save: ${error}`))
+    void persist(duringShutdown).catch((error) => orca.log(`save: ${error}`))
   }
 
   const publish = (): void => {
     postTimer = undefined
+    if (stopped) return
     pruneReviews()
     prune(office, Date.now())
     let state
@@ -385,6 +387,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   const changed = (): void => {
+    if (stopped) return
     postTimer ??= setTimeout(publish, POST_MS)
   }
 
@@ -405,10 +408,12 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   /** Asks Orca for its list, then again later: soon while agents work, seldom while none does. */
   const look = async (): Promise<void> => {
+    if (stopped) return
     lookTimer = undefined
     looking = true
     lookedAt = Date.now()
     const worktrees = await cli.roster().catch(() => null)
+    if (stopped) return
     if (worktrees) {
       rosterObserved = true
       const identitiesBefore = new Map([...office.agents].map(([id, agent]) => [id, agent.completionId]))
@@ -468,6 +473,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   const enrich = async (): Promise<void> => {
     const agents = [...office.agents.values()]
     const insights = await readTranscripts(agents, Date.now())
+    if (stopped) return
     for (const agent of agents) {
       const fresh = insights.get(agent.id)
       if (fresh) agent.insight = fresh
@@ -476,13 +482,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (Date.now() - reposAt >= REPOS_MS) {
       reposAt = Date.now()
       const repos = await cli.repos().catch(() => null)
+      if (stopped) return
       if (repos) applyRepos(office, repos)
     }
     if (Date.now() - usageAt >= USAGE_MS) {
       usageAt = Date.now()
       const paths = [...new Set([...agents.map((agent) => agent.workspaceId), ...office.workspaces.keys()])]
       try {
-        office.usage = { day: dayOf(usageAt), workspaces: await countUsage(paths.filter((path): path is string => !!path), usageAt) }
+        const workspaces = await countUsage(paths.filter((path): path is string => !!path), usageAt)
+        if (stopped) return
+        office.usage = { day: dayOf(usageAt), workspaces }
       } catch (error) {
         orca.log(`usage: ${error}`)
       }
@@ -492,6 +501,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     for (const path of new Set(agents.map((agent) => agent.workspaceId))) {
       if (!path) continue
       const change = await cli.changes(path)
+      if (stopped) return
       if (change) office.changes.set(path, change)
       else office.changes.delete(path)
     }
@@ -605,11 +615,12 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   /** Finds which project a workspace belongs to, once: worktrees of one checkout share a room. */
   const place = (path: string | null): void => {
-    if (!path || looked.has(path) || office.rostered) return
+    if (stopped || !path || looked.has(path) || office.rostered) return
     looked.add(path)
     void readFile(`${path}/.git`, 'utf8')
       .catch(() => null)
       .then((gitFile) => {
+        if (stopped) return
         placeWorkspace(office, path, projectRoot(path, gitFile))
         changed()
       })
@@ -617,10 +628,11 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   /** Workspace names for the agent details; asked again when an agent shows up in an unknown one. */
   const nameWorkspaces = async (): Promise<void> => {
-    if (listing) return
+    if (stopped || listing) return
     listing = true
     try {
       listed = (await orca.host.call('workspace.list')).workspaces
+      if (stopped) return
       for (const { name, path, branch, hostId } of listed) {
         office.workspaces.set(path, name)
         for (const agent of office.agents.values()) {
@@ -638,6 +650,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   orca.events.on('agent.status.changed', (event) => {
+    if (stopped) return
     const workspaceId = roomOf(event.workspaceId)
     const before = [...office.agents.values()].find((agent) =>
       (event.terminalId && agent.terminalId === event.terminalId) || agent.paneKey === event.paneKey
@@ -664,13 +677,15 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   // `agents.list` and the context name the focused workspace but not its id: match it by name.
   orca.events.on('workspace.changed', async ({ context }) => {
-    if (!context) return
+    if (stopped || !context) return
     await nameWorkspaces()
+    if (stopped) return
     const focused = listed.filter(
       (workspace) => workspace.name === context.displayName && workspace.branch === context.branch
     )
     const workspaceId = focused.length === 1 ? focused[0].path : null
     const { agents } = await orca.host.call('agents.list')
+    if (stopped) return
     applyListed(office, workspaceId, agents, Date.now())
     place(workspaceId)
     if (workspaceId) {
@@ -684,12 +699,14 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   orca.events.on('workspace.removed', ({ path }) => {
+    if (stopped) return
     removeWorkspace(office, path)
     changed()
   })
 
   // Claude Code waits on this hook: only record the call and return at once, never deny.
   orca.hooks.on('agent.tool.before', (event) => {
+    if (stopped) return
     const workspaceId = roomOf(event.workspaceId)
     applyToolBefore(office, { ...event, workspaceId }, Date.now())
     place(workspaceId)
@@ -698,6 +715,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   orca.hooks.on('agent.tool.after', (event) => {
+    if (stopped) return
     applyToolAfter(office, { ...event, workspaceId: roomOf(event.workspaceId) }, Date.now())
     changed()
   })
@@ -864,6 +882,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.panels.handle('office.clearHistory', async () => {
     await loaded
+    if (stopped) return { cleared: false }
     clearHistory(office)
     try {
       await persist()
@@ -1040,7 +1059,9 @@ export default function activate(orca: OrcaWorkerApi): void {
         if (stopped) return
         if (officeResult.status === 'rejected') throw officeResult.reason
         restore(office, officeResult.value, Date.now(), true, rosterObserved)
-        if (!await saveInstallation(officeResult.value, installResult)) { retryOfficeRead(); return }
+        const installed = await saveInstallation(officeResult.value, installResult)
+        if (stopped) return
+        if (!installed) { retryOfficeRead(); return }
         officeStorageAvailable = true
         officeRetryAttempt = 0
         changed()
@@ -1054,11 +1075,14 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED), orca.storage.get(INSTALLATION_KEY), orca.storage.get(NOTIFICATION_POLICY)])
     .then(async (results) => {
+      if (stopped) return
       const [officeResult, reviewResult, installResult, notificationResult] = results
       if (officeResult.status === 'fulfilled') {
         restore(office, officeResult.value, Date.now())
         office.freshCompletionScopes.clear()
-        if (await saveInstallation(officeResult.value, installResult)) officeStorageAvailable = true
+        const installed = await saveInstallation(officeResult.value, installResult)
+        if (stopped) return
+        if (installed) officeStorageAvailable = true
         else retryOfficeRead()
       } else {
         orca.log(`office restore: ${officeResult.reason}`)
@@ -1126,6 +1150,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   stop = async () => {
     if (stopped) {
       await notificationOps
+      await writes
       return
     }
     stopped = true
@@ -1134,12 +1159,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     clearTimeout(notificationTimer)
     clearTimeout(notificationRetryTimer)
     clearTimeout(postTimer)
-    if (saveTimer) {
+    if (saveTimer || postTimer) {
       clearTimeout(saveTimer)
-      save()
+      clearTimeout(postTimer)
+      save(true)
     }
-    // Orca awaits deactivate(); do not let a replacement restore storage until queued policy writes settle.
+    // Snoozes can enqueue office writes, so drain notification work before the office write chain.
     await notificationOps
+    await writes
   }
 }
 
