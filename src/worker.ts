@@ -22,7 +22,8 @@ import {
   snapshot,
   storable,
   forPanel,
-  STORE_BYTES
+  STORE_BYTES,
+  jsonBytes
 } from './office'
 import { attentionGroups, isCompletionId, readReviewed, reviewedState } from './attention'
 import { agentOrder, checkInstruction, compactCommand, mayType, sharedTerminal, stepAgent, terminalOf } from './actions'
@@ -36,15 +37,34 @@ import {
   type AgentActions,
   type AgentView,
   type AgentState,
-  type Prefs
+  type Prefs,
+  type NotificationControlState
 } from './protocol'
-import { reminderNotification, transitionNotification } from './notifications'
+import {
+  adoptConsumedTransition,
+  emptyNotificationQueue,
+  emptyNotificationPolicy,
+  flushTransitionQueue,
+  hasReminderReceipt,
+  isProjectMuted,
+  isReminderSnoozed,
+  notificationForTransition,
+  queueTransition,
+  readNotificationPolicy,
+  recordReminderReceipt,
+  reminderNotification,
+  setProjectMuted,
+  setReminderSnooze,
+  type NotificationPolicy,
+  type TransitionCandidate
+} from './notifications'
 import { cli, environmentTarget } from './roster'
 import { createReader } from './transcript'
 import { createUsageCounter, dayOf } from './usage'
 
 const STORED = 'office'
 const REVIEWED = 'attention.reviewed'
+const NOTIFICATION_POLICY = 'notification.policy'
 type InstallationKind = 'fresh' | 'legacy' | 'unknown'
 const PALETTES = ['orca', 'catppuccin-mocha', 'catppuccin-latte', 'dracula', 'github-dark', 'github-light'] as const
 function checkedPrefsPatch(value: unknown): Partial<Prefs> | null {
@@ -80,6 +100,7 @@ const REPOS_MS = 10000
 const USAGE_MS = 30000
 /** Presses of the previous / next shortcuts closer together than this walk one fixed order. */
 const WALK_MS = 2500
+const MAX_PENDING_ADMISSIONS = 500
 
 let stop = (): void => {}
 
@@ -97,6 +118,15 @@ export default function activate(orca: OrcaWorkerApi): void {
   const told = new Map<string, { state: AgentState; since: number }>()
   /** The quiet spell each agent was last nudged about, so one spell is told once. */
   const nudged = new Map<string, string>()
+  const reminderInFlight = new Set<string>()
+  let notificationQueue = emptyNotificationQueue()
+  let notificationPolicy: NotificationPolicy | undefined
+  let notificationStatus: Pick<NotificationControlState, 'status' | 'error'> = { status: 'loading' }
+  let notificationOps: Promise<void> = Promise.resolve()
+  let notificationTimer: ReturnType<typeof setTimeout> | undefined
+  let notificationRetryTimer: ReturnType<typeof setTimeout> | undefined
+  let notificationRetryAttempt = 0
+  const pendingAdmissions: TransitionCandidate[] = []
   // One pass over each log serves both the day counts and the context.
   const tail = createSessionTail()
   const countUsage = createUsageCounter(undefined, tail)
@@ -149,6 +179,146 @@ export default function activate(orca: OrcaWorkerApi): void {
     const cut = workspaceId.indexOf('::')
     if (cut >= 0) return workspaceId.slice(cut + 2)
     return listed.find((workspace) => workspace.id === workspaceId)?.path ?? workspaceId
+  }
+
+  const projectOfAgent = (agent: AgentView): string => agent.projectId ?? agent.workspaceId ?? agent.id
+  const episodeOfAgent = (agent: AgentView): string | null => {
+    if (!Number.isFinite(agent.stateStartedAt)) return null
+    const episodeId = `${agent.id}@${agent.stateStartedAt}`
+    return episodeId.length <= 256 ? episodeId : null
+  }
+  const agentName = (agent: AgentView): string =>
+    (agent.workspaceId && office.workspaces.get(agent.workspaceId)) || agent.title || 'An agent'
+  const hasProject = (projectId: string): boolean => office.projects.has(projectId) ||
+    [...office.agents.values()].some((agent) => projectOfAgent(agent) === projectId)
+  const currentTransition = (candidate: TransitionCandidate): AgentView | undefined =>
+    [...office.agents.values()].find((agent) =>
+      episodeOfAgent(agent) === candidate.episodeId && projectOfAgent(agent) === candidate.projectId &&
+      candidate.transitionId === (agent.state === 'done' ? agent.completionId ?? `${agent.state}:${agent.stateStartedAt}` : `${agent.state}:${agent.stateStartedAt}`) &&
+      (candidate.kind === 'blocked'
+        ? agent.state === 'blocked' && prefs.notifyBlocked
+        : agent.state === 'done' && (candidate.kind === 'failed' ? agent.outcome === 'failure' : agent.outcome !== 'failure') && prefs.notifyDone)
+    )
+
+  const notificationErrorText = (error: unknown): string => {
+    const message = error instanceof Error ? error.message : String(error)
+    return message.replace(/[\r\n]+/g, ' ').slice(0, 180) || 'Unknown storage error'
+  }
+  const serializeNotification = <T>(operation: () => Promise<T>): Promise<T> => {
+    const next = notificationOps.then(operation, operation)
+    notificationOps = next.then(() => {}, () => {})
+    return next
+  }
+  const notificationFailure = (error: unknown): void => {
+    notificationStatus = { status: 'error', error: notificationErrorText(error) }
+    scheduleNotificationRetry()
+  }
+  const scheduleNotificationRetry = (): void => {
+    if (stopped || notificationRetryTimer) return
+    const delay = Math.min(60_000, 1_000 * 2 ** Math.min(notificationRetryAttempt++, 6))
+    notificationRetryTimer = setTimeout(() => {
+      notificationRetryTimer = undefined
+      void serializeNotification(async () => {
+        try {
+          const stored = await orca.storage.get(NOTIFICATION_POLICY)
+          const policy = readNotificationPolicy(stored, Date.now())
+          notificationPolicy = policy
+          notificationStatus = { status: 'ready' }
+          notificationRetryAttempt = 0
+          await retryAdmissions()
+          scheduleNotificationTimer()
+          nudge()
+        } catch (error) {
+          notificationFailure(error)
+        }
+      }).catch(() => {})
+    }, delay)
+  }
+  const persistNotificationPolicy = async (next: NotificationPolicy): Promise<boolean> => {
+    if (jsonBytes(next) > STORE_BYTES) {
+      notificationFailure(new Error('Notification settings exceed the storage byte limit.'))
+      return false
+    }
+    try {
+      await orca.storage.set(NOTIFICATION_POLICY, next)
+      notificationPolicy = next
+      notificationStatus = { status: 'ready' }
+      notificationRetryAttempt = 0
+      return true
+    } catch (error) {
+      notificationFailure(error)
+      return false
+    }
+  }
+  const transitionEligible = (candidate: TransitionCandidate): boolean => !!currentTransition(candidate)
+  const dispatchNotifications = (notifications: { title: string; body?: string }[]): void => {
+    if (!granted('notifications:show')) return
+    for (const notification of notifications) {
+      void orca.host.call('notifications.show', notification).catch(() => {})
+    }
+  }
+  const scheduleNotificationTimer = (): void => {
+    if (stopped) return
+    const deadlines = notificationQueue.pending.map((group) => group.deadline)
+    for (const entry of notificationPolicy?.reminderSnoozes ?? []) {
+      if (entry.expiresAt !== null && entry.expiresAt > Date.now()) deadlines.push(entry.expiresAt)
+    }
+    const next = Math.min(...deadlines)
+    if (!Number.isFinite(next)) {
+      clearTimeout(notificationTimer)
+      notificationTimer = undefined
+      return
+    }
+    const delay = Math.max(0, next - Date.now())
+    if (notificationTimer) clearTimeout(notificationTimer)
+    notificationTimer = setTimeout(() => {
+      notificationTimer = undefined
+      void serializeNotification(async () => {
+        if (!notificationPolicy || notificationStatus.status !== 'ready') return
+        const result = flushTransitionQueue(notificationQueue, notificationPolicy, Date.now(), transitionEligible)
+        notificationQueue = result.queue
+        notificationPolicy = result.policy
+        if (result.refusals.length) orca.log(`notification flush refused: ${result.refusals[0].reason}`)
+        dispatchNotifications(result.notifications)
+        nudge()
+        scheduleNotificationTimer()
+      }).catch(() => {})
+    }, delay)
+  }
+  const queueObservedTransition = (candidate: TransitionCandidate): void => {
+    if (notificationStatus.status !== 'ready' || !notificationPolicy) {
+      if (pendingAdmissions.length < MAX_PENDING_ADMISSIONS) pendingAdmissions.push(candidate)
+      else orca.log('notification candidate refused: pending-admissions-full')
+      return
+    }
+    void serializeNotification(async () => {
+      if (!notificationPolicy || notificationStatus.status !== 'ready') {
+        if (pendingAdmissions.length < MAX_PENDING_ADMISSIONS) pendingAdmissions.push(candidate)
+        else orca.log('notification candidate refused: pending-admissions-full')
+        return
+      }
+      const now = Date.now()
+      const preview = queueTransition(emptyNotificationQueue(), notificationPolicy, candidate, now, transitionEligible)
+      if (preview.refusals.length) {
+        orca.log(`notification candidate refused: ${preview.refusals[0].reason}`)
+        return
+      }
+      if (!await persistNotificationPolicy(preview.policy)) {
+        if (pendingAdmissions.length < MAX_PENDING_ADMISSIONS) pendingAdmissions.push(candidate)
+        else orca.log('notification candidate refused: pending-admissions-full')
+        return
+      }
+      const adopted = adoptConsumedTransition(notificationQueue, preview.policy, candidate, Date.now(), transitionEligible)
+      notificationQueue = adopted.queue
+      notificationPolicy = adopted.policy
+      dispatchNotifications(adopted.notifications)
+      if (adopted.refusals.length) orca.log(`notification queue refused: ${adopted.refusals[0].reason}`)
+      scheduleNotificationTimer()
+    }).catch((error) => orca.log(`notification admission: ${error}`))
+  }
+  const retryAdmissions = async (): Promise<void> => {
+    const waiting = pendingAdmissions.splice(0)
+    for (const candidate of waiting) queueObservedTransition(candidate)
   }
 
   let writes: Promise<void> = Promise.resolve()
@@ -303,38 +473,90 @@ export default function activate(orca: OrcaWorkerApi): void {
     for (const agent of office.agents.values()) {
       const was = told.get(agent.id)
       told.set(agent.id, { state: agent.state, since: agent.stateStartedAt })
-      if (!was || was.state === agent.state || !granted('notifications:show')) continue
-      const name =
-        (agent.workspaceId && office.workspaces.get(agent.workspaceId)) || agent.title || 'An agent'
-      const notification = transitionNotification(was, {
+      if (!was || was.state === agent.state) continue
+      const name = agentName(agent)
+      const episodeId = episodeOfAgent(agent)
+      if (!episodeId) continue
+      const transitionId = agent.state === 'done'
+        ? agent.completionId ?? `${agent.state}:${agent.stateStartedAt}`
+        : `${agent.state}:${agent.stateStartedAt}`
+      const candidate = notificationForTransition(was, {
         state: agent.state,
         stateStartedAt: agent.stateStartedAt,
         name,
         title: agent.title,
         outcome: agent.outcome
-      }, prefs)
-      if (notification) {
-        void orca.host
-          .call('notifications.show', notification)
-          .catch(() => {})
-      }
+      }, prefs, {
+        transitionId,
+        episodeId,
+        projectId: projectOfAgent(agent),
+        projectName: office.projects.get(projectOfAgent(agent)) ?? projectOfAgent(agent)
+      }, Date.now())
+      if (candidate) queueObservedTransition(candidate)
     }
     nudge()
+  }
+
+  const processReminder = (agentId: string, episodeId: string, spell: string): void => {
+    const key = `${episodeId}:${spell}`
+    if (reminderInFlight.has(key)) return
+    reminderInFlight.add(key)
+    void serializeNotification(async () => {
+      try {
+        if (notificationStatus.status !== 'ready' || !notificationPolicy || !granted('notifications:show')) return
+        const current = office.agents.get(agentId)
+        if (!current || episodeOfAgent(current) !== episodeId) return
+        const now = Date.now()
+        const decision = reminderNotification({ ...current, name: agentName(current) }, now, prefs.stuckMinutes, undefined)
+        if (!decision || decision.spell !== spell) return
+        if (hasReminderReceipt(notificationPolicy, episodeId, spell)) {
+          nudged.set(agentId, spell)
+          return
+        }
+        if (isReminderSnoozed(notificationPolicy, episodeId, now)) return
+        const next = notificationPolicy
+        if (isProjectMuted(next, projectOfAgent(current))) {
+          const receipt = recordReminderReceipt(next, episodeId, spell, now)
+          if (!receipt.ok) {
+            orca.log(`reminder receipt refused: ${receipt.error}`)
+            return
+          }
+          if (!await persistNotificationPolicy(receipt.policy)) return
+          nudged.set(agentId, spell)
+          return
+        }
+        const receipt = recordReminderReceipt(next, episodeId, spell, now)
+        if (!receipt.ok) {
+          orca.log(`reminder receipt refused: ${receipt.error}`)
+          return
+        }
+        if (!await persistNotificationPolicy(receipt.policy)) return
+        const stillCurrent = office.agents.get(agentId)
+        if (!stillCurrent || episodeOfAgent(stillCurrent) !== episodeId ||
+            isProjectMuted(notificationPolicy!, projectOfAgent(stillCurrent)) ||
+            isReminderSnoozed(notificationPolicy!, episodeId, Date.now())) return
+        nudged.set(agentId, spell)
+        void orca.host.call('notifications.show', decision.notification).catch(() => {})
+      } finally {
+        reminderInFlight.delete(key)
+      }
+    }).catch((error) => {
+      reminderInFlight.delete(key)
+      orca.log(`reminder: ${error}`)
+    })
   }
 
   /** Tells the person once per quiet spell when an agent seems stuck or still needs them. */
   const nudge = (): void => {
     const now = Date.now()
     for (const agent of office.agents.values()) {
-      const name =
-        (agent.workspaceId && office.workspaces.get(agent.workspaceId)) || agent.title || 'An agent'
-      const reminder = reminderNotification({ ...agent, name }, now, prefs.stuckMinutes, nudged.get(agent.id))
+      const episodeId = episodeOfAgent(agent)
+      if (!episodeId) continue
+      const reminder = reminderNotification({ ...agent, name: agentName(agent) }, now, prefs.stuckMinutes, undefined)
       if (!reminder) continue
-      nudged.set(agent.id, reminder.spell)
-      if (!granted('notifications:show')) continue
-      void orca.host
-        .call('notifications.show', reminder.notification)
-        .catch(() => {})
+      if (nudged.get(agent.id) === reminder.spell || hasReminderReceipt(notificationPolicy ?? emptyNotificationPolicy(), episodeId, reminder.spell)) continue
+      if (isReminderSnoozed(notificationPolicy ?? emptyNotificationPolicy(), episodeId, now)) continue
+      processReminder(agent.id, episodeId, reminder.spell)
     }
     for (const id of nudged.keys()) if (!office.agents.has(id)) nudged.delete(id)
   }
@@ -440,6 +662,113 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   orca.panels.handle('office.snapshot', () => forPanel(snapshot(office), [...reviewed].sort()))
+
+  const controlFailure = (): NotificationControlState => ({
+    status: notificationStatus.status,
+    ...(notificationStatus.error ? { error: notificationStatus.error } : {}),
+    projectId: '', muted: null, agentId: null, episodeId: null, snoozed: null, expiresAt: null
+  })
+  const validRequestId = (value: unknown): value is string =>
+    typeof value === 'string' && value.length > 0 && value.length <= 256
+
+  orca.panels.handle('notification.control.read', async (input): Promise<NotificationControlState> => {
+    await loaded
+    return serializeNotification(async () => {
+      const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+      const projectId = Object.prototype.hasOwnProperty.call(request, 'projectId') ? request.projectId : undefined
+      const agentId = Object.prototype.hasOwnProperty.call(request, 'agentId') ? request.agentId : undefined
+      const requestedEpisode = Object.prototype.hasOwnProperty.call(request, 'episodeId') ? request.episodeId : undefined
+      if (!validRequestId(projectId) || (agentId !== undefined && !validRequestId(agentId)) ||
+          (requestedEpisode !== undefined && !validRequestId(requestedEpisode)) || !hasProject(projectId)) {
+        return { ...controlFailure(), error: 'That notification target is no longer available.' }
+      }
+      if (!notificationPolicy || notificationStatus.status !== 'ready') {
+        return { ...controlFailure(), projectId, error: notificationStatus.error ?? 'Notification settings are unavailable.' }
+      }
+      if (agentId === undefined) {
+        return { status: 'ready', projectId, muted: isProjectMuted(notificationPolicy, projectId), agentId: null, episodeId: null, snoozed: null, expiresAt: null }
+      }
+      const agent = office.agents.get(agentId)
+      const episodeId = agent && episodeOfAgent(agent)
+      if (!agent || !episodeId || projectOfAgent(agent) !== projectId ||
+          (requestedEpisode !== undefined && requestedEpisode !== episodeId)) {
+        return { ...controlFailure(), projectId, agentId, error: 'That agent episode is no longer current.' }
+      }
+      const snooze = notificationPolicy.reminderSnoozes.find((entry) => entry.episodeId === episodeId)
+      const snoozed = isReminderSnoozed(notificationPolicy, episodeId, Date.now())
+      return {
+        status: 'ready', projectId, muted: isProjectMuted(notificationPolicy, projectId), agentId, episodeId,
+        snoozed, expiresAt: snoozed ? snooze?.expiresAt ?? null : null
+      }
+    })
+  })
+
+  orca.panels.handle('notification.project.mute', async (input): Promise<ActionResult> => {
+    await loaded
+    return serializeNotification(async () => {
+      const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+      const projectId = Object.prototype.hasOwnProperty.call(request, 'projectId') ? request.projectId : undefined
+      const muted = Object.prototype.hasOwnProperty.call(request, 'muted') ? request.muted : undefined
+      if (!validRequestId(projectId) || typeof muted !== 'boolean' || !hasProject(projectId)) {
+        return { ok: false, error: 'That project notification control is invalid or no longer current.' }
+      }
+      if (!notificationPolicy || notificationStatus.status !== 'ready') return { ok: false, error: 'Notification settings could not be restored. Retry after storage is available.' }
+      const update = setProjectMuted(notificationPolicy, projectId, muted, Date.now())
+      if (!update.ok) return { ok: false, error: `Could not update project mute: ${update.error}.` }
+      let next = update.policy
+      if (muted || isProjectMuted(notificationPolicy, projectId)) {
+        const now = Date.now()
+        for (const agent of office.agents.values()) {
+          if (projectOfAgent(agent) !== projectId) continue
+          const episodeId = episodeOfAgent(agent)
+          if (!episodeId || isReminderSnoozed(next, episodeId, now)) continue
+          const reminder = reminderNotification({ ...agent, name: agentName(agent) }, now, prefs.stuckMinutes, undefined)
+          if (!reminder) continue
+          const receipt = recordReminderReceipt(next, episodeId, reminder.spell, now)
+          if (!receipt.ok) return { ok: false, error: `Could not preserve reminder state: ${receipt.error}.` }
+          next = receipt.policy
+        }
+      }
+      if (!await persistNotificationPolicy(next)) return { ok: false, error: 'Could not save notification settings. Try again.' }
+      scheduleNotificationTimer()
+      return { ok: true }
+    })
+  })
+
+  orca.panels.handle('notification.reminder.snooze', async (input): Promise<ActionResult> => {
+    await loaded
+    return serializeNotification(async () => {
+      const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+      const projectId = Object.prototype.hasOwnProperty.call(request, 'projectId') ? request.projectId : undefined
+      const agentId = Object.prototype.hasOwnProperty.call(request, 'agentId') ? request.agentId : undefined
+      const episodeId = Object.prototype.hasOwnProperty.call(request, 'episodeId') ? request.episodeId : undefined
+      const choice = Object.prototype.hasOwnProperty.call(request, 'choice') ? request.choice : undefined
+      if (!validRequestId(projectId) || !validRequestId(agentId) || !validRequestId(episodeId) ||
+          (choice !== '15m' && choice !== '1h' && choice !== 'manual' && choice !== 'resume')) {
+        return { ok: false, error: 'That reminder control is invalid.' }
+      }
+      const agent = office.agents.get(agentId)
+      if (!agent || episodeOfAgent(agent) !== episodeId || projectOfAgent(agent) !== projectId || !hasProject(projectId)) {
+        return { ok: false, error: 'That agent episode is no longer current.' }
+      }
+      if (!notificationPolicy || notificationStatus.status !== 'ready') return { ok: false, error: 'Notification settings could not be restored. Retry after storage is available.' }
+      const now = Date.now()
+      let base = notificationPolicy
+      if (choice === 'resume') {
+        const overdueReminder = reminderNotification({ ...agent, name: agentName(agent) }, now, prefs.stuckMinutes, undefined)
+        if (overdueReminder) {
+          const receipt = recordReminderReceipt(base, episodeId, overdueReminder.spell, now)
+          if (!receipt.ok) return { ok: false, error: `Could not preserve reminder state: ${receipt.error}.` }
+          base = receipt.policy
+        }
+      }
+      const update = setReminderSnooze(base, episodeId, now, choice)
+      if (!update.ok) return { ok: false, error: `Could not update reminder snooze: ${update.error}.` }
+      if (!await persistNotificationPolicy(update.policy)) return { ok: false, error: 'Could not save notification settings. Try again.' }
+      scheduleNotificationTimer()
+      return { ok: true }
+    })
+  })
 
   orca.panels.handle('attention.review', async (input): Promise<ActionResult> => {
     await loaded
@@ -667,9 +996,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     }, delay)
   }
 
-  const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED), orca.storage.get(INSTALLATION_KEY)])
+  const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED), orca.storage.get(INSTALLATION_KEY), orca.storage.get(NOTIFICATION_POLICY)])
     .then(async (results) => {
-      const [officeResult, reviewResult, installResult] = results
+      const [officeResult, reviewResult, installResult, notificationResult] = results
       if (officeResult.status === 'fulfilled') {
         restore(office, officeResult.value, Date.now())
         office.freshCompletionScopes.clear()
@@ -691,6 +1020,23 @@ export default function activate(orca: OrcaWorkerApi): void {
         reviewsNeedSave = reviews !== undefined && reviews !== null && JSON.stringify(reviews) !== JSON.stringify(storedReviews)
         if (reviewsNeedSave) pruneReviews()
       } else orca.log(`review restore: ${reviewResult.reason}`)
+      if (notificationResult.status === 'fulfilled') {
+        try {
+          notificationPolicy = readNotificationPolicy(notificationResult.value, Date.now())
+          notificationStatus = { status: 'ready' }
+          notificationRetryAttempt = 0
+          await retryAdmissions()
+          scheduleNotificationTimer()
+        } catch (error) {
+          notificationPolicy = undefined
+          notificationFailure(error)
+          orca.log(`notification restore: ${error}`)
+        }
+      } else {
+        notificationPolicy = undefined
+        notificationFailure(notificationResult.reason)
+        orca.log(`notification restore: ${notificationResult.reason}`)
+      }
       for (const agent of snapshot(office).agents) place(agent.workspaceId)
       return nameWorkspaces()
     })
@@ -725,6 +1071,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     stopped = true
     clearTimeout(lookTimer)
     clearTimeout(officeRetryTimer)
+    clearTimeout(notificationTimer)
+    clearTimeout(notificationRetryTimer)
     clearTimeout(postTimer)
     if (saveTimer) {
       clearTimeout(saveTimer)

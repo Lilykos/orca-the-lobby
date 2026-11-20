@@ -307,6 +307,18 @@ export type AgentActions = {
 /** The result of an action the person asked for; `error` is a sentence for them. */
 export type ActionResult = { ok: true; note?: string } | { ok: false; error: string }
 
+/** One control target, never the full persisted notification policy. */
+export type NotificationControlState = {
+  status: 'ready' | 'loading' | 'error'
+  error?: string
+  projectId: string
+  muted: boolean | null
+  agentId: string | null
+  episodeId: string | null
+  snoozed: boolean | null
+  expiresAt: number | null
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** The whole office as the worker knows it now. */
@@ -329,6 +341,12 @@ declare module 'orca' {
     'office.compact': { input: { agentId: string }; output: ActionResult }
     /** Marks the current completion as reviewed in The Lobby's local state only. */
     'attention.review': { input: { completionId: string }; output: ActionResult }
+    /** Reads mute and current-episode snooze controls for one target without exposing the full policy. */
+    'notification.control.read': { input: { projectId: string; agentId?: string; episodeId?: string }; output: NotificationControlState }
+    /** Changes a project mute in worker-owned notification storage. */
+    'notification.project.mute': { input: { projectId: string; muted: boolean }; output: ActionResult }
+    /** Snoozes or resumes reminders for the agent's explicitly identified current episode. */
+    'notification.reminder.snooze': { input: { projectId: string; agentId: string; episodeId: string; choice: '15m' | '1h' | 'manual' | 'resume' }; output: ActionResult }
   }
   interface PluginPanelEvents {
     /** Posted to every open panel after anything in the office changes. */

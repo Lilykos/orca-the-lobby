@@ -483,6 +483,7 @@ test('shows who Orca lists, with their subagents, and nobody else', async () => 
     assert.equal('outcome' in agent.family[1], false)
 
     // Its status still lands at once, between looks.
+    listed![0].agents![0].state = 'blocked'
     await worker.emit('agent.status.changed', {
       workspaceId: 'p::/work/folio/fix',
       paneKey: 'chat-1',
@@ -491,6 +492,7 @@ test('shows who Orca lists, with their subagents, and nobody else', async () => 
     })
     assert.equal((await worker.request('office.snapshot')).agents[0].state, 'blocked')
     // ...and the person is told once, by the name the agent goes by.
+    await waitUntil('the transition group deadline', () => host.callsOf('notifications.show').length === 1)
     assert.deepEqual(host.callsOf('notifications.show'), [
       { title: 'fix needs you', body: 'Fix series sort' }
     ])
@@ -568,6 +570,249 @@ test('does not replay startup notifications and deduplicates an event when the r
       cli.roster = originalRoster
       listed = null
     }
+  }
+})
+
+test('notification controls are target-specific, persisted, and reject stale episode requests', async () => {
+  listed = [{ path: '/notify-project', displayName: 'Notify project', agents: [{ paneKey: 'notify-agent', state: 'working', agentType: 'claude' }] }]
+  const host = mockHost()
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('notification target roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'notify-agent'))
+    const agent = (await worker.request('office.snapshot')).agents.find((entry) => entry.id === 'notify-agent')!
+    const projectId = agent.projectId ?? agent.workspaceId!
+    const episodeId = `${agent.id}@${agent.stateStartedAt}`
+    assert.deepEqual(await worker.request('notification.control.read', { projectId, agentId: agent.id, episodeId }), {
+      status: 'ready', projectId, muted: false, agentId: agent.id, episodeId, snoozed: false, expiresAt: null
+    })
+    assert.deepEqual(await worker.request('notification.reminder.snooze', {
+      projectId, agentId: agent.id, episodeId: 'stale-episode', choice: 'manual'
+    }), { ok: false, error: 'That agent episode is no longer current.' })
+    assert.deepEqual(await Promise.all([
+      worker.request('notification.project.mute', { projectId, muted: true }),
+      worker.request('notification.reminder.snooze', { projectId, agentId: agent.id, episodeId, choice: 'manual' })
+    ]), [{ ok: true }, { ok: true }])
+    assert.deepEqual(host.data().storage['notification.policy'], {
+      mutedProjects: [projectId], reminderSnoozes: [{ episodeId, expiresAt: null, setAt: (host.data().storage['notification.policy'] as { reminderSnoozes: { setAt: number }[] }).reminderSnoozes[0].setAt }], handledTransitions: []
+    })
+    const control = await worker.request('notification.control.read', { projectId, agentId: agent.id, episodeId })
+    assert.equal(control.muted, true)
+    assert.equal(control.snoozed, true)
+    assert.equal(control.expiresAt, null)
+    const officeUpdates = worker.posts.filter((post) => post.event === 'office.update')
+    assert.ok(officeUpdates.every((post) => !JSON.stringify(post.payload).includes('mutedProjects')))
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a corrupt notification policy blocks controls and preserves the stored bytes', async () => {
+  listed = [{ path: '/corrupt-project', agents: [{ paneKey: 'corrupt-agent', state: 'waiting', agentType: 'claude' }] }]
+  const original = { mutedProjects: 'corrupt', reminderSnoozes: [], handledTransitions: [] }
+  const host = mockHost({ storage: { 'notification.policy': original } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('corrupt policy project roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'corrupt-agent'))
+    const projectId = (await worker.request('office.snapshot')).agents[0].projectId ?? '/corrupt-project'
+    const control = await worker.request('notification.control.read', { projectId })
+    assert.equal(control.status, 'error')
+    assert.ok(control.error)
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId, muted: true }), {
+      ok: false, error: 'Notification settings could not be restored. Retry after storage is available.'
+    })
+    assert.deepEqual(host.data().storage['notification.policy'], original)
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a failed notification policy read blocks writes, then retries without replacing saved controls', async () => {
+  listed = [{ path: '/notification-read', agents: [{ paneKey: 'read-agent', state: 'waiting', agentType: 'claude' }] }]
+  const original = { mutedProjects: ['/notification-read'], reminderSnoozes: [], handledTransitions: [] }
+  let failRead = true
+  let policyReads = 0
+  let policyWrites = 0
+  let host: ReturnType<typeof mockHost>
+  host = mockHost({ storage: { 'notification.policy': original }, results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'notification.policy') {
+        policyReads++
+        if (failRead) { failRead = false; throw new Error('temporarily unavailable') }
+      }
+      return { value: host.data().storage[key] ?? null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key } = params as { key: string }
+      if (key === 'notification.policy') policyWrites++
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('notification read target roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'read-agent'))
+    const failed = await worker.request('notification.control.read', { projectId: '/notification-read' })
+    assert.equal(failed.status, 'error')
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId: '/notification-read', muted: false }), {
+      ok: false, error: 'Notification settings could not be restored. Retry after storage is available.'
+    })
+    assert.equal(policyWrites, 0)
+    assert.deepEqual(host.data().storage['notification.policy'], original)
+    await waitUntil('notification policy retry recovery', async () => {
+      const recovered = await worker.request('notification.control.read', { projectId: '/notification-read' })
+      return recovered.status === 'ready' && recovered.muted === true && policyReads >= 2
+    })
+    assert.equal(policyWrites, 0)
+    assert.deepEqual(host.data().storage['notification.policy'], original)
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a failed notification policy write preserves saved controls and recovers from storage before retry', async () => {
+  listed = [{ path: '/notification-write', agents: [{ paneKey: 'write-agent', state: 'waiting', agentType: 'claude' }] }]
+  let storedPolicy: unknown = null
+  let failWrite = true
+  const host = mockHost({ results: {
+    'storage.get': (params: unknown) => ({ value: (params as { key: string }).key === 'notification.policy' ? storedPolicy : null }),
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'notification.policy') {
+        if (failWrite) { failWrite = false; throw new Error('temporarily unavailable') }
+        storedPolicy = value
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('notification write target roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'write-agent'))
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId: '/notification-write', muted: true }), {
+      ok: false, error: 'Could not save notification settings. Try again.'
+    })
+    assert.equal(storedPolicy, null)
+    assert.equal((await worker.request('notification.control.read', { projectId: '/notification-write' })).status, 'error')
+    await waitUntil('notification policy write recovery', async () =>
+      (await worker.request('notification.control.read', { projectId: '/notification-write' })).status === 'ready'
+    )
+    assert.equal(storedPolicy, null)
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId: '/notification-write', muted: true }), { ok: true })
+    assert.deepEqual(storedPolicy, { mutedProjects: ['/notification-write'], reminderSnoozes: [], handledTransitions: [] })
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a transition identity is saved before dispatch and stale live state is filtered after the write', async () => {
+  listed = [{ path: '/notification-gate', agents: [{ paneKey: 'gate-agent', state: 'working', agentType: 'claude' }] }]
+  let policyValue: unknown = null
+  let releaseWrite!: () => void
+  let writeStarted = false
+  const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const host = mockHost({ results: {
+    'storage.get': (params: unknown) => ({ value: (params as { key: string }).key === 'notification.policy' ? policyValue : null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'notification.policy') {
+        writeStarted = true
+        await gate
+        policyValue = value
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('notification policy ready', async () => (await worker.request('notification.control.read', { projectId: '/notification-gate' })).status === 'ready')
+    await waitUntil('notification gate agent baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'gate-agent'))
+    await waitUntil('initial notification baseline complete', () => host.callsOf('statusBar.update').length > 0)
+    const blocked = worker.emit('agent.status.changed', { workspaceId: '/notification-gate', paneKey: 'gate-agent', state: 'blocked', receivedAt: Date.now() })
+    await waitUntil('transition identity write begins', () => writeStarted)
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+    const working = worker.emit('agent.status.changed', { workspaceId: '/notification-gate', paneKey: 'gate-agent', state: 'working', receivedAt: Date.now() + 1 })
+    releaseWrite()
+    await Promise.all([blocked, working])
+    await waitUntil('consumed identity saved', () => (policyValue as { handledTransitions?: unknown[] } | null)?.handledTransitions?.length === 1)
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+    listed![0].agents![0].state = 'blocked'
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-gate', paneKey: 'gate-agent', state: 'blocked', receivedAt: Date.now() + 2 })
+    await waitUntil('eligible transition after its persisted identity', () => host.callsOf('notifications.show').length === 1)
+    assert.equal((policyValue as { handledTransitions: unknown[] }).handledTransitions.length, 2)
+  } finally {
+    releaseWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('pending transition queues are discarded on restart after the consumed identity is saved', async () => {
+  listed = [{ path: '/notification-restart', agents: [{ paneKey: 'restart-agent', state: 'working', agentType: 'claude' }] }]
+  const host = mockHost()
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('notification restart baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'restart-agent'))
+    await waitUntil('initial restart notification baseline complete', () => host.callsOf('statusBar.update').length > 0)
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-restart', paneKey: 'restart-agent', state: 'blocked', receivedAt: Date.now() })
+    await waitUntil('transition consumed before its group deadline', () => (host.data().storage['notification.policy'] as { handledTransitions?: unknown[] } | undefined)?.handledTransitions?.length === 1)
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('restarted worker roster baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'restart-agent'))
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('muting while a transition group waits suppresses it, and unmuting does not catch up', async () => {
+  listed = [{ path: '/notification-mute', agents: [{ paneKey: 'mute-agent', state: 'working', agentType: 'claude' }] }]
+  const host = mockHost()
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('mute target baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'mute-agent'))
+    await waitUntil('initial mute notification baseline', () => host.callsOf('statusBar.update').length > 0)
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-mute', paneKey: 'mute-agent', state: 'blocked', receivedAt: Date.now() })
+    await waitUntil('mute group identity saved', () => (host.data().storage['notification.policy'] as { handledTransitions?: unknown[] } | undefined)?.handledTransitions?.length === 1)
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId: '/notification-mute', muted: true }), { ok: true })
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId: '/notification-mute', muted: false }), { ok: true })
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('resuming an overdue reminder records its current spell and does not cause catch-up', async () => {
+  const since = Date.now() - 21 * 60_000
+  const episodeId = `snooze-agent@${since}`
+  listed = [{ path: '/snooze-project', agents: [{ paneKey: 'snooze-agent', state: 'blocked', stateStartedAt: since, agentType: 'claude' }] }]
+  const host = mockHost({ storage: { prefs: { stuckMinutes: 10 }, 'notification.policy': {
+    mutedProjects: [], reminderSnoozes: [{ episodeId, expiresAt: null, setAt: Date.now() }], handledTransitions: []
+  } } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('snoozed overdue agent roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'snooze-agent'))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+    assert.deepEqual(await worker.request('notification.reminder.snooze', {
+      projectId: '/snooze-project', agentId: 'snooze-agent', episodeId, choice: 'resume'
+    }), { ok: true })
+    await worker.emit('agent.status.changed', { workspaceId: '/snooze-project', paneKey: 'snooze-agent', state: 'blocked', receivedAt: Date.now() })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+    const policy = host.data().storage['notification.policy'] as { reminderSnoozes: unknown[]; handledTransitions: { kind: string; episodeId: string; transitionId: string }[] }
+    assert.deepEqual(policy.reminderSnoozes, [])
+    assert.ok(policy.handledTransitions.some((entry) => entry.kind === 'reminder' && entry.episodeId === episodeId && entry.transitionId === `needs-you:${since}`))
+  } finally {
+    await worker.deactivate()
+    listed = null
   }
 })
 

@@ -1,8 +1,10 @@
 import { assert, test } from 'orca/testing'
 import {
+  adoptConsumedTransition,
   emptyNotificationQueue,
   emptyNotificationPolicy,
   flushTransitionQueue,
+  hasReminderReceipt,
   isProjectMuted,
   isReminderSnoozed,
   NotificationPolicyRestoreError,
@@ -10,6 +12,7 @@ import {
   queueTransition,
   readNotificationPolicy,
   reminderNotification,
+  recordReminderReceipt,
   TRANSITION_IDENTITY_RETENTION_MS,
   setProjectMuted,
   setReminderSnooze,
@@ -151,6 +154,7 @@ test('drops valid expired snoozes and restores bounded controls deterministicall
   const parsed = readNotificationPolicy({
     handledTransitions: [
       ...Array.from({ length: 1_005 }, (_, index) => ({
+        kind: 'transition',
         episodeId: `episode-${index}`,
         transitionId: `transition-${index}`,
         consumedAt: index < 5 ? now - TRANSITION_IDENTITY_RETENTION_MS : now - (1_000 - (index - 5))
@@ -169,7 +173,7 @@ test('drops valid expired snoozes and restores bounded controls deterministicall
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-3'), true)
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-2'), true)
   assert.equal(parsed.handledTransitions.length, 1_000)
-  assert.deepEqual(parsed.handledTransitions[0], { episodeId: 'episode-5', transitionId: 'transition-5', consumedAt: now - 1_000 })
+  assert.deepEqual(parsed.handledTransitions[0], { kind: 'transition', episodeId: 'episode-5', transitionId: 'transition-5', consumedAt: now - 1_000 })
 })
 
 test('reads only own persisted fields and accepts only manual, 15-minute, or one-hour snoozes', () => {
@@ -344,6 +348,41 @@ test('rejects the same stale observation at expiry and after restart, but accept
   assert.equal(accepted.queue.pending[0].candidates[0].observedAt, expiry + 1)
 })
 
+test('adopts a pending transition only when its identity was already consumed', () => {
+  const event = candidate('adopt-1', 'episode-a', 'project-a', 'blocked', 'Ada', 10)
+  const refused = adoptConsumedTransition(emptyNotificationQueue(), emptyNotificationPolicy(), event, 20, () => true)
+  assert.equal(refused.refusals[0].reason, 'identity-not-consumed')
+  const consumed = queueTransition(emptyNotificationQueue(), emptyNotificationPolicy(), event, 20, () => true)
+  const adopted = adoptConsumedTransition(emptyNotificationQueue(), consumed.policy, event, 25, () => true)
+  assert.deepEqual(adopted.refusals, [])
+  assert.equal(adopted.queue.pending[0].candidates[0].transitionId, 'adopt-1')
+  assert.ok(jsonBytes(adopted.policy) <= STORE_BYTES)
+})
+
+test('adoption after a slow consume write keeps the original fixed deadline', () => {
+  const event = candidate('delayed', 'episode-delayed', 'project-a', 'blocked', 'Ada', 1_000)
+  const consumed = queueTransition(emptyNotificationQueue(), emptyNotificationPolicy(), event, 1_000, () => true)
+  const delayed = adoptConsumedTransition(emptyNotificationQueue(), consumed.policy, event, 4_000, () => true)
+  assert.deepEqual(delayed.notifications, [{ title: 'Ada blocked', body: 'Useful detail' }])
+  assert.deepEqual(delayed.queue.pending, [])
+})
+
+test('records reminder delivery or deliberate suppression across restart, but snoozes remain unconsumed', () => {
+  const initial = emptyNotificationPolicy()
+  const delivered = recordReminderReceipt(initial, 'episode-a', 'needs-you:1', 100)
+  assert.equal(delivered.ok, true)
+  if (!delivered.ok) return
+  assert.equal(hasReminderReceipt(delivered.policy, 'episode-a', 'needs-you:1'), true)
+  assert.equal(hasReminderReceipt(delivered.policy, 'episode-b', 'needs-you:1'), false)
+  const duplicate = recordReminderReceipt(delivered.policy, 'episode-a', 'needs-you:1', 200)
+  assert.equal(duplicate.ok ? duplicate.alreadyRecorded : false, true)
+  const restored = readNotificationPolicy(JSON.parse(JSON.stringify(delivered.policy)), 300)
+  assert.equal(hasReminderReceipt(restored, 'episode-a', 'needs-you:1'), true)
+  const snoozed = setReminderSnooze(initial, 'episode-a', 0, '15m')
+  assert.equal(snoozed.ok, true)
+  if (snoozed.ok) assert.equal(hasReminderReceipt(snoozed.policy, 'episode-a', 'needs-you:1'), false)
+})
+
 test('notificationForTransition only builds candidates for a state transition', () => {
   const identity = { transitionId: 'blocked-1', episodeId: 'episode-a', projectId: 'project-a', projectName: 'Project A' }
   const current = { state: 'blocked' as const, stateStartedAt: 1_000, name: 'Ada', title: 'Review', outcome: null }
@@ -393,7 +432,7 @@ test('restores and updates combined multibyte controls within the total UTF-8 bu
     mutedProjects: Array.from({ length: 20 }, (_, index) => id('project', index)),
     reminderSnoozes: Array.from({ length: 330 }, (_, index) => ({ episodeId: id('episode', index), expiresAt: null, setAt: now })),
     handledTransitions: Array.from({ length: 300 }, (_, index) => ({
-      episodeId: id('old-e', index), transitionId: id('old-t', index), consumedAt: now - TRANSITION_IDENTITY_RETENTION_MS
+      kind: 'transition', episodeId: id('old-e', index), transitionId: id('old-t', index), consumedAt: now - TRANSITION_IDENTITY_RETENTION_MS
     }))
   }, now)
   assert.equal(restored.reminderSnoozes.length, 330)
@@ -455,7 +494,7 @@ test('restores and updates combined multibyte controls within the total UTF-8 bu
     mutedProjects: Array.from({ length: 200 }, (_, index) => id('project', index)),
     reminderSnoozes: Array.from({ length: 500 }, (_, index) => ({ episodeId: id('episode', index), expiresAt: null, setAt: now })),
     handledTransitions: Array.from({ length: 1_000 }, (_, index) => ({
-      episodeId: id('he', index), transitionId: id('ht', index), consumedAt: now
+        kind: 'transition', episodeId: id('he', index), transitionId: id('ht', index), consumedAt: now
     }))
   }, now), /storage byte limit/)
 })

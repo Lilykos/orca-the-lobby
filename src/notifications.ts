@@ -57,7 +57,7 @@ export function reminderNotification(
 }
 
 export type ReminderSnooze = { episodeId: string; expiresAt: number | null; setAt: number }
-export type HandledTransition = { episodeId: string; transitionId: string; consumedAt: number }
+export type HandledTransition = { kind: 'transition' | 'reminder'; episodeId: string; transitionId: string; consumedAt: number }
 export type NotificationPolicy = {
   mutedProjects: string[]
   reminderSnoozes: ReminderSnooze[]
@@ -173,13 +173,16 @@ export function readNotificationPolicy(value: unknown, now: number): Notificatio
     if (!entry) restoreError('a handled transition is not an object')
     const episodeId = own(entry, 'episodeId')
     const transitionId = own(entry, 'transitionId')
+    const kind = own(entry, 'kind')
     const consumedAt = own(entry, 'consumedAt')
-    if (!validId(episodeId) || !validId(transitionId)) restoreError('a handled transition has an invalid identity')
+    if ((kind !== 'transition' && kind !== 'reminder') || !validId(episodeId) || !validId(transitionId)) {
+      restoreError('a handled notification has an invalid identity')
+    }
     if (!Number.isFinite(consumedAt) || (consumedAt as number) < 0 || (consumedAt as number) > now) {
-      restoreError('a handled transition has an invalid observation time')
+      restoreError('a handled notification has an invalid observation time')
     }
     if (now - (consumedAt as number) >= TRANSITION_IDENTITY_RETENTION_MS) continue
-    const identity = { episodeId, transitionId, consumedAt: consumedAt as number }
+    const identity: HandledTransition = { kind, episodeId, transitionId, consumedAt: consumedAt as number }
     const priorIndex = handledTransitions.findIndex((prior) => sameTransition(prior, identity))
     if (priorIndex >= 0) {
       if (identity.consumedAt > handledTransitions[priorIndex].consumedAt) handledTransitions[priorIndex] = identity
@@ -253,6 +256,42 @@ export function isReminderSnoozed(policy: NotificationPolicy, episodeId: string,
   return !!snooze && (snooze.expiresAt === null || now < snooze.expiresAt)
 }
 
+export type ReminderReceiptResult =
+  | { ok: true; policy: NotificationPolicy; alreadyRecorded: boolean }
+  | { ok: false; policy: NotificationPolicy; error: 'invalid-update' | 'notification-limit' | 'policy-too-large' }
+
+export function hasReminderReceipt(policy: NotificationPolicy, episodeId: string, spell: string): boolean {
+  return policy.handledTransitions.some((entry) =>
+    entry.kind === 'reminder' && entry.episodeId === episodeId && entry.transitionId === spell
+  )
+}
+
+/** Records a delivered or deliberately dismissed reminder spell so restart/resume cannot catch it up. */
+export function recordReminderReceipt(
+  policy: NotificationPolicy,
+  episodeId: string,
+  spell: string,
+  now: number
+): ReminderReceiptResult {
+  if (!validId(episodeId) || !validId(spell) || !Number.isFinite(now) || now < 0) {
+    return { ok: false, policy: copyNotificationPolicy(policy), error: 'invalid-update' }
+  }
+  const next = pruneHandledTransitions(policy, now)
+  const identity: NotificationIdentity = { kind: 'reminder', episodeId, transitionId: spell }
+  if (next.handledTransitions.some((entry) => sameTransition(entry, identity))) {
+    return { ok: true, policy: next, alreadyRecorded: true }
+  }
+  if (next.handledTransitions.length >= MAX_HANDLED_TRANSITIONS) {
+    return { ok: false, policy: copyNotificationPolicy(policy), error: 'notification-limit' }
+  }
+  const recorded = {
+    ...next,
+    handledTransitions: [...next.handledTransitions, { ...identity, consumedAt: now }]
+  }
+  if (jsonBytes(recorded) > STORE_BYTES) return { ok: false, policy: copyNotificationPolicy(policy), error: 'policy-too-large' }
+  return { ok: true, policy: recorded, alreadyRecorded: false }
+}
+
 export type TransitionCandidate = {
   /** Stable source transition id; combine with episodeId so a later turn is always distinct. */
   transitionId: string
@@ -298,15 +337,17 @@ export type PendingTransitionGroup = {
   candidates: TransitionCandidate[]
 }
 export type NotificationQueue = { pending: PendingTransitionGroup[] }
-export type QueueRefusal = { reason: 'invalid-candidate' | 'stale-candidate' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' | 'policy-too-large' }
+export type QueueRefusal = { reason: 'invalid-candidate' | 'stale-candidate' | 'identity-not-consumed' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' | 'policy-too-large' }
 export type QueueResult = { queue: NotificationQueue; policy: NotificationPolicy; notifications: NotificationMessage[]; refusals: QueueRefusal[] }
 
 export function emptyNotificationQueue(): NotificationQueue {
   return { pending: [] }
 }
 
-function sameTransition(a: Pick<HandledTransition, 'episodeId' | 'transitionId'>, b: Pick<HandledTransition, 'episodeId' | 'transitionId'>): boolean {
-  return a.episodeId === b.episodeId && a.transitionId === b.transitionId
+type NotificationIdentity = Pick<HandledTransition, 'kind' | 'episodeId' | 'transitionId'>
+
+function sameTransition(a: NotificationIdentity, b: NotificationIdentity): boolean {
+  return a.kind === b.kind && a.episodeId === b.episodeId && a.transitionId === b.transitionId
 }
 
 function copyCandidate(candidate: TransitionCandidate): TransitionCandidate {
@@ -340,8 +381,8 @@ function pruneHandledTransitions(policy: NotificationPolicy, now: number): Notif
   }
 }
 
-function transitionIdentity(candidate: TransitionCandidate): Pick<HandledTransition, 'episodeId' | 'transitionId'> {
-  return { episodeId: candidate.episodeId, transitionId: candidate.transitionId }
+function transitionIdentity(candidate: TransitionCandidate): NotificationIdentity {
+  return { kind: 'transition', episodeId: candidate.episodeId, transitionId: candidate.transitionId }
 }
 
 function validCandidate(candidate: TransitionCandidate): boolean {
@@ -404,6 +445,49 @@ export function flushTransitionQueue(
     notifications,
     refusals
   }
+}
+
+/** Adopt an event only after its consumed identity has been persisted by the caller. */
+export function adoptConsumedTransition(
+  queue: NotificationQueue,
+  policy: NotificationPolicy,
+  candidate: TransitionCandidate,
+  now: number,
+  isEligible: (candidate: TransitionCandidate) => boolean
+): QueueResult {
+  const elapsed = flushTransitionQueue(queue, policy, now, isEligible)
+  const refuse = (reason: QueueRefusal['reason']): QueueResult => ({ ...elapsed, refusals: [...elapsed.refusals, { reason }] })
+  if (!Number.isFinite(now) || now < 0 || !validCandidate(candidate)) return refuse('invalid-candidate')
+  const admitted = copyCandidate(candidate)
+  if (jsonBytes(admitted) > MAX_NOTIFICATION_BYTES) return refuse('candidate-too-large')
+  if (admitted.observedAt > now || now - admitted.observedAt >= TRANSITION_IDENTITY_RETENTION_MS) return refuse('stale-candidate')
+  const identity = transitionIdentity(admitted)
+  if (!elapsed.policy.handledTransitions.some((prior) => sameTransition(prior, identity))) return refuse('identity-not-consumed')
+  if (!isEligible(copyCandidate(admitted)) || elapsed.policy.mutedProjects.includes(admitted.projectId)) return elapsed
+  if (elapsed.queue.pending.some((group) => group.candidates.some((prior) => sameTransition(transitionIdentity(prior), identity)))) return elapsed
+
+  const pending = [...elapsed.queue.pending]
+  const index = pending.findIndex((group) => groupKey(group, admitted))
+  const deadline = index < 0 ? admitted.observedAt + GROUP_WINDOW_MS : pending[index].deadline
+  if (index < 0) {
+    pending.push({
+      projectId: admitted.projectId,
+      projectName: admitted.projectName,
+      kind: admitted.kind,
+      firstAt: admitted.observedAt,
+      deadline: admitted.observedAt + GROUP_WINDOW_MS,
+      candidates: [admitted]
+    })
+  } else {
+    if (pending[index].candidates.length >= MAX_GROUP_CANDIDATES) return refuse('group-candidate-limit')
+    pending[index] = { ...pending[index], candidates: [...pending[index].candidates, admitted] }
+  }
+  if (pending.length > MAX_PENDING_GROUPS || jsonBytes(pending) > STORE_BYTES) return refuse('pending-queue-full')
+  pending.sort((a, b) => a.firstAt - b.firstAt || compareText(a.projectId, b.projectId) || compareText(a.kind, b.kind))
+  const adopted = { ...elapsed, queue: { pending } }
+  return deadline <= now
+    ? flushTransitionQueue(adopted.queue, adopted.policy, now, isEligible)
+    : adopted
 }
 
 /** Adds one eligible transition, deduplicates it, and starts a non-extending project/kind window. */
