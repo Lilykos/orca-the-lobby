@@ -69,6 +69,8 @@ Review: Terra approved `1a65df0` with no remaining task 07 blocker. The real dev
 - [ ] Demonstrate find → open → review on the real development panel; inspect Office, Activity and Attention at multiple widths.
 - [ ] Confirm stable reading position and task identity during 100-agent fixture updates.
 
+Development runtime smoke (2026-11-20): Orca 1.4.264; reloaded the root `local.the-lobby` dev folder after confirming its six capability kinds match the previously approved plugin. The published `lilykos.the-lobby` 1.2.0 copy remains disabled. `office.installation` returned `legacy`; the read-only office snapshot contained 13 current agents and 2 existing Reviewed keys. No preference, review, notification-policy or terminal action was changed. Hidden-panel `plugin shot` captures of the live Office settled with no render errors at 280, 420 and 900px: `/tmp/the-lobby-live-smoke-280.png`, `/tmp/the-lobby-live-smoke-420.png`, `/tmp/the-lobby-live-smoke-900.png` (kept outside the repository because they show live task content). The one-time computer-use permission query reported Accessibility granted, but `get-app-state` returned `permission_denied`; no GUI interaction was attempted. Real find/open/review, Activity/Attention navigation, keyboard/focus and 100-agent live-update checks remain pending.
+
 ## 08 — Isolate existing notification decisions (S)
 
 - [x] Extract a small notification-policy module while preserving current transition settings, long-turn threshold and reminder behavior.
@@ -102,6 +104,8 @@ Status: reviewed two-second grouping and worker dispatch backend passed policy/w
 ### Checkpoint C
 
 - [ ] Notifications become quieter while all actionable inbox items remain discoverable; inspect behavior during a development-copy trial.
+
+No mute/snooze control was changed and no notification was generated for this smoke. Manual trial still needed when Computer Use is available: use a disposable project and test completion to review one result and verify Orca unread/status is unchanged; switch Office/Activity/Attention and check keyboard focus at 280/420/900px; mute/unmute the disposable project and snooze/resume its eligible test episode, confirm agents and counts remain present, then restart the dev worker and confirm the choices persisted without catch-up alerts. Do not use an active user's real completion or trigger a desktop notification solely for this check.
 
 ## 11 — Integrated regression and compatibility checks (M)
 
