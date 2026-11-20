@@ -142,7 +142,7 @@ export function jsonBytes(value: unknown): number {
 
 function trimPayload(value: unknown, maxText: number, key = ''): unknown {
   if (typeof value === 'string') {
-    if (/^(id|agentId|completionId|paneKey|parentPaneKey|parentId|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|finishedAtSource|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
+    if (/^(id|agentId|completionId|notificationEpisodeId|paneKey|parentPaneKey|parentId|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|finishedAtSource|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
     return Array.from(value).slice(0, maxText).join('')
   }
   if (Array.isArray(value)) return value.map((item) => trimPayload(item, maxText, key))
@@ -187,7 +187,8 @@ function bounded<T extends OfficeSnapshot>(input: T, limit: number, compactAgent
         outcome: agent.outcome, unread: agent.unread, stateStartedAt: agent.stateStartedAt,
         finishedAt: agent.finishedAt, finishedAtSource: agent.finishedAtSource,
         firstSeenAt: agent.firstSeenAt, lastSeenAt: agent.lastSeenAt,
-        completionId: agent.completionId, completionTracked: agent.completionTracked
+        completionId: agent.completionId, completionTracked: agent.completionTracked,
+        notificationEpisodeId: agent.notificationEpisodeId
       }))
     }
   }
@@ -198,13 +199,28 @@ function bounded<T extends OfficeSnapshot>(input: T, limit: number, compactAgent
 
 /** The state to store, with the oldest history dropped until it fits Orca's size limit. */
 export function storable(state: OfficeSnapshot, limit = STORE_BYTES): OfficeSnapshot {
-  return bounded(state, limit, true)
+  const compact = state.agents.some((agent) => agent.notificationEpisodeId === initialNotificationEpisodeId(agent.id, agent.stateStartedAt))
+    ? {
+        ...state,
+        agents: state.agents.map((agent) => {
+          if (agent.notificationEpisodeId !== initialNotificationEpisodeId(agent.id, agent.stateStartedAt)) return agent
+          const { notificationEpisodeId: _redundant, ...rest } = agent
+          return rest
+        })
+      }
+    : state
+  return bounded(compact, limit, true)
 }
 
 /** What the panel gets: everything but the history, which it does not show. */
 export function forPanel(state: OfficeSnapshot, reviewedCompletions: string[] = []): OfficeSnapshot {
   const { completionIdentities: _private, ...publicState } = state
-  return bounded({ ...publicState, agents: publicState.agents.map((agent) => ({ ...agent, sessionId: null })), journal: [], reviewedCompletions: reviewedCompletions.length ? reviewedCompletions : (state.reviewedCompletions ?? []) }, STORE_BYTES, false)
+  return bounded({ ...publicState, agents: publicState.agents.map(({ notificationEpisodeId: _episode, ...agent }) => ({ ...agent, sessionId: null })), journal: [], reviewedCompletions: reviewedCompletions.length ? reviewedCompletions : (state.reviewedCompletions ?? []) }, STORE_BYTES, false)
+}
+
+function initialNotificationEpisodeId(agentId: string, stateStartedAt: number): string {
+  const legacyId = `${agentId}@${stateStartedAt}`
+  return legacyId.length <= 256 ? legacyId : createHash('sha256').update(legacyId).digest('hex')
 }
 
 function record(office: Office, agent: AgentView, event: Omit<JournalEvent, 'id' | 'agentId' | 'workspaceId' | 'projectId'>, identity: string): void {
@@ -295,7 +311,8 @@ function add(office: Office, id: string, now: number, fields: Partial<AgentView>
     family: [],
     insight: null,
     history: [],
-    ...fields
+    ...fields,
+    notificationEpisodeId: fields.notificationEpisodeId ?? initialNotificationEpisodeId(id, fields.stateStartedAt ?? now)
   }
   office.agents.set(id, agent)
   return agent
@@ -384,6 +401,7 @@ function enter(
   }
   agent.state = state
   agent.stateStartedAt = at
+  agent.notificationEpisodeId = initialNotificationEpisodeId(agent.id, at)
   agent.history = [...agent.history, { state, at }].filter((step) => at - step.at < HISTORY_MS)
 }
 
@@ -546,7 +564,11 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
       const agent =
         known ??
         // Born in the state it is first seen in: a turn that ended before then is not tallied.
-        add(office, row.paneKey, now, { paneKey: row.paneKey, state: row.state })
+        add(office, row.paneKey, now, {
+          paneKey: row.paneKey,
+          state: row.state,
+          ...(typeof row.stateStartedAt === 'number' && Number.isFinite(row.stateStartedAt) ? { stateStartedAt: row.stateStartedAt } : {})
+        })
       const wasDone = agent.state === 'done'
       const transitionedToDone = known !== undefined && !wasDone && row.state === 'done'
       agent.workspaceId = worktree.path
@@ -908,6 +930,9 @@ export function restore(office: Office, stored: unknown, now: number, preserveLi
       hostId: typeof agent.hostId === 'string' ? agent.hostId : null,
       hostName: typeof agent.hostName === 'string' ? agent.hostName : null,
       sessionId: typeof agent.sessionId === 'string' ? agent.sessionId : null,
+      notificationEpisodeId: typeof agent.notificationEpisodeId === 'string' && agent.notificationEpisodeId.length > 0 && agent.notificationEpisodeId.length <= 256
+        ? agent.notificationEpisodeId
+        : initialNotificationEpisodeId(agent.id, Number.isFinite(agent.stateStartedAt) ? agent.stateStartedAt : now),
       completionId: typeof agent.completionId === 'string' ? agent.completionId : null,
       completionTracked: agent.completionTracked === true,
       parentPaneKey: typeof agent.parentPaneKey === 'string' ? agent.parentPaneKey : null,

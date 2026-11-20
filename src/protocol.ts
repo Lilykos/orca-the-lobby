@@ -194,6 +194,8 @@ export type AgentView = {
   completionId: string | null
   /** True only when this completion was observed after first-upgrade baseline. */
   completionTracked: boolean
+  /** Worker-private persisted snooze episode; retained across same-state metadata corrections. */
+  notificationEpisodeId?: string
   /** A terminal's title, or the name Orca gives the conversation. */
   title: string | null
   /** The last thing it was asked, and the last thing it said, when Orca knows. */

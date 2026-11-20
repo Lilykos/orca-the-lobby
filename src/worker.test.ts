@@ -607,6 +607,59 @@ test('notification controls are target-specific, persisted, and reject stale epi
   }
 })
 
+test('a snoozed observed episode survives roster time correction and restart, but observed transitions rotate it', async () => {
+  listed = [{ path: '/notification-episode', agents: [{ paneKey: 'episode-agent', state: 'working', agentType: 'claude' }] }]
+  const host = mockHost()
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('episode target baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'episode-agent'))
+    await waitUntil('episode notification baseline', () => host.callsOf('statusBar.update').length > 0)
+    const projectId = '/notification-episode'
+    const before = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent' })
+    assert.equal(before.status, 'ready')
+    const workingEpisode = before.episodeId!
+
+    const transitionAt = Date.now()
+    await worker.emit('agent.status.changed', { workspaceId: projectId, paneKey: 'episode-agent', state: 'blocked', receivedAt: transitionAt })
+    const observed = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent' })
+    assert.equal(observed.status, 'ready')
+    const blockedEpisode = observed.episodeId!
+    assert.notEqual(blockedEpisode, workingEpisode)
+    assert.deepEqual(await worker.request('notification.reminder.snooze', {
+      projectId, agentId: 'episode-agent', episodeId: blockedEpisode, choice: 'manual'
+    }), { ok: true })
+
+    listed![0].agents![0].state = 'blocked'
+    const correctedAt = transitionAt - 5_000
+    listed![0].agents![0].stateStartedAt = correctedAt
+    await waitUntil('roster corrects the blocked transition timestamp', async () =>
+      (await worker.request('office.snapshot')).agents.find((agent) => agent.id === 'episode-agent')?.stateStartedAt === correctedAt
+    )
+    const corrected = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent' })
+    assert.equal(corrected.episodeId, blockedEpisode)
+    assert.equal(corrected.snoozed, true)
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('restored episode baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'episode-agent'))
+    const restored = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent', episodeId: blockedEpisode })
+    assert.equal(restored.status, 'ready')
+    assert.equal(restored.snoozed, true)
+
+    listed![0].agents![0].state = 'working'
+    await worker.emit('agent.status.changed', { workspaceId: projectId, paneKey: 'episode-agent', state: 'working', receivedAt: transitionAt + 1 })
+    const nextEpisode = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent' })
+    assert.equal(nextEpisode.status, 'ready')
+    assert.notEqual(nextEpisode.episodeId, blockedEpisode)
+    assert.equal(nextEpisode.snoozed, false)
+    await worker.emit('agent.status.changed', { workspaceId: projectId, paneKey: 'episode-agent', state: 'working', receivedAt: transitionAt + 2 })
+    const sameObservedEpisode = await worker.request('notification.control.read', { projectId, agentId: 'episode-agent' })
+    assert.equal(sameObservedEpisode.episodeId, nextEpisode.episodeId)
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
 test('a corrupt notification policy blocks controls and preserves the stored bytes', async () => {
   listed = [{ path: '/corrupt-project', agents: [{ paneKey: 'corrupt-agent', state: 'waiting', agentType: 'claude' }] }]
   const original = { mutedProjects: 'corrupt', reminderSnoozes: [], handledTransitions: [] }
@@ -770,6 +823,41 @@ test('pending transition queues are discarded on restart after the consumed iden
   }
 })
 
+test('a dispatched transition identity stays deduplicated across repeat observations and restart', async () => {
+  const transitionAt = Date.now()
+  listed = [{ path: '/notification-duplicate', agents: [{ paneKey: 'duplicate-agent', state: 'working', agentType: 'claude' }] }]
+  const host = mockHost()
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('duplicate target baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'duplicate-agent'))
+    await waitUntil('duplicate notification baseline', () => host.callsOf('statusBar.update').length > 0)
+    listed![0].agents![0].state = 'blocked'
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-duplicate', paneKey: 'duplicate-agent', state: 'blocked', receivedAt: transitionAt })
+    await waitUntil('first transition delivery', () => host.callsOf('notifications.show').length === 1)
+
+    listed![0].agents![0].state = 'working'
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-duplicate', paneKey: 'duplicate-agent', state: 'working', receivedAt: transitionAt + 1 })
+    listed![0].agents![0].state = 'blocked'
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-duplicate', paneKey: 'duplicate-agent', state: 'blocked', receivedAt: transitionAt })
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    assert.equal(host.callsOf('notifications.show').length, 1)
+
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('duplicate restart baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'duplicate-agent'))
+    await waitUntil('duplicate restart announcement baseline', () => host.callsOf('statusBar.update').length > 0)
+    listed![0].agents![0].state = 'working'
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-duplicate', paneKey: 'duplicate-agent', state: 'working', receivedAt: transitionAt + 1 })
+    listed![0].agents![0].state = 'blocked'
+    await worker.emit('agent.status.changed', { workspaceId: '/notification-duplicate', paneKey: 'duplicate-agent', state: 'blocked', receivedAt: transitionAt })
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    assert.equal(host.callsOf('notifications.show').length, 1)
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
 test('muting while a transition group waits suppresses it, and unmuting does not catch up', async () => {
   listed = [{ path: '/notification-mute', agents: [{ paneKey: 'mute-agent', state: 'working', agentType: 'claude' }] }]
   const host = mockHost()
@@ -811,6 +899,146 @@ test('resuming an overdue reminder records its current spell and does not cause 
     assert.deepEqual(policy.reminderSnoozes, [])
     assert.ok(policy.handledTransitions.some((entry) => entry.kind === 'reminder' && entry.episodeId === episodeId && entry.transitionId === `needs-you:${since}`))
   } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a reminder receipt write rechecks quiet progress before dispatch', async () => {
+  listed = null
+  let releaseWrite!: () => void
+  let writeStarted = false
+  const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const host = mockHost({ storage: { prefs: { stuckMinutes: 10 } }, results: {
+    'storage.set': async (params: unknown) => {
+      if ((params as { key: string }).key === 'notification.policy') {
+        writeStarted = true
+        await gate
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    const observedAt = Date.now() - 11 * 60_000
+    const event = worker.emit('agent.status.changed', {
+      workspaceId: '/reminder-progress', paneKey: 'progress-agent', state: 'working', receivedAt: observedAt
+    })
+    await waitUntil('quiet reminder receipt write', () => writeStarted)
+    const progress = worker.emit('agent.status.changed', {
+      workspaceId: '/reminder-progress', paneKey: 'progress-agent', state: 'working', receivedAt: Date.now()
+    })
+    releaseWrite()
+    await Promise.all([event, progress])
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+  } finally {
+    releaseWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a reminder receipt write does not dispatch after notification capability is revoked', async () => {
+  listed = null
+  let releaseWrite!: () => void
+  let writeStarted = false
+  let revoked = false
+  const originalIncludes = Array.prototype.includes
+  const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const host = mockHost({ storage: { prefs: { stuckMinutes: 10 } }, results: {
+    'storage.set': async (params: unknown) => {
+      if ((params as { key: string }).key === 'notification.policy') {
+        writeStarted = true
+        await gate
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/reminder-capability', paneKey: 'capability-agent', state: 'working', receivedAt: Date.now() - 11 * 60_000
+    })
+    await waitUntil('capability reminder receipt write', () => writeStarted)
+    Array.prototype.includes = function (searchElement, fromIndex) {
+      if (revoked && searchElement === 'notifications:show') return false
+      return originalIncludes.call(this, searchElement, fromIndex)
+    }
+    revoked = true
+    releaseWrite()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+  } finally {
+    Array.prototype.includes = originalIncludes
+    releaseWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a transition write finishing after deactivation cannot dispatch', async () => {
+  listed = [{ path: '/notification-stop', agents: [{ paneKey: 'stop-agent', state: 'working', agentType: 'claude' }] }]
+  let releaseWrite!: () => void
+  let writeStarted = false
+  const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const host = mockHost({ results: {
+    'storage.set': async (params: unknown) => {
+      if ((params as { key: string }).key === 'notification.policy') {
+        writeStarted = true
+        await gate
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('shutdown transition baseline', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'stop-agent'))
+    await waitUntil('shutdown notification policy ready', async () => (await worker.request('notification.control.read', { projectId: '/notification-stop' })).status === 'ready')
+    await waitUntil('shutdown transition announcement baseline', () => host.callsOf('statusBar.update').length > 0)
+    const pending = worker.emit('agent.status.changed', { workspaceId: '/notification-stop', paneKey: 'stop-agent', state: 'blocked', receivedAt: Date.now() })
+    await waitUntil('shutdown transition write begins', () => writeStarted)
+    const deactivating = worker.deactivate()
+    releaseWrite()
+    await deactivating
+    await pending
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+  } finally {
+    releaseWrite()
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a reminder receipt write finishing after deactivation cannot dispatch', async () => {
+  listed = null
+  let releaseWrite!: () => void
+  let writeStarted = false
+  const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const host = mockHost({ storage: { prefs: { stuckMinutes: 10 } }, results: {
+    'storage.set': async (params: unknown) => {
+      if ((params as { key: string }).key === 'notification.policy') {
+        writeStarted = true
+        await gate
+      }
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    const pending = worker.emit('agent.status.changed', {
+      workspaceId: '/reminder-stop', paneKey: 'reminder-stop-agent', state: 'working', receivedAt: Date.now() - 11 * 60_000
+    })
+    await waitUntil('shutdown reminder receipt write', () => writeStarted)
+    const deactivating = worker.deactivate()
+    releaseWrite()
+    await deactivating
+    await pending
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual(host.callsOf('notifications.show'), [])
+  } finally {
+    releaseWrite()
     await worker.deactivate()
     listed = null
   }
