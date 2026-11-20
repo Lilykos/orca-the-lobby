@@ -227,6 +227,7 @@ export default function activate(orca: OrcaWorkerApi): void {
         if (stopped) return
         try {
           const stored = await orca.storage.get(NOTIFICATION_POLICY)
+          if (stopped) return
           const policy = readNotificationPolicy(stored, Date.now())
           notificationPolicy = policy
           notificationStatus = { status: 'ready' }
@@ -242,12 +243,15 @@ export default function activate(orca: OrcaWorkerApi): void {
     }, delay)
   }
   const persistNotificationPolicy = async (next: NotificationPolicy): Promise<boolean> => {
+    if (stopped) return false
     if (jsonBytes(next) > STORE_BYTES) {
       notificationFailure(new Error('Notification settings exceed the storage byte limit.'))
       return false
     }
     try {
+      if (stopped) return false
       await orca.storage.set(NOTIFICATION_POLICY, next)
+      if (stopped) return false
       notificationPolicy = next
       notificationStatus = { status: 'ready' }
       notificationRetryAttempt = 0
@@ -711,6 +715,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('notification.control.read', async (input): Promise<NotificationControlState> => {
     await loaded
     return serializeNotification(async () => {
+      if (stopped) return { ...controlFailure(), error: 'Notification controls are unavailable while the worker is stopping.' }
       const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
       const projectId = Object.prototype.hasOwnProperty.call(request, 'projectId') ? request.projectId : undefined
       const agentId = Object.prototype.hasOwnProperty.call(request, 'agentId') ? request.agentId : undefined
@@ -743,6 +748,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('notification.project.mute', async (input): Promise<ActionResult> => {
     await loaded
     return serializeNotification(async () => {
+      if (stopped) return { ok: false, error: 'The worker stopped before saving notification settings.' }
       const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
       const projectId = Object.prototype.hasOwnProperty.call(request, 'projectId') ? request.projectId : undefined
       const muted = Object.prototype.hasOwnProperty.call(request, 'muted') ? request.muted : undefined
@@ -775,6 +781,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('notification.reminder.snooze', async (input): Promise<ActionResult> => {
     await loaded
     return serializeNotification(async () => {
+      if (stopped) return { ok: false, error: 'The worker stopped before saving reminder settings.' }
       const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
       const projectId = Object.prototype.hasOwnProperty.call(request, 'projectId') ? request.projectId : undefined
       const agentId = Object.prototype.hasOwnProperty.call(request, 'agentId') ? request.agentId : undefined
@@ -808,6 +815,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       } catch {
         return { ok: false, error: 'Could not save the current agent episode. Try again.' }
       }
+      if (stopped) return { ok: false, error: 'The worker stopped before saving reminder settings.' }
       const current = office.agents.get(agentId)
       if (!current || episodeOfAgent(current) !== episodeId || projectOfAgent(current) !== projectId) {
         return { ok: false, error: 'That agent episode is no longer current.' }

@@ -668,6 +668,64 @@ test('a successful snooze waits for durable status-transition identity before ac
   }
 })
 
+test('a snooze paused at office save cannot overwrite policy after its worker deactivates', async () => {
+  listed = [{ path: '/stopped-snooze', agents: [{ paneKey: 'stopped-agent', state: 'working', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
+  let gateOfficeWrite = false
+  let officeWriteStarted = false
+  let releaseOfficeWrite!: () => void
+  const officeGate = new Promise<void>((resolve) => { releaseOfficeWrite = resolve })
+  const storageResults = {
+    'storage.get': (params: unknown) => ({ value: backing[(params as { key: string }).key] ?? null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office' && gateOfficeWrite) {
+        gateOfficeWrite = false
+        officeWriteStarted = true
+        await officeGate
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  }
+  let oldWorker = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+  let newWorker: Awaited<ReturnType<typeof mountWorker>> | undefined
+  try {
+    await waitUntil('stopped snooze initial office save', () => Array.isArray((backing.office as OfficeSnapshot | undefined)?.agents))
+    await waitUntil('stopped snooze policy restore', async () => (await oldWorker.request('notification.control.read', { projectId: '/stopped-snooze' })).status === 'ready')
+    gateOfficeWrite = true
+    const observedAt = Date.now()
+    listed![0].agents![0].state = 'blocked'
+    listed![0].agents![0].stateStartedAt = observedAt
+    const transition = oldWorker.emit('agent.status.changed', {
+      workspaceId: '/stopped-snooze', paneKey: 'stopped-agent', state: 'blocked', receivedAt: observedAt
+    })
+    await waitUntil('stopped snooze office save gate', () => officeWriteStarted)
+    const oldSnooze = oldWorker.request('notification.reminder.snooze', {
+      projectId: '/stopped-snooze', agentId: 'stopped-agent', episodeId: `stopped-agent@${observedAt}`, choice: 'manual'
+    })
+    const oldShutdown = oldWorker.deactivate()
+    newWorker = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+    await waitUntil('replacement worker notification controls', async () =>
+      (await newWorker!.request('notification.control.read', { projectId: '/stopped-snooze' })).status === 'ready')
+    assert.deepEqual(await newWorker.request('notification.project.mute', { projectId: '/stopped-snooze', muted: true }), { ok: true })
+    assert.deepEqual((backing['notification.policy'] as { mutedProjects: string[] }).mutedProjects, ['/stopped-snooze'])
+
+    releaseOfficeWrite()
+    await transition
+    await oldShutdown
+    assert.deepEqual(await oldSnooze, { ok: false, error: 'The worker stopped before saving reminder settings.' })
+    const savedPolicy = backing['notification.policy'] as { mutedProjects: string[]; reminderSnoozes: { episodeId: string }[] }
+    assert.deepEqual(savedPolicy.mutedProjects, ['/stopped-snooze'])
+    assert.deepEqual(savedPolicy.reminderSnoozes, [])
+  } finally {
+    releaseOfficeWrite()
+    await oldWorker.deactivate()
+    await newWorker?.deactivate()
+    listed = null
+  }
+})
+
 test('a failed or stale office episode save refuses a snooze without writing policy', async () => {
   listed = [{ path: '/snooze-save-failure', agents: [{ paneKey: 'failure-agent', state: 'working', agentType: 'claude' }] }]
   const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
