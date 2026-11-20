@@ -17,10 +17,14 @@ const elapsed = (from: number, now: number): string => {
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`
 }
 
-export function attentionTimeText(agent: Pick<AgentView, 'state' | 'stateStartedAt' | 'finishedAt'>, now: number): string {
+export function attentionTimeText(agent: Pick<AgentView, 'state' | 'stateStartedAt' | 'finishedAt'> & Partial<Pick<AgentView, 'finishedAtSource'>>, now: number): string {
   if (agent.state === 'blocked') return Number.isFinite(agent.stateStartedAt) ? `Needs you for ${elapsed(agent.stateStartedAt, now)}` : 'Needs you · time unavailable'
   if (agent.state === 'done') {
-    if (typeof agent.finishedAt === 'number' && Number.isFinite(agent.finishedAt)) return `Finished ${elapsed(agent.finishedAt, now)} ago`
+    if (typeof agent.finishedAt === 'number' && Number.isFinite(agent.finishedAt)) {
+      const time = elapsed(agent.finishedAt, now)
+      if (agent.finishedAtSource === 'source') return `Finished ${time} ago`
+      return `${agent.finishedAtSource === 'observed' || agent.finishedAtSource === null ? 'Done observed' : 'Done time recorded'} ${time} ago`
+    }
     return Number.isFinite(agent.stateStartedAt) ? `Done observed ${elapsed(agent.stateStartedAt, now)} ago` : 'Finish time unavailable'
   }
   return 'Time unavailable'
@@ -114,7 +118,8 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   if (focused) {
     const target = root.querySelector<HTMLButtonElement>(`button[data-focus-key="${CSS.escape(focused)}"]:not(:disabled)`)
     const controls = [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
-    if (target) target.focus({ preventScroll: true })
+    if (focused === 'attention-heading') root.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
+    else if (target) target.focus({ preventScroll: true })
     else if (controls.length) controls[Math.min(Math.max(focusIndex, 0), controls.length - 1)].focus({ preventScroll: true })
     else root.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
   } else if (active?.classList.contains('attention-heading')) {

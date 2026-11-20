@@ -137,6 +137,7 @@ test('completion identity survives event, roster, restart and a late source time
   const first = snapshot(office).agents[0].completionId
   assert.ok(first)
   assert.equal(snapshot(office).agents[0].finishedAt, 2000)
+  assert.equal(snapshot(office).agents[0].finishedAtSource, 'observed')
   applyRoster(office, [{ path: '/w1', agents: [{ paneKey: 'pane-1', state: 'done', lastAssistantMessage: 'same reply' }] }], 3000)
   assert.equal(snapshot(office).agents[0].completionId, first)
   applyRoster(office, [{ path: '/w1', agents: [{ paneKey: 'pane-1', state: 'done', lastAssistantMessage: 'same reply' }] }], 4000)
@@ -147,6 +148,7 @@ test('completion identity survives event, roster, restart and a late source time
   applyRoster(restarted, [{ path: '/w1', agents: [{ paneKey: 'pane-1', state: 'done', stateStartedAt: 1500 }] }], 6000)
   assert.equal(snapshot(restarted).agents[0].completionId, first)
   assert.equal(snapshot(restarted).agents[0].finishedAt, 1500)
+  assert.equal(snapshot(restarted).agents[0].finishedAtSource, 'source')
 
   applyStatus(restarted, status('working', 7000))
   applyStatus(restarted, status('done', 8000))
@@ -347,6 +349,13 @@ test('does not invent a finish time when the roster omits its timestamp', () => 
   applyRoster(transitioned, [{ path: '/w', agents: [{ paneKey: 'agent', state: 'working' }] }], 1000)
   applyRoster(transitioned, [{ path: '/w', agents: [{ paneKey: 'agent', state: 'done' }] }], 1600)
   assert.equal(snapshot(transitioned).agents[0].finishedAt, 1600)
+  assert.equal(snapshot(transitioned).agents[0].finishedAtSource, 'observed')
+
+  const reported = createOffice()
+  applyRoster(reported, [{ path: '/w', agents: [{ paneKey: 'agent', state: 'working' }] }], 1000)
+  applyRoster(reported, [{ path: '/w', agents: [{ paneKey: 'agent', state: 'done', stateStartedAt: 1400 }] }], 1600)
+  assert.equal(snapshot(reported).agents[0].finishedAt, 1400)
+  assert.equal(snapshot(reported).agents[0].finishedAtSource, 'source')
 })
 
 test('does not treat first observation of an already finished agent as a finish transition', () => {
@@ -515,6 +524,17 @@ test('restores a stored office without its running calls', () => {
   restore(next, 'garbage', 2000)
   restore(next, null, 2000)
   assert.equal(snapshot(next).agents.length, 1)
+})
+
+test('restores older finish timestamps without claiming Orca reported them', () => {
+  const office = createOffice()
+  applyStatus(office, status('done', 1000))
+  const stored = JSON.parse(JSON.stringify(snapshot(office))) as any
+  stored.agents[0].finishedAt = 900
+  delete stored.agents[0].finishedAtSource
+  const restored = createOffice()
+  restore(restored, stored, 2000)
+  assert.equal(snapshot(restored).agents[0].finishedAtSource, 'unknown')
 })
 
 test('restoring and snapshotting strips legacy guessed token counts and model', () => {

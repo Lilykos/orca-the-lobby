@@ -89,9 +89,11 @@ test('panel timing uses state starts and only reports a finish time when provide
   assert.equal(activityTimeText('working', 100, null, 110, duration, clock), 'Working for: 10ms')
   assert.equal(activityTimeText('blocked', 200, null, 225, duration, clock), 'Needs you for: 25ms')
   assert.equal(activityTimeText('waiting', 300, null, 340, duration, clock), 'Waiting for: 40ms')
-  assert.equal(activityTimeText('done', 400, 500, 600, duration, clock), 'Finished at: clock-500')
-  assert.equal(activityTimeText('done', 400, null, 600, duration, clock), 'Finished: time unavailable')
-  assert.equal(activityTimeText('done', 400, Number.NaN, 600, duration, clock), 'Finished: time unavailable')
+  assert.equal(activityTimeText('done', 400, 500, 600, duration, clock, 'source'), 'Finished at: clock-500')
+  assert.equal(activityTimeText('done', 400, 500, 600, duration, clock, 'observed'), 'Done observed at: clock-500')
+  assert.equal(activityTimeText('done', 400, 500, 600, duration, clock, 'unknown'), 'Done time recorded at: clock-500')
+  assert.equal(activityTimeText('done', 400, null, 600, duration, clock), 'Done: time unavailable')
+  assert.equal(activityTimeText('done', 400, Number.NaN, 600, duration, clock), 'Done: time unavailable')
 })
 
 test('wraps keyboard navigation across the first and last tabs', () => {

@@ -3,6 +3,7 @@
 // Orca transpiles this file when the panel loads; `orca` is the frame global.
 import {
   PREFS_KEY,
+  INSTALLATION_KEY,
   STUCK_CHOICES,
   contextFill,
   overdue,
@@ -238,7 +239,8 @@ function activityTimeLine(agent: AgentView, now: number): string {
     agent.finishedAt,
     now,
     (from, at) => since(from, at),
-    clock
+    clock,
+    agent.finishedAtSource
   )
 }
 
@@ -693,6 +695,7 @@ function keepChartNodeVisible(focusKey: string): void {
 }
 
 function setPage(id: string, persist = true): void {
+  if (persist) userSelectedView = true
   const refreshOffice = shouldRefreshOffice(currentPage, id)
   currentPage = id
   for (const tab of primaryTabs) {
@@ -1880,6 +1883,12 @@ function refreshVisibleTimes(): void {
 
 async function acceptSnapshot(snapshot: OfficeSnapshot): Promise<void> {
   await agentNamesReady
+  const present = new Set(snapshot.agents.map((agent) => agent.id))
+  for (const id of new Set([...actionsOf.keys(), ...actionRequests.keys()])) {
+    if (present.has(id)) continue
+    actionsOf.delete(id)
+    actionRequests.delete(id)
+  }
   office = { ...snapshot, journal: Array.isArray(snapshot.journal) ? snapshot.journal : [] }
   const previousNames = JSON.stringify([...agentNames])
   agentNames = assignAgentNames(snapshot.agents.map((agent) => agent.id), agentNames)
@@ -2101,11 +2110,19 @@ for (const tab of primaryTabs) {
 renderSettings()
 const prefsStatus = document.getElementById('prefs-status') as HTMLElement
 let preferencesReady = false
-let prefsChangedDuringHydration = false
+let prefsRevision = 0
 let officeStorageWarning = ''
 let prefsStorageWarning = ''
+let installationKind: 'fresh' | 'legacy' | 'unknown' = 'unknown'
+let viewPreferenceExplicit = false
+let userSelectedView = false
+function hasStoredView(value: unknown): boolean {
+  const stored = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  return stored.selectedView === 'office' || stored.selectedView === 'activity' || stored.selectedView === 'attention'
+}
 function applyStoredPrefs(value: unknown): void {
   prefs = readPrefs(value, prefs.selectedView)
+  viewPreferenceExplicit ||= hasStoredView(value)
   renderSettings()
   applyLayout()
   showOrder()
@@ -2113,17 +2130,27 @@ function applyStoredPrefs(value: unknown): void {
   if (currentPage === 'attention') renderAttentionPage()
 }
 async function hydratePreferences(): Promise<void> {
-  const [prefsResult, officeResult] = await Promise.allSettled([orca.storage.get(PREFS_KEY), orca.storage.get('office')])
+  let revision = prefsRevision
+  let [prefsResult, installResult] = await Promise.allSettled([
+    orca.storage.get(PREFS_KEY),
+    orca.plugin.request('office.installation')
+  ])
+  while (revision !== prefsRevision) {
+    revision = prefsRevision
+    prefsResult = await Promise.resolve(orca.storage.get(PREFS_KEY)).then(
+      (value) => ({ status: 'fulfilled', value } as const),
+      (reason) => ({ status: 'rejected', reason } as const)
+    )
+  }
+  const installLoaded = installResult.status === 'fulfilled'
+  const savedPrefs = prefsResult.status === 'fulfilled' ? prefsResult.value : null
   const prefsLoaded = prefsResult.status === 'fulfilled'
-  const officeLoaded = officeResult.status === 'fulfilled'
-  const savedPrefs = prefsLoaded ? prefsResult.value : null
-  const savedOffice = officeLoaded ? officeResult.value : null
-  const fallbackView = prefsLoaded && officeLoaded && savedPrefs == null && savedOffice == null ? 'attention' : 'office'
+  installationKind = installResult.status === 'fulfilled' ? installResult.value.kind : 'unknown'
+  viewPreferenceExplicit = hasStoredView(savedPrefs)
+  const fallbackView = installationKind === 'fresh' ? 'attention' : 'office'
   prefs = prefsLoaded ? readPrefs(savedPrefs, fallbackView) : readPrefs(null, 'office')
   prefsStorageWarning = prefsResult.status === 'rejected' ? 'Could not load saved Lobby settings; keeping Office open.' : ''
-  officeStorageWarning = officeResult.status === 'rejected'
-    ? savedPrefs == null ? 'Could not check for an older Lobby installation; keeping Office open.' : 'Could not check older Lobby data; applying the saved view where available.'
-    : ''
+  officeStorageWarning = !installLoaded || installationKind === 'unknown' ? 'Could not confirm Lobby installation state; keeping Office open.' : ''
   prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
   renderSettings()
   applyLayout()
@@ -2131,10 +2158,6 @@ async function hydratePreferences(): Promise<void> {
   setPage(prefs.selectedView, false)
   preferencesReady = true
   document.body.classList.add('prefs-ready')
-  if (prefsLoaded && officeLoaded && (savedPrefs == null || !savedPrefs || typeof savedPrefs !== 'object' || !('selectedView' in savedPrefs))) {
-    void orca.storage.set(PREFS_KEY, prefs).catch(() => { prefsStatus.textContent = 'Could not save the initial Lobby view preference.' })
-  }
-  if (prefsChangedDuringHydration) void refreshStoredPrefs()
 }
 async function refreshStoredPrefs(): Promise<void> {
   try {
@@ -2147,10 +2170,27 @@ async function refreshStoredPrefs(): Promise<void> {
     prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
   }
 }
+async function refreshInstallation(): Promise<void> {
+  try {
+    const result = await orca.plugin.request('office.installation')
+    if (result.kind !== 'fresh' && result.kind !== 'legacy') return
+    installationKind = result.kind
+    officeStorageWarning = ''
+    prefsStatus.textContent = prefsStorageWarning
+    if (!viewPreferenceExplicit && !userSelectedView) {
+      prefs = { ...prefs, selectedView: installationKind === 'fresh' ? 'attention' : 'office' }
+      setPage(prefs.selectedView, false)
+    }
+  } catch {
+    officeStorageWarning = 'Could not confirm Lobby installation state; keeping Office open.'
+    prefsStatus.textContent = prefsStorageWarning || officeStorageWarning
+  }
+}
 orca.storage.onDidChange(({ key }) => {
-  if (key !== PREFS_KEY) return
-  if (!preferencesReady) { prefsChangedDuringHydration = true; return }
-  void refreshStoredPrefs()
+  if (key === PREFS_KEY) {
+    prefsRevision++
+    if (preferencesReady) void refreshStoredPrefs()
+  } else if (key === INSTALLATION_KEY && preferencesReady) void refreshInstallation()
 })
 void hydratePreferences()
 if (!officeBar.querySelector('.agent-counts')) officeBar.append(countsLine())

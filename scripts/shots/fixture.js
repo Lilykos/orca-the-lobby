@@ -8,12 +8,13 @@ function agent(id,title,state,extra={}){return {id,terminalId:null,paneKey:id,wo
 const child={id:'b',kind:'agent',name:'Helper',description:'Keyboard review',tool:null,toolKind:null,state:'waiting',reported:true,lastReportedAt:now,missingSince:null};
 window.fixture={agents:[agent('a','Update settings layout','working',{family:[child]}),agent('b','Check keyboard navigation','waiting'),agent('c','Review a long task title that must wrap naturally without hiding its status','done',{unread:true})],journal:[{id:'event1',agentId:'a',workspaceId:'/w',projectId:'p',kind:'tool',source:'roster',observedAt:now,coverage:'sampled',tool:'Edit',detail:'panel/main.ts'}],workspaces:{'/w':'Fixture workspace'},projects:{p:'Fixture project'},changes:{'/w':{files:2,added:3,removed:1}},links:{},can:{open:true},today:{day:'',finished:0,failed:0,blockedMs:0}};
 const scenario=new URLSearchParams(location.search).get('scenario')||'linked';if(scenario==='peers')window.fixture.agents[0].family=[];if(scenario==='cycle')window.fixture.agents[1].family=[{...child,id:'a'}];if(scenario==='unknown'||scenario==='noid')window.fixture.agents[0].family=[{...child,id:scenario==='noid'?'':'missing',description:'Review keyboard access',tool:'Read'}];
-if(['attentionview','attentionkeyboard','attentionfail'].includes(scenario))window.fixture.agents=[agent('need','Needs a decision','blocked'),agent('fail','Failed result','done',{outcome:'failure',completionId:'a'.repeat(64),completionTracked:true}),agent('done','Successful result','done',{outcome:'success',completionId:'b'.repeat(64),completionTracked:true})];
+if(['attentionview','attentionkeyboard','attentionfail'].includes(scenario))window.fixture.agents=[agent('need','Needs a decision','blocked'),agent('fail','Failed result','done',{outcome:'failure',finishedAt:now-8000,finishedAtSource:'source',completionId:'a'.repeat(64),completionTracked:true}),agent('done','Successful result','done',{outcome:'success',finishedAt:now-5000,finishedAtSource:'observed',completionId:'b'.repeat(64),completionTracked:true})];
 if(scenario==='attentionemptyview')window.fixture.agents=[agent('quiet','No action needed','working')];
 if(scenario==='attentionlive')window.fixture.agents=Array.from({length:100},(_,i)=>agent('a'+i,'Agent '+i,i===0?'blocked':'working'));
 if(scenario==='attentionlast')window.fixture.agents=[agent('last','Last result','done',{outcome:'success',completionId:'c'.repeat(64),completionTracked:true})];
+if(scenario==='attentionarrival')window.fixture.agents=[agent('last','Last result','done',{outcome:'success',completionId:'e'.repeat(64),completionTracked:true})];
 if(scenario==='attentionpending')window.fixture.agents=[agent('pending','Pending result','done',{outcome:'success',completionId:'d'.repeat(64),completionTracked:true})];
-if(['attentionaction','attentionstale'].includes(scenario))window.fixture.agents=[agent('no-go','No navigation','blocked')];
+if(['attentionaction','attentionstale','attentionreappear'].includes(scenario))window.fixture.agents=[agent('no-go','No navigation','blocked',{sessionId:null})];
 if(scenario==='projectgone'){window.fixture.agents=[agent('kept','Kept project','working'),agent('gone','Vanishing project','working',{projectId:'q',workspaceId:'/q'})];window.fixture.projects.q='Vanishing project'}
 if(scenario==='searchviews'){window.fixture.agents=[agent('parent','Parent orchestrator','working'),agent('child','Feature [one] implementation','working',{parentId:'parent',parentPaneKey:'parent'}),agent('other','Feature one other project','working',{projectId:'q',workspaceId:'/q'})];window.fixture.projects.q='Other project'}
 if(scenario==='preferences')window.fixture.agents=[agent('a','Preference migration','working')];
@@ -51,7 +52,41 @@ if(scenario==='attention'||scenario==='attentionempty'||scenario==='big'){
     window.fixture.agents=list;
   }
 }
-let listener;const stored={prefs:{notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:[]}};if(['newinstall','legacynoprefs','prefshydration'].includes(scenario))delete stored.prefs;if(['legacynoprefs','prefshydration'].includes(scenario))stored.office={agents:[],journal:[]};if(scenario==='projectgone')stored.office={agents:[],journal:[]};const storageListeners=[];window.releaseReview=null;window.releaseOffice=null;window.releaseOldAction=null;window.actionRequestCount=0;window.goToCalls=0;window.orca={storage:{get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');if(scenario==='officereadfail'&&k==='office')throw Error('storage unavailable');if(scenario==='prefshydration'&&k==='office')await new Promise(resolve=>window.releaseOffice=resolve);return stored[k]??null},set:async(k,v)=>{if(scenario==='storagefail'&&k==='activity-view-cursors')throw Error('storage denied');stored[k]=v;queueMicrotask(()=>storageListeners.forEach(fn=>fn({key:k})))},onDidChange:(fn)=>storageListeners.push(fn)},plugin:{on:(name,fn)=>{listener=fn},request:async(name,input)=>name==='office.snapshot'?window.fixture:name==='attention.review'?scenario==='attentionfail'?{ok:false,error:'Could not save the review.'}:scenario==='attentionpending'?new Promise(resolve=>window.releaseReview=()=>resolve({ok:false,error:'Completion changed while review was pending.'})):{ok:true}:name==='office.actions'&&scenario==='attentionaction'?{goTo:null,send:false,compact:null}:name==='office.actions'&&scenario==='attentionstale'?(++window.actionRequestCount===1?new Promise(resolve=>window.releaseOldAction=()=>resolve({goTo:null,send:false,compact:null})):{goTo:'workspace',send:false,compact:null}):name==='office.actions'?{goTo:'workspace',send:false,compact:null}:name==='office.goTo'?(window.goToCalls++,{ok:true,note:'Opened fixture agent.'}):name==='office.clearHistory'?((window.fixture.journal=[],listener(window.fixture),{cleared:scenario!=='clearfail'})):{opened:true}},shell:{openExternal:()=>{}}};
+let listener;
+const storageListeners=[];
+const stored={prefs:{notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:[]}};
+if(['newinstall','delayedfresh','legacynoprefs','prefshydration'].includes(scenario))delete stored.prefs;
+if(['legacynoprefs','prefshydration'].includes(scenario))stored.office={agents:[],journal:[]};
+if(['projectgone','delayedfresh'].includes(scenario))stored.office={agents:[],journal:[]};
+stored.installation={version:1,kind:['newinstall','delayedfresh'].includes(scenario)?'fresh':scenario==='installationunknown'?'unknown':'legacy'};
+if(scenario==='prefsrace')stored.prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:['/old']};
+window.releaseReview=null;window.releaseOffice=null;window.releaseOldAction=null;window.actionRequestCount=0;window.goToCalls=0;
+window.orca={
+storage:{
+  get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');return stored[k]??null},
+  set:async(k,v)=>{if(scenario==='storagefail'&&k==='activity-view-cursors')throw Error('storage denied');stored[k]=v;queueMicrotask(()=>storageListeners.forEach(fn=>fn({key:k})))},
+  onDidChange:fn=>storageListeners.push(fn)
+},
+plugin:{
+  on:(name,fn)=>{listener=fn},
+  request:async(name,input)=>{
+    if(name==='office.installation'){
+      if(['prefshydration','prefsrace'].includes(scenario))await new Promise(resolve=>window.releaseOffice=resolve);
+      return {kind:stored.installation.kind};
+    }
+    if(name==='office.snapshot')return window.fixture;
+    if(name==='attention.review')return scenario==='attentionfail'?{ok:false,error:'Could not save the review.'}:scenario==='attentionpending'?new Promise(resolve=>window.releaseReview=()=>resolve({ok:false,error:'Completion changed while review was pending.'})):{ok:true};
+    if(name==='office.actions'&&scenario==='attentionaction')return {goTo:null,send:false,compact:null};
+    if(name==='office.actions'&&scenario==='attentionstale')return ++window.actionRequestCount===1?new Promise(resolve=>window.releaseOldAction=()=>resolve({goTo:null,send:false,compact:null})):{goTo:'workspace',send:false,compact:null};
+    if(name==='office.actions'&&scenario==='attentionreappear')return ++window.actionRequestCount===1?new Promise(resolve=>window.releaseOldAction=()=>resolve({goTo:'workspace',send:false,compact:null})):{goTo:null,send:false,compact:null};
+    if(name==='office.actions')return {goTo:'workspace',send:false,compact:null};
+    if(name==='office.goTo')return (window.goToCalls++,{ok:true,note:'Opened fixture agent.'});
+    if(name==='office.clearHistory')return (window.fixture.journal=[],listener(window.fixture),{cleared:scenario!=='clearfail'});
+    return {opened:true};
+  }
+},
+shell:{openExternal:()=>{}}
+};
 // media: the DEMO dataset, with the person's saved choices (?layout=grid&palette=dracula&stuck=20) and friendly names.
 if(scenario==='media'){
 const demo=DEMO.build(now,{fresh:params.get('fresh')==='1',only:params.get('only')?params.get('only').split(','):undefined}),prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:params.get('palette')||'orca',layout:params.get('layout')==='grid'?'grid':'list',stuckMinutes:+(params.get('stuck')||20)};
@@ -230,17 +265,28 @@ window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.bod
 if(scenario==='newinstall'){
 const must=(ok,m)=>{if(!ok)throw Error(m)};must(document.querySelector('#attention-tab').getAttribute('aria-selected')==='true','new installation did not open Attention');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
+if(scenario==='delayedfresh'){
+if(!stored.office||document.querySelector('#attention-tab').getAttribute('aria-selected')!=='true')throw Error('a fresh worker auto-save before delayed panel open selected the wrong view');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
 if(scenario==='legacynoprefs'){
 if(document.querySelector('#office-tab').getAttribute('aria-selected')!=='true')throw Error('1.2 office storage without preferences did not preserve Office');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='prefsreadfail'){
 if(document.querySelector('#office-tab').getAttribute('aria-selected')!=='true'||!document.querySelector('#prefs-status')?.textContent.includes('Could not load'))throw Error('preference read failure did not keep Office and report the error');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
-if(scenario==='officereadfail'){
-if(document.querySelector('#office-tab').getAttribute('aria-selected')!=='true'||!document.querySelector('#prefs-status')?.textContent.includes('Could not check older Lobby data'))throw Error('office read failure did not preserve Office or report the migration uncertainty');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+if(scenario==='installationunknown'){
+if(document.querySelector('#office-tab').getAttribute('aria-selected')!=='true'||!document.querySelector('#prefs-status')?.textContent.includes('Could not confirm Lobby installation state'))throw Error('unknown installation state did not preserve Office or report the migration uncertainty');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='prefshydration'){
 if(document.body.classList.contains('prefs-ready'))throw Error('panel became visible before legacy view detection completed');window.releaseOffice();await wait();if(!document.body.classList.contains('prefs-ready')||document.querySelector('#office-tab').getAttribute('aria-selected')!=='true')throw Error('delayed legacy hydration selected the wrong view');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='prefsrace'){
+if(document.body.classList.contains('prefs-ready'))throw Error('panel became visible before its worker state was ready');
+const latest={...stored.prefs,notifyBlocked:false,selectedView:'activity',density:'compact',projectOrder:['/latest']};
+await window.orca.storage.set('prefs',latest);window.releaseOffice();await wait();
+const checkboxes=[...document.querySelectorAll('#settings input[type="checkbox"]')];const order=[...stored.prefs.projectOrder];
+if(document.querySelector('#activity-tab').getAttribute('aria-selected')!=='true'||!document.documentElement.classList.contains('compact')||checkboxes[0]?.checked!==false||checkboxes[1]?.checked!==true||JSON.stringify(order)!==JSON.stringify(['/latest'])||stored.prefs.selectedView!=='activity')throw Error('stale hydration overwrote a concurrent panel preference: '+JSON.stringify({prefs:stored.prefs,view:document.querySelector('#activity-tab').getAttribute('aria-selected'),compact:document.documentElement.classList.contains('compact'),notify:[...checkboxes].map(box=>box.checked)}));
+window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='preferences'){
 const must=(ok,m)=>{if(!ok)throw Error(m)};must(document.querySelector('#office-tab').getAttribute('aria-selected')==='true','1.2 preferences did not preserve Office');const brand=document.querySelector('#brand-toggle');must(!document.querySelector('#banner').hidden,'Office banner unexpectedly hidden');brand.click();must(document.querySelector('#banner').hidden&&brand.getAttribute('aria-expanded')==='false','Office branding did not collapse accessibly');brand.click();
@@ -269,6 +315,12 @@ document.querySelector('#attention-tab').click();await wait();await new Promise(
 if(scenario==='attentionstale'){
 document.querySelector('#attention-tab').click();await wait();await new Promise(r=>setTimeout(r,20));if(window.actionRequestCount!==1)throw Error('first per-agent action request was not issued');const pendingGo=document.querySelector('[data-focus-key="needs-input:no-go:go"]');if(!pendingGo?.disabled||!pendingGo.closest('.attention-actions')?.textContent.includes('Checking navigation'))throw Error('unresolved navigation capability was presented as unavailable or enabled');listener({...window.fixture,agents:window.fixture.agents.map(x=>({...x,sessionId:'changed-session'}))});await wait();await new Promise(r=>setTimeout(r,20));const go=document.querySelector('[data-focus-key="needs-input:no-go:go"]');if(window.actionRequestCount!==2||go?.disabled)throw Error('new agent capability response was not applied');window.releaseOldAction();await wait();if(document.querySelector('[data-focus-key="needs-input:no-go:go"]')?.disabled)throw Error('stale action response overwrote current capability');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
+if(scenario==='attentionreappear'){
+document.querySelector('#attention-tab').click();await wait();if(window.actionRequestCount!==1)throw Error('initial redacted agent capability request missing');
+listener({...window.fixture,agents:[]});await wait();listener({...window.fixture,agents:[{...window.fixture.agents[0],sessionId:null}]});await wait();await new Promise(r=>setTimeout(r,20));
+const go=document.querySelector('[data-focus-key="needs-input:no-go:go"]');if(window.actionRequestCount!==2||!go?.disabled||!go.closest('.attention-actions')?.textContent.includes('Navigation unavailable'))throw Error('reappeared same-id agent reused the previous lifecycle capability');
+window.releaseOldAction();await wait();if(!document.querySelector('[data-focus-key="needs-input:no-go:go"]')?.disabled)throw Error('old delayed action response applied to reappeared agent');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
 if(scenario==='projectgone'){
 const project=document.querySelector('#view-filters select');project.value='q';project.dispatchEvent(new Event('change',{bubbles:true}));await wait();listener({...window.fixture,agents:window.fixture.agents.filter(x=>x.id!=='gone')});await wait();if(project.value!=='all'||document.querySelector('#filter-count').textContent!=='1 agent'||!document.querySelector('[data-focus-key="office-row:kept"]'))throw Error('disappeared project filter left stale state');listener(window.fixture);await wait();if(project.value!=='all'||!document.querySelector('[data-focus-key="office-row:gone"]'))throw Error('reconnected project unexpectedly reactivated stale filter');window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
@@ -278,10 +330,13 @@ document.querySelector('#attention-tab').click();await wait();const pending=docu
 if(scenario==='attentionlast'){
 document.querySelector('#attention-tab').click();await wait();if(!document.querySelector('[data-focus-key="finished:last:review"]'))throw Error('last review button missing');document.querySelector('[data-focus-key="finished:last:review"]').focus();window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
+if(scenario==='attentionarrival'){
+document.querySelector('#attention-tab').click();await wait();const review=document.querySelector('[data-focus-key="finished:last:review"]');if(!review)throw Error('last review button missing');review.focus();window.arrive=()=>listener({...window.fixture,agents:[agent('arrival','New decision','blocked',{sessionId:null})]});window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
 if(scenario==='attentionview'){
 const must=(ok,m)=>{if(!ok)throw Error(m)};document.querySelector('#attention-tab').click();await wait();
 must(document.querySelectorAll('.attention-card').length===3,'Attention cards missing');must(document.querySelector('.attention-counts').textContent==='1 need input · 1 failed · 1 finished to review','live group counts incorrect');
-must([...document.querySelectorAll('[data-attention-time]')].some(x=>x.textContent.includes('Needs you for'))&&[...document.querySelectorAll('[data-attention-time]')].some(x=>x.textContent.includes('Finished')||x.textContent.includes('Done observed')),'Attention elapsed state or completion time missing: '+JSON.stringify([...document.querySelectorAll('[data-attention-time]')].map(x=>x.textContent)));
+must([...document.querySelectorAll('[data-attention-time]')].some(x=>x.textContent.includes('Needs you for'))&&[...document.querySelectorAll('[data-attention-time]')].some(x=>x.textContent.startsWith('Finished'))&&[...document.querySelectorAll('[data-attention-time]')].some(x=>x.textContent.startsWith('Done observed')),'Attention source versus observed completion times were mislabeled: '+JSON.stringify([...document.querySelectorAll('[data-attention-time]')].map(x=>x.textContent)));
 document.querySelector('[data-focus-key="needs-input:need:go"]').click();await wait();await wait();must(window.goToCalls===1&&document.querySelector('[data-focus-key="needs-input:need:go"]'),'Go to agent did not use the validated action');must(document.querySelector('[data-focus-key="needs-input:need:go"]').closest('.attention-card').textContent.includes('Opened fixture agent.'),'navigation feedback missing');
 const query=document.querySelector('#view-filters input');query.value='Successful result';query.dispatchEvent(new Event('input',{bubbles:true}));await wait();document.querySelector('[data-focus-key="finished:done:details"]').click();await wait();must(document.querySelector('.sheet'),'Review details did not open the drawer');document.querySelector('[data-focus-key="drawer-close"]').click();await wait();must(document.querySelector('#office-tab').getAttribute('aria-selected')==='true','closing details did not return to Office');must(query.value==='Successful result','search query was cleared on view change');document.querySelector('#attention-tab').click();await wait();query.value='';query.dispatchEvent(new Event('input',{bubbles:true}));await wait();
 const review=document.querySelector('[data-focus-key="finished:done:review"]');review.focus();review.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));review.click();await wait();await wait();must(![...document.querySelectorAll('.attention-title')].some(x=>x.textContent==='Successful result'),'Reviewed completion remained in the queue');must(document.querySelectorAll('.attention-card').length===2,'review removed an unrelated row');must(document.querySelector('#attention-feedback').textContent==='Reviewed in The Lobby.','successful review was not announced');

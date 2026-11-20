@@ -72,12 +72,13 @@ export function activityTimeText(
   finishedAt: number | null,
   now: number,
   duration: (from: number, now: number) => string,
-  clock: (at: number) => string
+  clock: (at: number) => string,
+  finishedAtSource?: 'source' | 'observed' | 'unknown' | null
 ): string {
   if (state === 'done') {
-    return typeof finishedAt === 'number' && Number.isFinite(finishedAt)
-      ? `Finished at: ${clock(finishedAt)}`
-      : 'Finished: time unavailable'
+    if (typeof finishedAt !== 'number' || !Number.isFinite(finishedAt)) return 'Done: time unavailable'
+    const label = finishedAtSource === 'source' ? 'Finished at' : finishedAtSource === 'observed' ? 'Done observed at' : 'Done time recorded at'
+    return `${label}: ${clock(finishedAt)}`
   }
   const label = state === 'working' ? 'Working for' : state === 'blocked' ? 'Needs you for' : 'Waiting for'
   return Number.isFinite(stateStartedAt)

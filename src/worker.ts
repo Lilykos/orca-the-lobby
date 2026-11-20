@@ -29,6 +29,7 @@ import { agentOrder, checkInstruction, compactCommand, mayType, sharedTerminal, 
 import { createContextReader, createSessionTail } from './context'
 import {
   PREFS_KEY,
+  INSTALLATION_KEY,
   readPrefs,
   type ActionResult,
   type AgentActions,
@@ -43,6 +44,7 @@ import { createUsageCounter, dayOf } from './usage'
 
 const STORED = 'office'
 const REVIEWED = 'attention.reviewed'
+type InstallationKind = 'fresh' | 'legacy' | 'unknown'
 /** Tool calls come in bursts and `panels.post` allows 200 per 10 s: one post per burst. */
 const POST_MS = 150
 const SAVE_MS = 3000
@@ -105,6 +107,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   let officeStorageAvailable = false
   let officeRetryAttempt = 0
   let officeRetryTimer: ReturnType<typeof setTimeout> | undefined
+  let installationKind: InstallationKind = 'unknown'
   let rosterObserved = false
 
   // Events name a workspace `<project>::<path>` and `workspace.list` by another id; the path is
@@ -585,14 +588,42 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.commands.register('office.previousAgent', () => step(-1))
   orca.commands.register('office.nextAgent', () => step(1))
 
+  const saveInstallation = async (
+    storedOffice: unknown,
+    result: PromiseSettledResult<unknown>
+  ): Promise<boolean> => {
+    if (result.status === 'rejected') {
+      installationKind = 'unknown'
+      orca.log(`installation restore: ${result.reason}`)
+      return false
+    }
+    const marker = result.value as { version?: unknown; kind?: unknown } | null
+    if (marker?.version === 1 && (marker.kind === 'fresh' || marker.kind === 'legacy')) {
+      installationKind = marker.kind
+      return true
+    }
+    installationKind = storedOffice == null ? 'fresh' : 'legacy'
+    const kind = installationKind
+    try {
+      await orca.storage.set(INSTALLATION_KEY, { version: 1, kind })
+      return true
+    } catch (error) {
+      installationKind = 'unknown'
+      orca.log(`installation save: ${error}`)
+      return false
+    }
+  }
+
   const retryOfficeRead = (): void => {
     if (stopped || officeRetryTimer) return
     const delay = Math.min(60_000, 1_000 * 2 ** Math.min(officeRetryAttempt++, 6))
     officeRetryTimer = setTimeout(() => {
       officeRetryTimer = undefined
-      void orca.storage.get(STORED).then((stored) => {
+      void Promise.allSettled([orca.storage.get(STORED), orca.storage.get(INSTALLATION_KEY)]).then(async ([officeResult, installResult]) => {
         if (stopped) return
-        restore(office, stored, Date.now(), true, rosterObserved)
+        if (officeResult.status === 'rejected') throw officeResult.reason
+        restore(office, officeResult.value, Date.now(), true, rosterObserved)
+        if (!await saveInstallation(officeResult.value, installResult)) { retryOfficeRead(); return }
         officeStorageAvailable = true
         officeRetryAttempt = 0
         changed()
@@ -604,15 +635,20 @@ export default function activate(orca: OrcaWorkerApi): void {
     }, delay)
   }
 
-  const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED)])
-    .then((results) => {
-      const [officeResult, reviewResult] = results
+  const loaded = Promise.allSettled([orca.storage.get(STORED), orca.storage.get(REVIEWED), orca.storage.get(INSTALLATION_KEY)])
+    .then(async (results) => {
+      const [officeResult, reviewResult, installResult] = results
       if (officeResult.status === 'fulfilled') {
         restore(office, officeResult.value, Date.now())
         office.freshCompletionScopes.clear()
-        officeStorageAvailable = true
+        if (await saveInstallation(officeResult.value, installResult)) officeStorageAvailable = true
+        else retryOfficeRead()
       } else {
         orca.log(`office restore: ${officeResult.reason}`)
+        if (installResult.status === 'fulfilled') {
+          const marker = installResult.value as { version?: unknown; kind?: unknown } | null
+          if (marker?.version === 1 && (marker.kind === 'fresh' || marker.kind === 'legacy')) installationKind = marker.kind
+        }
         retryOfficeRead()
       }
       if (reviewResult.status === 'fulfilled') {
@@ -627,6 +663,11 @@ export default function activate(orca: OrcaWorkerApi): void {
       return nameWorkspaces()
     })
     .then(() => lookSoon())
+
+  orca.panels.handle('office.installation', async () => {
+    await loaded
+    return { kind: installationKind }
+  })
 
   stop = () => {
     stopped = true

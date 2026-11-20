@@ -25,6 +25,7 @@ export type Prefs = {
 }
 
 export const PREFS_KEY = 'prefs'
+export const INSTALLATION_KEY = 'lobby.installation'
 export const DEFAULT_PREFS: Prefs = { notifyBlocked: true, notifyDone: true, animate: true, palette: 'orca', layout: 'list', density: 'comfortable', selectedView: 'attention', stuckMinutes: 20, projectOrder: [] }
 
 export const STUCK_CHOICES = [0, 10, 20, 30, 60]
@@ -205,8 +206,9 @@ export type AgentView = {
   /** Finished with something you have not looked at yet, by Orca's reckoning. */
   unread: boolean
   stateStartedAt: number
-  /** A real finish event time, when available; stateStartedAt may be a fallback. */
+  /** A reported finish, the local observation time, or an ambiguous timestamp restored from older data. */
   finishedAt: number | null
+  finishedAtSource?: 'source' | 'observed' | 'unknown' | null
   firstSeenAt: number
   lastSeenAt: number
   /** Tool calls in flight, oldest first. */
@@ -309,6 +311,8 @@ declare module 'orca' {
   interface PluginRequests {
     /** The whole office as the worker knows it now. */
     'office.snapshot': { output: OfficeSnapshot }
+    /** The worker's durable first-run or pre-1.3 migration decision. */
+    'office.installation': { output: { kind: 'fresh' | 'legacy' | 'unknown' } }
     /** Clears only the plugin's local observed history. */
     'office.clearHistory': { output: { cleared: boolean } }
     /** What the drawer may offer for one agent. */

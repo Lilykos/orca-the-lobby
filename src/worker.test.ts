@@ -2,7 +2,7 @@
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import { applyRoster, createOffice, snapshot, type RosterWorktree } from './office'
 import { sessionStore } from './context'
-import type { OfficeSnapshot } from './protocol'
+import { readPrefs, type OfficeSnapshot } from './protocol'
 import { attentionGroups } from './attention'
 import { cli } from './roster'
 import * as main from './worker'
@@ -128,6 +128,68 @@ test('records tool calls without holding the agent up, and tells panels', async 
     assert.deepEqual((host.data().storage.office as OfficeSnapshot).agents, [])
   } finally {
     if (!stopped) await worker.deactivate()
+  }
+})
+
+test('the mounted worker marks a fresh installation before its first office save', async () => {
+  listed = []
+  const host = mockHost()
+  const worker = await mountWorker(main, { host })
+  try {
+    assert.deepEqual(await worker.request('office.installation'), { kind: 'fresh' })
+    await waitUntil('the worker auto-saves its office', () => host.data().storage.office !== undefined)
+    assert.ok(host.data().storage.office)
+    assert.deepEqual(host.data().storage['lobby.installation'], { version: 1, kind: 'fresh' })
+    const installation = await worker.request('office.installation')
+    assert.equal(readPrefs(null, installation.kind === 'fresh' ? 'attention' : 'office').selectedView, 'attention')
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a mounted worker recognizes old office data as a 1.2 installation without preferences', async () => {
+  listed = null
+  const host = mockHost({ storage: { office: { agents: [], journal: [] } } })
+  const worker = await mountWorker(main, { host })
+  try {
+    const installation = await worker.request('office.installation')
+    assert.deepEqual(installation, { kind: 'legacy' })
+    assert.deepEqual(host.data().storage['lobby.installation'], { version: 1, kind: 'legacy' })
+    assert.equal(readPrefs(null, installation.kind === 'fresh' ? 'attention' : 'office').selectedView, 'office')
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('a failed installation marker write stays unknown and retries before office writes', async () => {
+  listed = []
+  let markerWrites = 0
+  let markerValue: unknown = null
+  let host: ReturnType<typeof mockHost>
+  host = mockHost({ results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      return { value: key === 'lobby.installation' ? markerValue : host.data().storage[key] ?? null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'lobby.installation' && ++markerWrites === 1) throw new Error('temporarily unavailable')
+      if (key === 'lobby.installation') markerValue = value
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    assert.deepEqual(await worker.request('office.installation'), { kind: 'unknown' })
+    assert.equal(host.data().storage.office, undefined)
+    await waitUntil('the installation marker retry', () => markerValue !== null)
+    assert.deepEqual(markerValue, { version: 1, kind: 'fresh' })
+    assert.deepEqual(await worker.request('office.installation'), { kind: 'fresh' })
+  } finally {
+    await worker.deactivate()
+    listed = null
   }
 })
 
@@ -468,7 +530,10 @@ test('persists concurrent local reviews once and restores them without changing 
 
 test('a failed review write reports an error and leaves the current completion unreviewed', async () => {
   listed = [{ path: '/review', agents: [{ paneKey: 'review-pane', state: 'done', stateStartedAt: 1234, mainAgent: { outcome: 'failure' } }] }]
-  const host = mockHost({ results: { 'storage.set': () => { throw new Error('disk full') } } })
+  const host = mockHost({ results: { 'storage.set': (params: unknown) => {
+    if ((params as { key: string }).key === 'attention.reviewed') throw new Error('disk full')
+    return { ok: true }
+  } } })
   const worker = await mountWorker(main, { host })
   try {
     await waitUntil('review completion identity', async () => !!(await worker.request('office.snapshot')).agents[0]?.completionId)

@@ -142,7 +142,7 @@ export function jsonBytes(value: unknown): number {
 
 function trimPayload(value: unknown, maxText: number, key = ''): unknown {
   if (typeof value === 'string') {
-    if (/^(id|agentId|completionId|paneKey|parentPaneKey|parentId|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
+    if (/^(id|agentId|completionId|paneKey|parentPaneKey|parentId|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|finishedAtSource|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
     return Array.from(value).slice(0, maxText).join('')
   }
   if (Array.isArray(value)) return value.map((item) => trimPayload(item, maxText, key))
@@ -284,6 +284,7 @@ function add(office: Office, id: string, now: number, fields: Partial<AgentView>
     unread: false,
     stateStartedAt: now,
     finishedAt: null,
+    finishedAtSource: null,
     firstSeenAt: now,
     lastSeenAt: now,
     active: [],
@@ -432,11 +433,17 @@ export function applyStatus(office: Office, event: StatusEvent): void {
     const turnId = typeof (event as unknown as { turnId?: unknown }).turnId === 'string'
       ? (event as unknown as { turnId: string }).turnId
       : null
-    if (typeof reportedAt === 'number' && Number.isFinite(reportedAt)) agent.finishedAt = reportedAt
-    else if (transitionedToDone) agent.finishedAt = now
+    if (typeof reportedAt === 'number' && Number.isFinite(reportedAt)) {
+      agent.finishedAt = reportedAt
+      agent.finishedAtSource = 'source'
+    } else if (transitionedToDone) {
+      agent.finishedAt = now
+      agent.finishedAtSource = 'observed'
+    }
     beginCompletion(office, agent, now, sourceAt, turnId, !known, transitionedToDone)
   } else {
     agent.finishedAt = null
+    agent.finishedAtSource = null
     agent.completionId = null
     agent.completionTracked = false
   }
@@ -574,10 +581,16 @@ export function applyRoster(office: Office, worktrees: RosterWorktree[], now: nu
         row.stateStartedAt ?? now
       )
       agent.stateStartedAt = row.stateStartedAt ?? agent.stateStartedAt
-      if (row.state !== 'done') agent.finishedAt = null
-      else if (typeof row.stateStartedAt === 'number' && Number.isFinite(row.stateStartedAt)) {
+      if (row.state !== 'done') {
+        agent.finishedAt = null
+        agent.finishedAtSource = null
+      } else if (typeof row.stateStartedAt === 'number' && Number.isFinite(row.stateStartedAt)) {
         agent.finishedAt = row.stateStartedAt
-      } else if (!wasDone) agent.finishedAt = now
+        agent.finishedAtSource = 'source'
+      } else if (!wasDone) {
+        agent.finishedAt = now
+        agent.finishedAtSource = 'observed'
+      }
       if (row.state === 'done') beginCompletion(office, agent, now, sourceAt, row.turnId, !known, transitionedToDone)
       else {
         agent.completionId = null
@@ -720,10 +733,16 @@ export function applyListed(
     agent.agent = item.agent ?? agent.agent
     agent.title = item.title ?? agent.title
     agent.workspaceId = workspaceId ?? agent.workspaceId
-    if (item.state !== 'done') agent.finishedAt = null
-    else if (typeof item.stateStartedAt === 'number' && Number.isFinite(item.stateStartedAt)) {
+    if (item.state !== 'done') {
+      agent.finishedAt = null
+      agent.finishedAtSource = null
+    } else if (typeof item.stateStartedAt === 'number' && Number.isFinite(item.stateStartedAt)) {
       agent.finishedAt = item.stateStartedAt
-    } else if (!wasDone) agent.finishedAt = now
+      agent.finishedAtSource = 'source'
+    } else if (!wasDone) {
+      agent.finishedAt = now
+      agent.finishedAtSource = 'observed'
+    }
   }
 }
 
@@ -901,6 +920,9 @@ export function restore(office: Office, stored: unknown, now: number, preserveLi
       finishedAt: typeof agent.finishedAt === 'number' && Number.isFinite(agent.finishedAt)
         ? agent.finishedAt
         : null,
+      finishedAtSource: agent.finishedAtSource === 'source' || agent.finishedAtSource === 'observed' || agent.finishedAtSource === 'unknown'
+        ? agent.finishedAtSource
+        : typeof agent.finishedAt === 'number' && Number.isFinite(agent.finishedAt) ? 'unknown' : null,
       insight: safeInsight(agent.insight, true),
       context: null,
       recent: Array.isArray(agent.recent) ? agent.recent : [],

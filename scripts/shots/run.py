@@ -24,7 +24,7 @@ scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'),
 scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
-scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'officereadfail'), (420, 'prefshydration')]  # inbox, shared filters and startup preference
+scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace')]  # inbox, shared filters and startup preference
 
 if args.only:
     wanted = set(args.only.split(','))
@@ -54,6 +54,16 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             time.sleep(.15)
             focused = command('Runtime.evaluate', {'expression': "document.activeElement?.classList.contains('attention-heading')", 'returnByValue': True})['result']['value']
             if not focused: raise RuntimeError('reviewing the last result did not focus the queue heading')
+        if scenario == 'attentionarrival':
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            time.sleep(.15)
+            state = command('Runtime.evaluate', {'expression': "({empty:!document.querySelector('.attention-card'),focus:document.activeElement?.classList.contains('attention-heading')})", 'returnByValue': True})['result']['value']
+            if not state['empty'] or not state['focus']: raise RuntimeError('keyboard review did not focus the empty queue: ' + str(state))
+            command('Runtime.evaluate', {'expression': 'window.arrive()'})
+            time.sleep(.15)
+            state = command('Runtime.evaluate', {'expression': "({arrived:!!document.querySelector('[data-focus-key=\\\"needs-input:arrival:go\\\"]'),focus:document.activeElement?.classList.contains('attention-heading')})", 'returnByValue': True})['result']['value']
+            if not state['arrived'] or not state['focus']: raise RuntimeError('a new queue row stole focus from the empty queue heading: ' + str(state))
         if scenario in ('linked', 'unknown', 'noid'):
             selector = 'button.chart-helper' if scenario in ('unknown', 'noid') else 'button.chart-node-button:not(.chart-helper)'
             command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]')?.click();document.querySelector(" + json.dumps(selector) + ").focus({preventScroll:true})"})
