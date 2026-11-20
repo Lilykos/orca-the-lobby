@@ -203,6 +203,19 @@ test('an observed working turn gets a fresh roster completion when its first evi
   assert.equal(completed.completionTracked, true)
 })
 
+test('a retry after an authoritative roster keeps history but does not restore roster-absent agents', () => {
+  const storedOffice = createOffice()
+  applyRoster(storedOffice, [{ path: '/w', agents: [{ paneKey: 'gone', state: 'done', stateStartedAt: 1000 }] }], 1000)
+  const stored = JSON.parse(JSON.stringify(snapshot(storedOffice)))
+  const completionId = snapshot(storedOffice).agents[0].completionId
+  const live = createOffice()
+  applyRoster(live, [], 1100)
+  live.rostered = false // A later CLI failure must not erase that the roster was once authoritative.
+  restore(live, stored, 1200, true, true)
+  assert.deepEqual(snapshot(live).agents, [])
+  assert.ok(Object.values(snapshot(live).completionIdentities ?? {}).some((entry) => entry.id === completionId))
+})
+
 test('captures a roster transition time once when Orca omits its completion time', () => {
   const office = createOffice()
   applyRoster(office, [{ path: '/w', agents: [{ paneKey: 'pane', state: 'working' }] }], 1000)
@@ -829,7 +842,12 @@ test('a full day of history is trimmed to fit Orca\'s storage limit, oldest firs
 
 test('bounds complete JSON payloads by UTF-8 bytes, including live rows and review markers', () => {
   const office = createOffice()
-  const rows = Array.from({ length: 500 }, (_, i) => ({ paneKey: `p-${i}-${'I'.repeat(32)}`, state: 'done' as const, stateStartedAt: i + 1 }))
+  const parentPaneKey = `parent-${'P'.repeat(32)}`
+  const rows = Array.from({ length: 500 }, (_, i) => ({
+    paneKey: i === 0 ? parentPaneKey : `p-${i}-${'I'.repeat(32)}`,
+    ...(i === 1 ? { parentPaneKey } : {}),
+    state: 'done' as const, stateStartedAt: i + 1
+  }))
   applyRoster(office, [{ path: '/repo', agents: rows }], 1000)
   const original = snapshot(office)
   applyRoster(office, [{ path: '/repo', agents: rows.slice(0, 200) }], 1001)
@@ -838,6 +856,9 @@ test('bounds complete JSON payloads by UTF-8 bytes, including live rows and revi
     agent.completionTracked = true
   }
   const huge = snapshot(office)
+  const parent = huge.agents.find((agent) => agent.paneKey === parentPaneKey)!
+  const child = huge.agents.find((agent) => agent.paneKey === rows[1].paneKey)!
+  assert.equal(child.parentId, parent.id)
   const reviewKeys = original.agents.map((agent) => agent.completionId!).sort()
   const panel = forPanel({ ...huge, reviewedCompletions: reviewKeys })
   const kept = storable(huge)
@@ -851,8 +872,18 @@ test('bounds complete JSON payloads by UTF-8 bytes, including live rows and revi
   assert.deepEqual(panel.reviewedCompletions, reviewKeys.slice().sort())
   assert.equal(kept.completionIdentities && Object.keys(kept.completionIdentities).length, 500)
   assert.equal(panel.agents[0].id.length, original.agents[0].id.length)
+  const keptChild = kept.agents.find((agent) => agent.paneKey === rows[1].paneKey)!
+  assert.equal(keptChild.parentPaneKey, parentPaneKey)
+  assert.equal(keptChild.parentId, parent.id)
   const restored = createOffice()
   restore(restored, JSON.parse(JSON.stringify(kept)), 1002)
+  const restoredBeforeRoster = snapshot(restored).agents.find((agent) => agent.paneKey === rows[1].paneKey)!
+  assert.equal(restoredBeforeRoster.parentPaneKey, parentPaneKey)
+  assert.equal(restoredBeforeRoster.parentId, parent.id)
+  applyRoster(restored, [{ path: '/repo', agents: rows.slice(0, 200) }], 1002)
+  const restoredChild = snapshot(restored).agents.find((agent) => agent.paneKey === rows[1].paneKey)!
+  assert.equal(restoredChild.parentPaneKey, parentPaneKey)
+  assert.equal(restoredChild.parentId, parent.id)
   assert.deepEqual(snapshot(restored).agents.map((agent) => agent.completionId), kept.agents.map((agent) => agent.completionId))
   assert.deepEqual(attentionGroups(snapshot(restored).agents, new Set(reviewKeys)), { needsInput: [], failedToReview: [], finishedToReview: [] })
   const restoredAgent = restored.agents.values().next().value!

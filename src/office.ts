@@ -42,6 +42,8 @@ export type Office = {
   attentionTracking: boolean
   /** Latest completion per host-qualified pane, retained briefly across roster disconnects. */
   completionIdentities: Map<string, NonNullable<OfficeSnapshot['completionIdentities']>[string]>
+  /** Observed done transitions that must win over stale stored identities during read recovery. */
+  freshCompletionScopes: Set<string>
 }
 
 /** What `orca worktree ps --json` says of a worktree and its agents; only the fields used. */
@@ -116,7 +118,8 @@ export function createOffice(): Office {
     rostered: false,
     sidebar: new Map(),
     attentionTracking: false,
-    completionIdentities: new Map()
+    completionIdentities: new Map(),
+    freshCompletionScopes: new Set()
   }
 }
 
@@ -139,7 +142,7 @@ export function jsonBytes(value: unknown): number {
 
 function trimPayload(value: unknown, maxText: number, key = ''): unknown {
   if (typeof value === 'string') {
-    if (/^(id|agentId|completionId|paneKey|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
+    if (/^(id|agentId|completionId|paneKey|parentPaneKey|parentId|sessionId|turnId|hostId|workspaceId|projectId|terminalId|repoId|state|outcome|kind|source|coverage|tone|day)$/.test(key) || key === 'reviewedCompletions') return value
     return Array.from(value).slice(0, maxText).join('')
   }
   if (Array.isArray(value)) return value.map((item) => trimPayload(item, maxText, key))
@@ -179,7 +182,8 @@ function bounded<T extends OfficeSnapshot>(input: T, limit: number, compactAgent
       ...state,
       agents: state.agents.map((agent) => ({
         id: agent.id, terminalId: agent.terminalId, paneKey: agent.paneKey, workspaceId: agent.workspaceId,
-        projectId: agent.projectId, hostId: agent.hostId, sessionId: agent.sessionId, state: agent.state,
+        projectId: agent.projectId, parentPaneKey: agent.parentPaneKey, parentId: agent.parentId,
+        hostId: agent.hostId, sessionId: agent.sessionId, state: agent.state,
         outcome: agent.outcome, unread: agent.unread, stateStartedAt: agent.stateStartedAt,
         finishedAt: agent.finishedAt, firstSeenAt: agent.firstSeenAt, lastSeenAt: agent.lastSeenAt,
         completionId: agent.completionId, completionTracked: agent.completionTracked
@@ -317,6 +321,11 @@ function beginCompletion(
   freshTransition = false
 ): void {
   const scope = completionScope(agent)
+  if (freshTransition) {
+    office.freshCompletionScopes.delete(scope)
+    office.freshCompletionScopes.add(scope)
+    if (office.freshCompletionScopes.size > 500) office.freshCompletionScopes.delete(office.freshCompletionScopes.values().next().value!)
+  }
   const turn = typeof turnId === 'string' && turnId
     ? createHash('sha256').update(turnId).digest('hex')
     : null
@@ -826,7 +835,7 @@ function safeInsight(value: unknown, clearUnverifiedModel = false): Insight | nu
 }
 
 /** Reads back what `snapshot` stored; calls that were running then are not running now. */
-export function restore(office: Office, stored: unknown, now: number, preserveLive = false): void {
+export function restore(office: Office, stored: unknown, now: number, preserveLive = false, rosterObserved = office.rostered): void {
   const { agents, today, journal, completionIdentities } = (stored as Partial<OfficeSnapshot> | null) ?? {}
   if (completionIdentities && typeof completionIdentities === 'object' && !Array.isArray(completionIdentities)) {
     const identities = Object.entries(completionIdentities).filter(([key, entry]) =>
@@ -835,8 +844,28 @@ export function restore(office: Office, stored: unknown, now: number, preserveLi
       (entry.sourceAt === null || Number.isFinite(entry.sourceAt)) &&
       (entry.turnId === null || typeof entry.turnId === 'string') && typeof entry.tracked === 'boolean'
     ).sort(([keyA, a], [keyB, b]) => a.observedAt - b.observedAt || keyA.localeCompare(keyB)).slice(-500)
+    const restored = new Map(identities)
     const liveIdentities = preserveLive ? office.completionIdentities : new Map()
-    office.completionIdentities = new Map([...identities, ...liveIdentities])
+    const liveAgents = preserveLive
+      ? new Map([...office.agents.values()].map((agent) => [completionScope(agent), agent]))
+      : new Map<string, AgentView>()
+    for (const [scope, live] of liveIdentities) {
+      const previous = restored.get(scope)
+      const conflicts = !!previous && ((previous.sourceAt !== null && live.sourceAt !== null && previous.sourceAt !== live.sourceAt) ||
+        (previous.turnId !== null && live.turnId !== null && previous.turnId !== live.turnId))
+      if (!previous || conflicts || office.freshCompletionScopes.has(scope)) {
+        restored.set(scope, live)
+      } else {
+        restored.set(scope, { ...previous, sourceAt: previous.sourceAt ?? live.sourceAt, turnId: previous.turnId ?? live.turnId })
+        const current = liveAgents.get(scope)
+        if (current?.state === 'done') {
+          current.completionId = previous.id
+          current.completionTracked = previous.tracked
+        }
+      }
+    }
+    office.completionIdentities = restored
+    if (preserveLive) office.freshCompletionScopes.clear()
   }
   if (Array.isArray(journal)) {
     const entries = journal.filter((event) => event && typeof event.id === 'string' && typeof event.agentId === 'string' && typeof event.observedAt === 'number')
@@ -846,7 +875,7 @@ export function restore(office: Office, stored: unknown, now: number, preserveLi
   if (!Array.isArray(agents)) return
   if (today?.day === new Date(now).toDateString() && (!preserveLive || office.today.day !== today.day)) office.today = today
   for (const agent of agents) {
-    if (typeof agent?.id !== 'string' || office.agents.has(agent.id)) continue
+    if (typeof agent?.id !== 'string' || office.agents.has(agent.id) || (preserveLive && rosterObserved)) continue
     // Remember a sampled call for deduplication without restoring it as running.
     const active = Array.isArray(agent.active) ? agent.active[0] : undefined
     if (!agent.terminalId && active && typeof active.tool === 'string') {
@@ -861,8 +890,8 @@ export function restore(office: Office, stored: unknown, now: number, preserveLi
       sessionId: typeof agent.sessionId === 'string' ? agent.sessionId : null,
       completionId: typeof agent.completionId === 'string' ? agent.completionId : null,
       completionTracked: agent.completionTracked === true,
-      parentPaneKey: null,
-      parentId: null,
+      parentPaneKey: typeof agent.parentPaneKey === 'string' ? agent.parentPaneKey : null,
+      parentId: typeof agent.parentId === 'string' ? agent.parentId : null,
       title: agent.title ?? null,
       agent: agent.agent ?? null,
       outcome: agent.outcome ?? null,

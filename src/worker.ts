@@ -107,6 +107,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   let officeStorageAvailable = false
   let officeRetryAttempt = 0
   let officeRetryTimer: ReturnType<typeof setTimeout> | undefined
+  let rosterObserved = false
 
   // Events name a workspace `<project>::<path>` and `workspace.list` by another id; the path is
   // in both, so the office keys its rooms by path.
@@ -189,6 +190,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     lookedAt = Date.now()
     const worktrees = await cli.roster().catch(() => null)
     if (worktrees) {
+      rosterObserved = true
       const identitiesBefore = new Map([...office.agents].map(([id, agent]) => [id, agent.completionId]))
       applyRoster(office, worktrees, Date.now())
       if (!office.attentionTracking) startAttentionTracking(office, Date.now())
@@ -596,13 +598,13 @@ export default function activate(orca: OrcaWorkerApi): void {
     officeRetryTimer = setTimeout(() => {
       officeRetryTimer = undefined
       void orca.storage.get(STORED).then((stored) => {
-          if (stopped) return
-        restore(office, stored, Date.now(), true)
+        if (stopped) return
+        restore(office, stored, Date.now(), true, rosterObserved)
         officeStorageAvailable = true
         officeRetryAttempt = 0
         changed()
       }).catch((error) => {
-          if (stopped) return
+        if (stopped) return
         orca.log(`office restore retry: ${error}`)
         retryOfficeRead()
       })
@@ -614,6 +616,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       const [officeResult, reviewResult] = results
       if (officeResult.status === 'fulfilled') {
         restore(office, officeResult.value, Date.now())
+        office.freshCompletionScopes.clear()
         officeStorageAvailable = true
       } else {
         orca.log(`office restore: ${officeResult.reason}`)

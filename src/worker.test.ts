@@ -544,10 +544,11 @@ test('restores each storage side independently and refuses review when review st
 })
 
 test('a failed office read blocks automatic and review writes until retry restores identities, then survives restart', async () => {
-  listed = null
+  listed = [{ path: '/prior', agents: [{ paneKey: 'prior-pane', state: 'done', mainAgent: { outcome: 'failure' } }] }]
   const now = Date.now()
   const prior = createOffice()
-  applyRoster(prior, [{ path: '/prior', agents: [{ paneKey: 'prior-pane', state: 'done', stateStartedAt: now, mainAgent: { outcome: 'failure' } }] }], now)
+  prior.attentionTracking = true
+  applyRoster(prior, [{ path: '/prior', agents: [{ paneKey: 'prior-pane', state: 'done', mainAgent: { outcome: 'failure' } }] }], now - 1000)
   const priorSnapshot = snapshot(prior)
   const priorId = priorSnapshot.agents[0].completionId!
   let officeValue: unknown = priorSnapshot
@@ -574,32 +575,120 @@ test('a failed office read blocks automatic and review writes until retry restor
   } })
   let worker = await mountWorker(main, { host })
   try {
-    await worker.emit('agent.status.changed', {
-      workspaceId: '/live', paneKey: 'live-pane', state: 'done', receivedAt: now + 1,
-      mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: now + 1 }
-    })
-    const liveId = (await worker.request('office.snapshot')).agents.find((agent) => agent.paneKey === 'live-pane')?.completionId!
+    await waitUntil('live done roster while the saved office is unreadable', async () => !!(await worker.request('office.snapshot')).agents.find((agent) => agent.paneKey === 'prior-pane')?.completionId)
+    const liveId = (await worker.request('office.snapshot')).agents[0].completionId!
+    assert.notEqual(liveId, priorId)
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert.equal(officeWrites, 0)
     assert.deepEqual(await worker.request('attention.review', { completionId: liveId }), {
       ok: false, error: 'Office storage is unavailable. Try again after its saved state is restored.'
     })
 
-    await waitUntil('office storage retry to allow review', async () => {
-      const result = await worker.request('attention.review', { completionId: liveId })
-      return result.ok
-    })
+    await waitUntil('retry reconciles the saved compatible completion', async () =>
+      (await worker.request('office.snapshot')).agents.find((agent) => agent.paneKey === 'prior-pane')?.completionId === priorId)
+    assert.deepEqual(Object.keys((reviewValue as { entries: Record<string, number> }).entries), [priorId])
+    const reconciled = await worker.request('office.snapshot')
+    assert.deepEqual(attentionGroups(reconciled.agents, new Set([priorId])).failedToReview, [])
+    assert.deepEqual(attentionGroups(reconciled.agents, new Set([priorId])).finishedToReview, [])
     await waitUntil('automatic office save after recovery', () => officeWrites > 0)
     const saved = officeValue as OfficeSnapshot
     assert.equal(saved.agents.some((agent) => agent.completionId === priorId), true)
     assert.equal(saved.completionIdentities && Object.values(saved.completionIdentities).some((entry) => entry.id === priorId), true)
-    assert.deepEqual(Object.keys((reviewValue as { entries: Record<string, number> }).entries).sort(), [liveId, priorId].sort())
     await worker.deactivate()
     worker = await mountWorker(main, { host })
     await waitUntil('recovered office and reviews after restart', async () => {
       const state = await worker.request('office.snapshot')
       return state.agents.some((agent) => agent.completionId === priorId) && state.reviewedCompletions?.includes(priorId) === true
     })
+    const restarted = await worker.request('office.snapshot')
+    assert.deepEqual(attentionGroups(restarted.agents, new Set(restarted.reviewedCompletions)).failedToReview, [])
+    assert.deepEqual(attentionGroups(restarted.agents, new Set(restarted.reviewedCompletions)).failedToReview, [])
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('retry keeps a completion created by an observed working-to-done transition', async () => {
+  const now = Date.now()
+  const prior = createOffice()
+  prior.attentionTracking = true
+  applyRoster(prior, [{ path: '/transition', agents: [{ paneKey: 'transition-pane', state: 'done', mainAgent: { outcome: 'failure' } }] }], now - 1000)
+  const priorSnapshot = snapshot(prior)
+  const priorId = priorSnapshot.agents[0].completionId!
+  let officeValue: unknown = priorSnapshot
+  let failOfficeRead = true
+  listed = [{ path: '/transition', agents: [{ paneKey: 'transition-pane', state: 'working' }] }]
+  const host = mockHost({ storage: { office: priorSnapshot }, results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'office' && failOfficeRead) { failOfficeRead = false; throw new Error('temporarily unavailable') }
+      return { value: key === 'office' ? officeValue : null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office') officeValue = value
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('working roster during office read failure', async () => (await worker.request('office.snapshot')).agents[0]?.state === 'working')
+    await worker.emit('agent.status.changed', {
+      workspaceId: '/transition', paneKey: 'transition-pane', state: 'done', receivedAt: now + 1,
+      mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: now + 1 }, turnId: 'fresh-turn'
+    } as never)
+    const freshId = (await worker.request('office.snapshot')).agents[0].completionId!
+    assert.notEqual(freshId, priorId)
+    await waitUntil('office read recovery preserves the observed new turn', async () => {
+      const agent = (await worker.request('office.snapshot')).agents[0]
+      return agent?.state === 'done' && agent.completionId === freshId
+    })
+    await waitUntil('recovered new completion is saved', () => officeValue !== priorSnapshot && (officeValue as OfficeSnapshot).agents[0]?.completionId === freshId)
+    assert.equal((officeValue as OfficeSnapshot).agents[0].completionId, freshId)
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
+test('retry restores completion history but does not resurrect a row removed by the live roster', async () => {
+  const now = Date.now()
+  const prior = createOffice()
+  prior.attentionTracking = true
+  applyRoster(prior, [{ path: '/closed', agents: [{ paneKey: 'closed-pane', state: 'done', stateStartedAt: now, mainAgent: { outcome: 'failure' } }] }], now)
+  const priorSnapshot = snapshot(prior)
+  const priorId = priorSnapshot.agents[0].completionId!
+  let officeValue: unknown = priorSnapshot
+  let failOfficeRead = true
+  let officeWrites = 0
+  listed = []
+  const host = mockHost({ storage: { office: priorSnapshot }, results: {
+    'storage.get': (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'office' && failOfficeRead) { failOfficeRead = false; throw new Error('temporarily unavailable') }
+      return { value: key === 'office' ? officeValue : { version: 1, entries: { [priorId]: now } } }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'office') { officeValue = value; officeWrites++ }
+      return { ok: true }
+    }
+  } })
+  let worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('empty authoritative roster before office retry', async () => (await worker.request('office.snapshot')).agents.length === 0)
+    await waitUntil('closed row excluded from the recovered office save', () => officeWrites > 0)
+    const saved = officeValue as OfficeSnapshot
+    assert.deepEqual(saved.agents, [])
+    assert.equal(Object.values(saved.completionIdentities ?? {}).some((entry) => entry.id === priorId), true)
+    assert.deepEqual(attentionGroups((await worker.request('office.snapshot')).agents, new Set([priorId])).failedToReview, [])
+    await worker.deactivate()
+    worker = await mountWorker(main, { host })
+    await waitUntil('closed row remains absent after restart', async () => (await worker.request('office.snapshot')).agents.length === 0)
+    const restarted = await worker.request('office.snapshot')
+    assert.equal(Object.values((officeValue as OfficeSnapshot).completionIdentities ?? {}).some((entry) => entry.id === priorId), true)
+    assert.deepEqual(attentionGroups(restarted.agents, new Set(restarted.reviewedCompletions)).failedToReview, [])
   } finally {
     await worker.deactivate()
     listed = null
