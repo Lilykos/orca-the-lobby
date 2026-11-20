@@ -171,7 +171,7 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
     const heading = el('h2', '', `${label} (${rows.length})`)
     section.append(heading)
     for (const agent of rows) {
-      const card = el('article', 'attention-card')
+      const card = el('article', `attention-card attention-${key}`)
       const name = taskLabel(agent)
       card.append(el('h3', 'attention-title', name), el('p', 'attention-state', agent.state === 'blocked' ? 'Needs you' : agent.outcome === 'failure' ? 'Failed' : `Finished · ${agent.outcome ?? 'outcome unknown'}`))
       if (nameOf(agent)) card.append(el('p', 'attention-name', nameOf(agent)))

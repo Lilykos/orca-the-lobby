@@ -81,7 +81,7 @@ Comfortable density remains the upgrade default. Compact reduces spacing and sec
 
 New installations start in Attention. Upgrades preserve Office initially; after that, remember the user's selected functional view. Never switch views automatically when an agent changes state. Settings is not a remembered startup view.
 
-Use a compact header in Attention/Activity and a collapsible branded banner in Office. Move detailed calls, tokens and supplementary metadata into progressively disclosed drawer sections without removing them. Extract only the rendering sections needed by these changes; new inbox logic and notification policy get focused modules instead of being added to the large panel entry point.
+Keep the collapsible pixel banner available across Office, Activity, Attention and Settings, with one shared toggle. Move detailed calls, tokens and supplementary metadata into progressively disclosed drawer sections without removing them. Extract only the rendering sections needed by these changes; new inbox logic and notification policy get focused modules instead of being added to the large panel entry point.
 
 ### Notification policy
 

@@ -88,7 +88,7 @@ Eligible transition alerts are grouped by project and kind over a fixed two-seco
 - **Status colors**: green working, orange **Needs you**, amber waiting, red failed, grey done, blue done with an unread result.
 - **Tokens today** per project appear under each room.
 - **List or Grid.** Grid puts two projects on each row once the panel is at least 400px wide.
-- **Comfortable or Compact density.** Compact reduces spacing and secondary detail while keeping text and controls usable. The Office banner can be collapsed; Activity and Attention use a compact header.
+- **Comfortable or Compact density.** Compact reduces spacing and secondary detail while keeping text and controls usable. The pixel banner stays visible across views, with one shared button to collapse or restore it.
 
 ### Activity
 

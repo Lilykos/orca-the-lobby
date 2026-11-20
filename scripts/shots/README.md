@@ -3,7 +3,7 @@
 This folder renders the plugin's **real panel code** (`panel/`) in headless Chrome, against stubbed
 data, and uses that for two things:
 
-- **Checks** (`run.py`): 101 scenarios that load the panel at exact widths, click, type, press
+- **Checks** (`run.py`): 102 scenarios that load the panel at exact widths, click, type, press
   keys and scroll, and fail on the first thing that is wrong. They double as an end-to-end test of the
   panel.
 - **Media** (`media.py`): the images in `docs/images/` (README and website) and a short animation, drawn from

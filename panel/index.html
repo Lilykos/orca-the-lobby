@@ -79,7 +79,10 @@
       .attention-heading { margin: 4px 0; font-size: 18px; }
       .attention-counts { margin: 0; color: var(--ui-muted-foreground); }
       .attention-group h2 { margin: 12px 0 6px; font-size: 13px; }
-      .attention-card { min-width: 0; padding: 10px; background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); }
+      .attention-card { min-width: 0; padding: 10px; background: var(--ui-card); border: 1px solid var(--ui-border); border-left: 4px solid var(--ui-border); border-radius: var(--radius); }
+      .attention-card.attention-needs-input { border-left-color: var(--blocked); }
+      .attention-card.attention-failed { border-left-color: var(--failed); }
+      .attention-card.attention-finished { border-left-color: var(--unread); }
       .attention-title { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
       .attention-state, .attention-meta, .attention-feedback { margin: 4px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
       .attention-time { display: block; margin: 4px 0; color: var(--ui-muted-foreground); font-size: 11px; }
@@ -1158,6 +1161,7 @@
   </head>
   <body>
     <canvas id="banner" role="img" aria-label="The Lobby"></canvas>
+    <button id="brand-toggle" class="action brand-toggle" aria-expanded="true">Hide banner</button>
     <nav id="primary-tabs" role="tablist" aria-label="The Lobby sections">
       <button class="primary-tab" id="office-tab" role="tab" aria-controls="office-page" aria-selected="true">Office</button>
       <button class="primary-tab" id="activity-tab" role="tab" aria-controls="activity-page" aria-selected="false">Activity</button>
@@ -1167,7 +1171,6 @@
     <p id="prefs-status" class="quiet" role="status" aria-live="polite">Restoring your Lobby view…</p>
     <div id="view-filters" role="search"><span id="filter-count" aria-live="polite"></span></div>
     <main id="office-page" class="page" role="tabpanel" aria-labelledby="office-tab">
-      <button id="brand-toggle" class="action brand-toggle" aria-expanded="true">Hide Office banner</button>
       <p id="office-message" class="quiet" role="status"></p>
       <div id="offices" class="columns"></div>
       <p id="today"></p>

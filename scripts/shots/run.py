@@ -25,6 +25,7 @@ scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actio
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
 scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace'), (420, 'prefsreadrecover'), (420, 'prefsackrace'), (420, 'installationrecover'), (420, 'installationrecoverchoice')]  # inbox, shared filters and startup preference
+scenarios += [(420, 'sharedbanner')]
 scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys'), (420, 'notificationfocus')]  # local notification controls
 
 if args.only:

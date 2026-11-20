@@ -733,7 +733,7 @@ function setPage(id: string, persist = true): void {
   }
   for (const page of pages) page.hidden = page.id !== `${id}-page`
   filterBar.hidden = id === 'settings'
-  banner.hidden = id !== 'office' || brandCollapsed
+  banner.hidden = brandCollapsed
   document.documentElement.classList.toggle('compact', prefs.density === 'compact')
   if (id === 'activity') renderActivity()
   if (id === 'attention') renderAttentionPage(true)
@@ -990,7 +990,7 @@ document.getElementById('brand-toggle')!.addEventListener('click', (event) => {
   brandCollapsed = !brandCollapsed
   banner.hidden = brandCollapsed
   const button = event.currentTarget as HTMLButtonElement
-  button.textContent = brandCollapsed ? 'Show Office banner' : 'Hide Office banner'
+  button.textContent = brandCollapsed ? 'Show banner' : 'Hide banner'
   button.setAttribute('aria-expanded', String(!brandCollapsed))
 })
 
