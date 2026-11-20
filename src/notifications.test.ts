@@ -8,6 +8,7 @@ import {
   queueTransition,
   readNotificationPolicy,
   reminderNotification,
+  TRANSITION_IDENTITY_RETENTION_MS,
   setProjectMuted,
   setReminderSnooze,
   transitionNotification,
@@ -131,13 +132,13 @@ test('prunes expired snoozes before admitting a new active control', () => {
 })
 
 test('rejects malformed snoozes, drops expired entries and bounds parsed controls deterministically', () => {
-  const snoozes = Array.from({ length: 503 }, (_, index) => ({
+  const snoozes = Array.from({ length: 500 }, (_, index) => ({
     episodeId: `episode-${index}`,
     expiresAt: null,
     setAt: index
   }))
   const parsed = readNotificationPolicy({
-    mutedProjects: [...Array.from({ length: 205 }, (_, index) => `project-${String(index).padStart(3, '0')}`), '', 4],
+    mutedProjects: [...Array.from({ length: 200 }, (_, index) => `project-${String(index).padStart(3, '0')}`), '', 4],
     reminderSnoozes: [
       ...snoozes,
       { episodeId: 'expired', expiresAt: 99, setAt: 1 },
@@ -145,7 +146,11 @@ test('rejects malformed snoozes, drops expired entries and bounds parsed control
       { episodeId: 'future', expiresAt: null, setAt: 2_000 }
     ],
     handledTransitions: [
-      ...Array.from({ length: 1_005 }, (_, index) => ({ episodeId: `episode-${index}`, transitionId: `transition-${index}` })),
+      ...Array.from({ length: 1_005 }, (_, index) => ({
+        episodeId: `episode-${index}`,
+        transitionId: `transition-${index}`,
+        consumedAt: index < 5 ? 1_000 - TRANSITION_IDENTITY_RETENTION_MS : index - 5
+      })),
       null, ''
     ]
   }, 1_000)
@@ -156,9 +161,9 @@ test('rejects malformed snoozes, drops expired entries and bounds parsed control
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'bad-expiry'), false)
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'future'), false)
   assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-3'), true)
-  assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-2'), false)
+  assert.equal(parsed.reminderSnoozes.some(({ episodeId }) => episodeId === 'episode-2'), true)
   assert.equal(parsed.handledTransitions.length, 1_000)
-  assert.deepEqual(parsed.handledTransitions[0], { episodeId: 'episode-5', transitionId: 'transition-5' })
+  assert.deepEqual(parsed.handledTransitions[0], { episodeId: 'episode-5', transitionId: 'transition-5', consumedAt: 0 })
 })
 
 test('reads only own persisted fields and accepts only manual, 15-minute, or one-hour snoozes', () => {
@@ -191,14 +196,14 @@ test('reads only own persisted fields and accepts only manual, 15-minute, or one
 
 test('project mute suppresses a transition immediately and unmute does not replay it', () => {
   const empty = emptyNotificationPolicy()
-  const muted = setProjectMuted(empty, 'project-a', true)
+  const muted = setProjectMuted(empty, 'project-a', true, 0).policy
   assert.equal(isProjectMuted(muted, 'project-a'), true)
   assert.deepEqual(empty.mutedProjects, [])
   const queued = queueTransition(emptyNotificationQueue(), muted, candidate('blocked-1', 'episode-a', 'project-a', 'blocked', 'Ada'), 100, () => true)
   assert.deepEqual(queued.notifications, [])
   assert.deepEqual(queued.queue.pending, [])
 
-  const unmuted = setProjectMuted(queued.policy, 'project-a', false)
+  const unmuted = setProjectMuted(queued.policy, 'project-a', false, 200).policy
   const repeated = queueTransition(queued.queue, unmuted, candidate('blocked-1', 'episode-a', 'project-a', 'blocked', 'Ada'), 200, () => true)
   assert.deepEqual(repeated.notifications, [])
   assert.deepEqual(repeated.queue.pending, [])
@@ -261,14 +266,118 @@ test('deduplicates event and roster observations by episode and transition ident
   assert.equal(nextTransition.queue.pending.length, 2)
 })
 
+test('retains handled identities for 24 hours, recovers after expiry, and never restores a queue backlog', () => {
+  let queue = emptyNotificationQueue()
+  let policy = emptyNotificationPolicy()
+  let lastEvent: TransitionCandidate | undefined
+  for (let index = 0; index < 1_000; index++) {
+    const now = index * 2_100
+    const event = candidate(`transition-${index}`, `episode-${index}`, `project-${index}`, 'blocked', `Agent ${index}`)
+    if (index === 500) {
+      policy = readNotificationPolicy(JSON.parse(JSON.stringify(policy)), now)
+      const duplicate = queueTransition(emptyNotificationQueue(), policy, lastEvent!, now, () => true)
+      assert.deepEqual(duplicate.queue.pending, [])
+      assert.deepEqual(duplicate.notifications, [])
+    }
+    const next = queueTransition(queue, policy, event, now, () => true)
+    assert.deepEqual(next.refusals, [])
+    queue = next.queue
+    policy = next.policy
+    lastEvent = event
+  }
+
+  const saturated = queueTransition(queue, policy, candidate('overflow', 'episode-overflow', 'project-overflow', 'blocked', 'Overflow'), 2_100_000, () => true)
+  assert.equal(saturated.refusals[0].reason, 'handled-identity-limit')
+  const restartAt = 2_100_000 + TRANSITION_IDENTITY_RETENTION_MS
+  const restored = readNotificationPolicy(JSON.parse(JSON.stringify(saturated.policy)), restartAt)
+  assert.deepEqual(flushTransitionQueue(emptyNotificationQueue(), restored, restartAt, () => true).notifications, [])
+  const recovered = queueTransition(emptyNotificationQueue(), restored, candidate('after-expiry', 'episode-new', 'project-new', 'blocked', 'New'), restartAt, () => true)
+  assert.deepEqual(recovered.refusals, [])
+  assert.equal(recovered.policy.handledTransitions.length, 1)
+})
+
+test('restores and updates combined multibyte controls within the total UTF-8 budget', () => {
+  const now = 2_000_000
+  const id = (prefix: string, index: number) => `${prefix}-${'🙂'.repeat(120)}-${index}`
+  const restored = readNotificationPolicy({
+    mutedProjects: Array.from({ length: 20 }, (_, index) => id('project', index)),
+    reminderSnoozes: Array.from({ length: 330 }, (_, index) => ({ episodeId: id('episode', index), expiresAt: null, setAt: now })),
+    handledTransitions: Array.from({ length: 300 }, (_, index) => ({
+      episodeId: id('old-episode', index), transitionId: id('old-transition', index), consumedAt: now - TRANSITION_IDENTITY_RETENTION_MS
+    }))
+  }, now)
+  assert.equal(restored.reminderSnoozes.length, 330)
+  assert.equal(restored.mutedProjects.length, 20)
+  assert.deepEqual(restored.handledTransitions, [])
+  assert.ok(jsonBytes(restored) <= STORE_BYTES)
+
+  let current = restored
+  const addedIds: string[] = []
+  let refused = false
+  for (let index = 0; index < 50; index++) {
+    const episodeId = id('new-episode', index)
+    const result = setReminderSnooze(current, episodeId, now, 'manual')
+    if (!result.ok) {
+      assert.equal(result.error, 'policy-too-large')
+      refused = true
+      break
+    }
+    current = result.policy
+    addedIds.push(episodeId)
+    assert.ok(jsonBytes(current) <= STORE_BYTES)
+  }
+  assert.equal(refused, true)
+  assert.equal(current.reminderSnoozes.length, 330 + addedIds.length)
+  assert.equal(current.reminderSnoozes.every(({ episodeId }) => restored.reminderSnoozes.some((entry) => entry.episodeId === episodeId) || addedIds.includes(episodeId)), true)
+
+  let queue = emptyNotificationQueue()
+  let notificationRefused = false
+  for (let index = 0; index < 300; index++) {
+    const next = queueTransition(queue, current, candidate(`bounded-${index}`, `bounded-episode-${index}`, `bounded-project-${index}`, 'blocked', 'Ada'), now, () => true)
+    if (next.refusals.length) {
+      assert.equal(next.refusals[0].reason, 'policy-too-large')
+      notificationRefused = true
+      break
+    }
+    queue = next.queue
+    current = next.policy
+    assert.ok(jsonBytes(current) <= STORE_BYTES)
+  }
+  assert.equal(notificationRefused, true)
+
+  let muteRefused = false
+  for (let index = 0; index < 200; index++) {
+    const projectId = id('new-project', index)
+    const result = setProjectMuted(current, projectId, true, now)
+    if (!result.ok) {
+      assert.equal(result.error, 'policy-too-large')
+      assert.equal(result.policy, current)
+      muteRefused = true
+      break
+    }
+    current = result.policy
+    assert.ok(jsonBytes(current) <= STORE_BYTES)
+  }
+  assert.equal(muteRefused, true)
+  assert.equal(current.reminderSnoozes.length, 330 + addedIds.length)
+
+  assert.throws(() => readNotificationPolicy({
+    mutedProjects: Array.from({ length: 200 }, (_, index) => id('project', index)),
+    reminderSnoozes: Array.from({ length: 500 }, (_, index) => ({ episodeId: id('episode', index), expiresAt: null, setAt: now })),
+    handledTransitions: Array.from({ length: 1_000 }, (_, index) => ({
+      episodeId: id('handled-episode', index), transitionId: id('handled-transition', index), consumedAt: now
+    }))
+  }, now), /notification policy exceeds the storage byte limit/)
+})
+
 test('rechecks mute at dispatch and discards a pending group without replay after unmute', () => {
   const first = queueTransition(emptyNotificationQueue(), emptyNotificationPolicy(), candidate('blocked-1', 'episode-a', 'project-a', 'blocked', 'Ada'), 0, () => true)
-  const muted = setProjectMuted(first.policy, 'project-a', true)
+  const muted = setProjectMuted(first.policy, 'project-a', true, 2_000).policy
   const suppressed = flushTransitionQueue(first.queue, muted, 2_000, () => true)
   assert.deepEqual(suppressed.notifications, [])
   assert.deepEqual(suppressed.queue.pending, [])
 
-  const unmuted = setProjectMuted(suppressed.policy, 'project-a', false)
+  const unmuted = setProjectMuted(suppressed.policy, 'project-a', false, 9_000).policy
   assert.deepEqual(flushTransitionQueue(suppressed.queue, unmuted, 9_000, () => true).notifications, [])
 })
 
@@ -330,7 +439,7 @@ test('refuses over-budget text and identities without truncating candidate data'
   const oversized = queueTransition(initialQueue, initialPolicy, tooLarge, 0, () => true)
   assert.equal(oversized.refusals[0].reason, 'candidate-too-large')
   assert.deepEqual(oversized.queue, initialQueue)
-  assert.equal(oversized.policy, initialPolicy)
+  assert.deepEqual(oversized.policy, initialPolicy)
   assert.equal(tooLarge.notification.body, 'é'.repeat(STORE_BYTES))
 
   const longId = 'x'.repeat(256)

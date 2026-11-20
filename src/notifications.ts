@@ -57,7 +57,7 @@ export function reminderNotification(
 }
 
 export type ReminderSnooze = { episodeId: string; expiresAt: number | null; setAt: number }
-export type HandledTransition = { episodeId: string; transitionId: string }
+export type HandledTransition = { episodeId: string; transitionId: string; consumedAt: number }
 export type NotificationPolicy = {
   mutedProjects: string[]
   reminderSnoozes: ReminderSnooze[]
@@ -68,8 +68,13 @@ export type NotificationPolicy = {
 export type SnoozeChoice = '15m' | '1h' | 'manual' | 'resume'
 export type SnoozeUpdateResult =
   | { ok: true; policy: NotificationPolicy }
-  | { ok: false; policy: NotificationPolicy; error: 'invalid-update' | 'snooze-limit' }
+  | { ok: false; policy: NotificationPolicy; error: 'invalid-update' | 'snooze-limit' | 'policy-too-large' }
+export type MuteUpdateResult =
+  | { ok: true; policy: NotificationPolicy }
+  | { ok: false; policy: NotificationPolicy; error: 'invalid-update' | 'mute-limit' | 'policy-too-large' }
 export const GROUP_WINDOW_MS = 2_000
+/** Persist consumed transition identities for one day, matching the activity horizon. */
+export const TRANSITION_IDENTITY_RETENTION_MS = 24 * 60 * 60_000
 const MAX_ID_LENGTH = 256
 const MAX_MUTED_PROJECTS = 200
 const MAX_REMINDER_SNOOZES = 500
@@ -96,20 +101,22 @@ function own(record: Record<string, unknown>, key: string): unknown {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
 }
 
-/** A bounded, restart-safe view of the controls persisted by a later worker integration. */
+/**
+ * A bounded, restart-safe view of persisted controls. Throws when live controls exceed count or byte limits;
+ * callers must surface that restore error instead of saving a partial policy.
+ */
 export function readNotificationPolicy(value: unknown, now: number): NotificationPolicy {
   const stored = object(value)
   if (!stored || !Number.isFinite(now) || now < 0) return emptyNotificationPolicy()
 
   const mutedValue = own(stored, 'mutedProjects')
-  const mutedProjects = Array.isArray(mutedValue)
-    ? [...new Set(mutedValue.slice(0, MAX_MUTED_PROJECTS * 4).filter(validId))].sort(compareText).slice(0, MAX_MUTED_PROJECTS)
-    : []
+  const mutedProjects = Array.isArray(mutedValue) ? [...new Set(mutedValue.filter(validId))].sort(compareText) : []
+  if (mutedProjects.length > MAX_MUTED_PROJECTS) throw new RangeError('notification policy exceeds the project mute limit')
 
   const snoozes = new Map<string, ReminderSnooze>()
   const snoozeValue = own(stored, 'reminderSnoozes')
   if (Array.isArray(snoozeValue)) {
-    for (const value of snoozeValue.slice(-MAX_REMINDER_SNOOZES * 2)) {
+    for (const value of snoozeValue) {
       const entry = object(value)
       if (!entry) continue
       const episodeId = own(entry, 'episodeId')
@@ -125,42 +132,53 @@ export function readNotificationPolicy(value: unknown, now: number): Notificatio
       if (!previous || parsed.setAt > previous.setAt) snoozes.set(parsed.episodeId, parsed)
     }
   }
-  const reminderSnoozes = [...snoozes.values()]
-    .sort((a, b) => b.setAt - a.setAt || compareText(a.episodeId, b.episodeId))
-    .slice(0, MAX_REMINDER_SNOOZES)
-    .sort((a, b) => compareText(a.episodeId, b.episodeId))
+  if (snoozes.size > MAX_REMINDER_SNOOZES) throw new RangeError('notification policy exceeds the reminder snooze limit')
+  const reminderSnoozes = [...snoozes.values()].sort((a, b) => compareText(a.episodeId, b.episodeId))
 
   const handledTransitions: HandledTransition[] = []
   const handledValue = own(stored, 'handledTransitions')
   if (Array.isArray(handledValue)) {
-    for (const value of handledValue.slice(-MAX_HANDLED_TRANSITIONS * 4)) {
+    for (const value of handledValue) {
       const entry = object(value)
       if (!entry) continue
       const episodeId = own(entry, 'episodeId')
       const transitionId = own(entry, 'transitionId')
-      if (!validId(episodeId) || !validId(transitionId)) continue
-      const identity = { episodeId, transitionId }
-      if (handledTransitions.some((prior) => sameTransition(prior, identity))) continue
+      const consumedAt = own(entry, 'consumedAt')
+      // Legacy identities without a timestamp cannot be retained safely and are treated as obsolete.
+      if (!validId(episodeId) || !validId(transitionId) || !Number.isFinite(consumedAt) ||
+          (consumedAt as number) < 0 || (consumedAt as number) > now ||
+          now - (consumedAt as number) >= TRANSITION_IDENTITY_RETENTION_MS) continue
+      const identity = { episodeId, transitionId, consumedAt: consumedAt as number }
+      const priorIndex = handledTransitions.findIndex((prior) => sameTransition(prior, identity))
+      if (priorIndex >= 0) {
+        if (identity.consumedAt > handledTransitions[priorIndex].consumedAt) handledTransitions[priorIndex] = identity
+        continue
+      }
       handledTransitions.push(identity)
     }
   }
-  if (handledTransitions.length > MAX_HANDLED_TRANSITIONS) handledTransitions.splice(0, handledTransitions.length - MAX_HANDLED_TRANSITIONS)
-  return { mutedProjects, reminderSnoozes, handledTransitions }
+  handledTransitions.sort((a, b) => a.consumedAt - b.consumedAt || compareText(a.episodeId, b.episodeId) || compareText(a.transitionId, b.transitionId))
+  if (handledTransitions.length > MAX_HANDLED_TRANSITIONS) throw new RangeError('notification policy exceeds the handled transition limit')
+  const policy = { mutedProjects, reminderSnoozes, handledTransitions }
+  if (jsonBytes(policy) > STORE_BYTES) throw new RangeError('notification policy exceeds the storage byte limit')
+  return policy
 }
 
 export function emptyNotificationPolicy(): NotificationPolicy {
   return { mutedProjects: [], reminderSnoozes: [], handledTransitions: [] }
 }
 
-export function setProjectMuted(policy: NotificationPolicy, projectId: string, muted: boolean): NotificationPolicy {
-  if (!validId(projectId)) return policy
+export function setProjectMuted(policy: NotificationPolicy, projectId: string, muted: boolean, now: number): MuteUpdateResult {
+  if (!validId(projectId) || !Number.isFinite(now) || now < 0) return { ok: false, policy, error: 'invalid-update' }
   const projects = new Set(policy.mutedProjects)
   if (muted) {
-    if (!projects.has(projectId) && projects.size >= MAX_MUTED_PROJECTS) return policy
+    if (!projects.has(projectId) && projects.size >= MAX_MUTED_PROJECTS) return { ok: false, policy, error: 'mute-limit' }
     projects.add(projectId)
   }
   else projects.delete(projectId)
-  return { ...policy, mutedProjects: [...projects].sort(compareText).slice(0, MAX_MUTED_PROJECTS) }
+  const next = pruneHandledTransitions({ ...policy, mutedProjects: [...projects].sort(compareText) }, now)
+  if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy, error: 'policy-too-large' }
+  return { ok: true, policy: next }
 }
 
 export function isProjectMuted(policy: NotificationPolicy, projectId: string): boolean {
@@ -185,17 +203,19 @@ export function setReminderSnooze(
     return { ok: false, policy, error: 'snooze-limit' }
   }
   if (choice === 'resume') {
-    return { ok: true, policy: { ...policy, reminderSnoozes: withoutEpisode } }
+    const next = pruneHandledTransitions({ ...policy, reminderSnoozes: withoutEpisode }, now)
+    if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy, error: 'policy-too-large' }
+    return { ok: true, policy: next }
   }
   const expiresAt = choice === '15m' ? now + 15 * 60_000 : choice === '1h' ? now + 60 * 60_000 : null
   const nextSnoozes = [...withoutEpisode, { episodeId, expiresAt, setAt: now }]
-  return { ok: true, policy: {
+  if (nextSnoozes.length > MAX_REMINDER_SNOOZES) return { ok: false, policy, error: 'snooze-limit' }
+  const next = pruneHandledTransitions({
     ...policy,
-    reminderSnoozes: nextSnoozes
-      .sort((a, b) => b.setAt - a.setAt || compareText(a.episodeId, b.episodeId))
-      .slice(0, MAX_REMINDER_SNOOZES)
-      .sort((a, b) => compareText(a.episodeId, b.episodeId))
-  } }
+    reminderSnoozes: nextSnoozes.sort((a, b) => compareText(a.episodeId, b.episodeId))
+  }, now)
+  if (jsonBytes(next) > STORE_BYTES) return { ok: false, policy, error: 'policy-too-large' }
+  return { ok: true, policy: next }
 }
 
 export function isReminderSnoozed(policy: NotificationPolicy, episodeId: string, now: number): boolean {
@@ -222,18 +242,27 @@ export type PendingTransitionGroup = {
   candidates: TransitionCandidate[]
 }
 export type NotificationQueue = { pending: PendingTransitionGroup[] }
-export type QueueRefusal = { reason: 'invalid-candidate' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' }
+export type QueueRefusal = { reason: 'invalid-candidate' | 'candidate-too-large' | 'pending-queue-full' | 'group-candidate-limit' | 'notification-too-large' | 'handled-identity-limit' | 'policy-too-large' }
 export type QueueResult = { queue: NotificationQueue; policy: NotificationPolicy; notifications: NotificationMessage[]; refusals: QueueRefusal[] }
 
 export function emptyNotificationQueue(): NotificationQueue {
   return { pending: [] }
 }
 
-function sameTransition(a: HandledTransition, b: HandledTransition): boolean {
+function sameTransition(a: Pick<HandledTransition, 'episodeId' | 'transitionId'>, b: Pick<HandledTransition, 'episodeId' | 'transitionId'>): boolean {
   return a.episodeId === b.episodeId && a.transitionId === b.transitionId
 }
 
-function transitionIdentity(candidate: TransitionCandidate): HandledTransition {
+function pruneHandledTransitions(policy: NotificationPolicy, now: number): NotificationPolicy {
+  return {
+    ...policy,
+    handledTransitions: policy.handledTransitions.filter((entry) =>
+      Number.isFinite(entry.consumedAt) && entry.consumedAt <= now && now - entry.consumedAt < TRANSITION_IDENTITY_RETENTION_MS
+    )
+  }
+}
+
+function transitionIdentity(candidate: TransitionCandidate): Pick<HandledTransition, 'episodeId' | 'transitionId'> {
   return { episodeId: candidate.episodeId, transitionId: candidate.transitionId }
 }
 
@@ -263,7 +292,7 @@ function summarize(group: PendingTransitionGroup): NotificationMessage {
 }
 
 /**
- * Integration contract: persist consumed identities before dispatch; discard pending groups on restart;
+ * Integration contract: persist consumed identities before dispatch and retain them for 24 hours; discard pending groups on restart;
  * recheck live eligibility and mute at dispatch; schedule at most one qualifying reminder at snooze expiry;
  * resume/unmute never triggers historical catch-up.
  */
@@ -274,12 +303,13 @@ export function flushTransitionQueue(
   now: number,
   isEligible: (candidate: TransitionCandidate) => boolean
 ): QueueResult {
+  const currentPolicy = Number.isFinite(now) && now >= 0 ? pruneHandledTransitions(policy, now) : policy
   const due = queue.pending.filter((group) => group.deadline <= now)
     .sort((a, b) => a.deadline - b.deadline || compareText(a.projectId, b.projectId) || compareText(a.kind, b.kind))
   const notifications: NotificationMessage[] = []
   const refusals: QueueRefusal[] = []
   for (const group of due) {
-    if (policy.mutedProjects.includes(group.projectId)) continue
+    if (currentPolicy.mutedProjects.includes(group.projectId)) continue
     const eligible = { ...group, candidates: group.candidates.filter(isEligible) }
     if (eligible.candidates.length === 0) continue
     const notification = summarize(eligible)
@@ -289,7 +319,7 @@ export function flushTransitionQueue(
   const dueGroups = new Set(due)
   return {
     queue: { pending: queue.pending.filter((group) => !dueGroups.has(group)) },
-    policy,
+    policy: currentPolicy,
     notifications,
     refusals
   }
@@ -314,8 +344,10 @@ export function queueTransition(
   if (elapsed.policy.handledTransitions.length >= MAX_HANDLED_TRANSITIONS) return refuse('handled-identity-limit')
   const nextPolicy = {
     ...elapsed.policy,
-    handledTransitions: [...elapsed.policy.handledTransitions, identity]
+    handledTransitions: [...elapsed.policy.handledTransitions, { ...identity, consumedAt: now }]
   }
+  if (nextPolicy.handledTransitions.length > MAX_HANDLED_TRANSITIONS) return refuse('handled-identity-limit')
+  if (jsonBytes(nextPolicy) > STORE_BYTES) return refuse('policy-too-large')
   if (elapsed.policy.mutedProjects.includes(candidate.projectId)) return { ...elapsed, policy: nextPolicy }
 
   const pending = [...elapsed.queue.pending]
