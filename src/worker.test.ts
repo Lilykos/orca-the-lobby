@@ -704,24 +704,190 @@ test('a snooze paused at office save cannot overwrite policy after its worker de
     const oldSnooze = oldWorker.request('notification.reminder.snooze', {
       projectId: '/stopped-snooze', agentId: 'stopped-agent', episodeId: `stopped-agent@${observedAt}`, choice: 'manual'
     })
-    const oldShutdown = oldWorker.deactivate()
-    newWorker = await mountWorker(main, { host: mockHost({ results: storageResults }) })
-    await waitUntil('replacement worker notification controls', async () =>
-      (await newWorker!.request('notification.control.read', { projectId: '/stopped-snooze' })).status === 'ready')
-    assert.deepEqual(await newWorker.request('notification.project.mute', { projectId: '/stopped-snooze', muted: true }), { ok: true })
-    assert.deepEqual((backing['notification.policy'] as { mutedProjects: string[] }).mutedProjects, ['/stopped-snooze'])
-
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    let stopped = false
+    const oldShutdown = main.deactivate().then(() => { stopped = true })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(stopped, false, 'deactivation waits until the queued snooze can finish saving the office episode')
     releaseOfficeWrite()
     await transition
     await oldShutdown
     assert.deepEqual(await oldSnooze, { ok: false, error: 'The worker stopped before saving reminder settings.' })
-    const savedPolicy = backing['notification.policy'] as { mutedProjects: string[]; reminderSnoozes: { episodeId: string }[] }
-    assert.deepEqual(savedPolicy.mutedProjects, ['/stopped-snooze'])
-    assert.deepEqual(savedPolicy.reminderSnoozes, [])
+    assert.equal(backing['notification.policy'], undefined, 'stopped snooze must not begin a policy write')
+    await oldWorker.deactivate()
+    newWorker = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+    await waitUntil('replacement worker notification controls', async () =>
+      (await newWorker!.request('notification.control.read', { projectId: '/stopped-snooze' })).status === 'ready')
+    assert.deepEqual(await newWorker.request('notification.project.mute', { projectId: '/stopped-snooze', muted: true }), { ok: true })
+    const replacementPolicy = backing['notification.policy'] as { mutedProjects: string[] } | undefined
+    assert.deepEqual(replacementPolicy?.mutedProjects, ['/stopped-snooze'])
   } finally {
     releaseOfficeWrite()
     await oldWorker.deactivate()
     await newWorker?.deactivate()
+    listed = null
+  }
+})
+
+test('deactivation waits for an in-flight project mute write before a replacement changes policy', async () => {
+  listed = [{ path: '/drain-mute', agents: [{ paneKey: 'mute-agent', state: 'working', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
+  let gatePolicyWrite = false
+  let policyWriteStarted = false
+  let releasePolicyWrite!: () => void
+  const policyGate = new Promise<void>((resolve) => { releasePolicyWrite = resolve })
+  const storageResults = {
+    'storage.get': (params: unknown) => ({ value: backing[(params as { key: string }).key] ?? null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'notification.policy' && gatePolicyWrite) {
+        gatePolicyWrite = false
+        policyWriteStarted = true
+        await policyGate
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  }
+  let worker = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+  let replacement: Awaited<ReturnType<typeof mountWorker>> | undefined
+  try {
+    await waitUntil('mute target roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'mute-agent'))
+    const control = await worker.request('notification.control.read', { projectId: '/drain-mute', agentId: 'mute-agent' })
+    assert.equal(control.status, 'ready')
+    assert.ok(control.episodeId)
+    gatePolicyWrite = true
+    const mute = worker.request('notification.project.mute', { projectId: '/drain-mute', muted: true })
+    await waitUntil('mute storage write gate', () => policyWriteStarted)
+    const queuedSnooze = worker.request('notification.reminder.snooze', {
+      projectId: '/drain-mute', agentId: 'mute-agent', episodeId: control.episodeId, choice: 'manual'
+    })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    let stopped = false
+    const shutdown = main.deactivate().then(() => { stopped = true })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(stopped, false, 'deactivation must remain pending while the policy write is in flight')
+    releasePolicyWrite()
+    await shutdown
+    assert.deepEqual(await mute, { ok: false, error: 'Could not save notification settings. Try again.' })
+    assert.deepEqual(await queuedSnooze, { ok: false, error: 'The worker stopped before saving reminder settings.' })
+    await worker.deactivate()
+
+    replacement = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+    await waitUntil('replacement mute target roster', async () => (await replacement!.request('office.snapshot')).agents.some((agent) => agent.id === 'mute-agent'))
+    await waitUntil('replacement mute policy ready', async () => (await replacement!.request('notification.control.read', { projectId: '/drain-mute' })).status === 'ready')
+    assert.deepEqual(await replacement.request('notification.project.mute', { projectId: '/drain-mute', muted: false }), { ok: true })
+    assert.deepEqual((backing['notification.policy'] as { mutedProjects: string[] }).mutedProjects, [])
+  } finally {
+    releasePolicyWrite()
+    await worker.deactivate()
+    await replacement?.deactivate()
+    listed = null
+  }
+})
+
+test('deactivation drains an in-flight snooze write before a replacement resumes it', async () => {
+  listed = [{ path: '/drain-snooze', agents: [{ paneKey: 'snooze-agent', state: 'blocked', agentType: 'claude' }] }]
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }
+  let gatePolicyWrite = false
+  let policyWriteStarted = false
+  let releasePolicyWrite!: () => void
+  const policyGate = new Promise<void>((resolve) => { releasePolicyWrite = resolve })
+  const storageResults = {
+    'storage.get': (params: unknown) => ({ value: backing[(params as { key: string }).key] ?? null }),
+    'storage.set': async (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'notification.policy' && gatePolicyWrite) {
+        gatePolicyWrite = false
+        policyWriteStarted = true
+        await policyGate
+      }
+      backing[key] = value
+      return { ok: true }
+    }
+  }
+  let worker = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+  let replacement: Awaited<ReturnType<typeof mountWorker>> | undefined
+  try {
+    await waitUntil('snooze target roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'snooze-agent'))
+    const control = await worker.request('notification.control.read', { projectId: '/drain-snooze', agentId: 'snooze-agent' })
+    assert.equal(control.status, 'ready')
+    assert.ok(control.episodeId)
+    gatePolicyWrite = true
+    const snooze = worker.request('notification.reminder.snooze', {
+      projectId: '/drain-snooze', agentId: 'snooze-agent', episodeId: control.episodeId, choice: 'manual'
+    })
+    await waitUntil('snooze storage write gate', () => policyWriteStarted)
+    let stopped = false
+    const shutdown = main.deactivate().then(() => { stopped = true })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(stopped, false, 'deactivation must drain an in-flight snooze policy write')
+    releasePolicyWrite()
+    await shutdown
+    assert.deepEqual(await snooze, { ok: false, error: 'Could not save notification settings. Try again.' })
+    await worker.deactivate()
+
+    replacement = await mountWorker(main, { host: mockHost({ results: storageResults }) })
+    const restored = await replacement.request('notification.control.read', {
+      projectId: '/drain-snooze', agentId: 'snooze-agent'
+    })
+    assert.equal(restored.status, 'ready')
+    assert.equal(restored.snoozed, true)
+    assert.ok(restored.episodeId)
+    assert.deepEqual(await replacement.request('notification.reminder.snooze', {
+      projectId: '/drain-snooze', agentId: 'snooze-agent', episodeId: restored.episodeId, choice: 'resume'
+    }), { ok: true })
+    assert.deepEqual((backing['notification.policy'] as { reminderSnoozes: unknown[] }).reminderSnoozes, [])
+  } finally {
+    releasePolicyWrite()
+    await worker.deactivate()
+    await replacement?.deactivate()
+    listed = null
+  }
+})
+
+test('deactivation drains notification policy recovery and prevents a late restore', async () => {
+  listed = [{ path: '/drain-recovery', agents: [{ paneKey: 'recovery-agent', state: 'waiting', agentType: 'claude' }] }]
+  const original = { mutedProjects: ['/drain-recovery'], reminderSnoozes: [], handledTransitions: [] }
+  let policyReads = 0
+  let policyWrites = 0
+  let recoveryStarted = false
+  let releaseRecovery!: () => void
+  const recoveryGate = new Promise<void>((resolve) => { releaseRecovery = resolve })
+  const backing: Record<string, unknown> = { prefs: { notifyBlocked: false }, 'notification.policy': original }
+  const host = mockHost({ results: {
+    'storage.get': async (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'notification.policy' && ++policyReads === 1) throw new Error('temporary read failure')
+      if (key === 'notification.policy' && policyReads === 2) {
+        recoveryStarted = true
+        await recoveryGate
+      }
+      return { value: backing[key] ?? null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'notification.policy') policyWrites++
+      backing[key] = value
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await waitUntil('recovery policy read failure', async () =>
+      (await worker.request('notification.control.read', { projectId: '/drain-recovery' })).status === 'error')
+    await waitUntil('notification policy retry read gate', () => recoveryStarted)
+    let stopped = false
+    const shutdown = main.deactivate().then(() => { stopped = true })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    assert.equal(stopped, false, 'shutdown must drain an in-flight recovery read')
+    releaseRecovery()
+    await shutdown
+    assert.deepEqual(backing['notification.policy'], original)
+    assert.equal(policyWrites, 0)
+  } finally {
+    releaseRecovery()
+    await worker.deactivate()
     listed = null
   }
 })

@@ -102,7 +102,7 @@ const USAGE_MS = 30000
 const WALK_MS = 2500
 const MAX_PENDING_ADMISSIONS = 500
 
-let stop = (): void => {}
+let stop = async (): Promise<void> => {}
 
 export default function activate(orca: OrcaWorkerApi): void {
   const office = createOffice()
@@ -1123,7 +1123,11 @@ export default function activate(orca: OrcaWorkerApi): void {
     })
   })
 
-  stop = () => {
+  stop = async () => {
+    if (stopped) {
+      await notificationOps
+      return
+    }
     stopped = true
     clearTimeout(lookTimer)
     clearTimeout(officeRetryTimer)
@@ -1134,9 +1138,11 @@ export default function activate(orca: OrcaWorkerApi): void {
       clearTimeout(saveTimer)
       save()
     }
+    // Orca awaits deactivate(); do not let a replacement restore storage until queued policy writes settle.
+    await notificationOps
   }
 }
 
-export function deactivate(): void {
-  stop()
+export function deactivate(): Promise<void> {
+  return stop()
 }
