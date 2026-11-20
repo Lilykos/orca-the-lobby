@@ -653,6 +653,37 @@ test('notification controls are target-specific, persisted, and reject stale epi
   }
 })
 
+test('successful notification control writes publish a refresh for other panels', async () => {
+  listed = [{ path: '/notification-peer-refresh', agents: [{ paneKey: 'peer-agent', state: 'working', agentType: 'claude' }] }]
+  const worker = await mountWorker(main)
+  try {
+    await waitUntil('notification peer roster', async () => (await worker.request('office.snapshot')).agents.some((agent) => agent.id === 'peer-agent'))
+    const agent = (await worker.request('office.snapshot')).agents.find((entry) => entry.id === 'peer-agent')!
+    const projectId = agent.projectId ?? agent.workspaceId!
+    let stableCount = 0
+    let lastCount = -1
+    for (let i = 0; i < 30 && stableCount < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      const count = worker.posts.filter((post) => post.event === 'office.update').length
+      stableCount = count === lastCount ? stableCount + 1 : 0
+      lastCount = count
+    }
+    const beforeMute = worker.posts.filter((post) => post.event === 'office.update').length
+    assert.deepEqual(await worker.request('notification.project.mute', { projectId, muted: true }), { ok: true })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    assert.ok(worker.posts.filter((post) => post.event === 'office.update').length > beforeMute, 'successful mute did not refresh other panels')
+    const afterMute = worker.posts.filter((post) => post.event === 'office.update').length
+    assert.deepEqual(await worker.request('notification.reminder.snooze', {
+      projectId, agentId: agent.id, episodeId: `${agent.id}@${agent.stateStartedAt}`, choice: 'manual'
+    }), { ok: true })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    assert.ok(worker.posts.filter((post) => post.event === 'office.update').length > afterMute, 'successful snooze did not refresh other panels')
+  } finally {
+    await worker.deactivate()
+    listed = null
+  }
+})
+
 test('a successful snooze waits for durable status-transition identity before acknowledging', async () => {
   listed = [{ path: '/durable-snooze', agents: [{ paneKey: 'durable-agent', state: 'working', agentType: 'claude' }] }]
   const backing: Record<string, unknown> = { prefs: { notifyBlocked: false } }

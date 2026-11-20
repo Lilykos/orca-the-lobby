@@ -25,6 +25,7 @@ scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actio
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
 scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace'), (420, 'prefsreadrecover'), (420, 'prefsackrace'), (420, 'installationrecover'), (420, 'installationrecoverchoice')]  # inbox, shared filters and startup preference
+scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys')]  # local notification controls
 
 if args.only:
     wanted = set(args.only.split(','))
@@ -37,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
     html = args.fixture.resolve() if args.fixture else build_fixture(pathlib.Path(scratch) / 'fixture.html')
     for width, scenario in scenarios:
         command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
-        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario in ('reduced', 'drawer-reduced') else 'no-preference'}]})
+        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario in ('reduced', 'drawer-reduced', 'notificationkeys') else 'no-preference'}]})
         command('Page.navigate', {'url': html.as_uri() + '?scenario=' + scenario + ('&theme=light' if scenario == 'light' else '')})
         wait_for_fixture = {'expression': "new Promise(resolve=>{const n=setInterval(()=>{if(document.body?.dataset.fixture){clearInterval(n);resolve({result:document.body.dataset.fixture,width:innerWidth,errors:document.body.dataset.errors})}},25);setTimeout(()=>{clearInterval(n);resolve({result:'TIMEOUT'})},5000)})", 'awaitPromise': True, 'returnByValue': True}
         try:
@@ -48,6 +49,13 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             result = command('Runtime.evaluate', wait_for_fixture)['result']['value']
         print(width, scenario, json.dumps(result))
         if result.get('result') != 'PASS' or result.get('width') != width or result.get('errors'): raise RuntimeError('fixture failed')
+        if scenario == 'notificationkeys':
+            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=notification\\\\:project\\\\:p\\\\:mute]')?.focus()"})
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            time.sleep(.15)
+            state = command('Runtime.evaluate', {'expression': "({status:document.querySelector('.notification-project-status')?.textContent,focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if not state['status'] or 'muted' not in state['status'] or state['focus'] != 'notification:project:p:mute': raise RuntimeError('keyboard mute lost focus or did not acknowledge: ' + str(state))
         if scenario == 'attentionkeyboard':
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})

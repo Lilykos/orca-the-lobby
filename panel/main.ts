@@ -8,6 +8,7 @@ import {
   contextFill,
   overdue,
   readPrefs,
+  workspaceContext,
   usageTotal,
   type ActionResult,
   type Activity,
@@ -15,6 +16,7 @@ import {
   type AgentContext,
   type AgentView,
   type OfficeSnapshot,
+  type NotificationControlState,
   type PaletteChoice,
   type Prefs,
   type Usage
@@ -36,7 +38,7 @@ import { assignAgentNames, readAgentNames } from './names'
 import { moveProject, orderProjects, projectGroups, taskLabel } from './work-map'
 import { chartLayout, needsAttention, hasAttention, attentionBranches, NODE_WIDTH, NODE_HEIGHT } from './chart'
 import { buildFamilyTree, syncFamilyExpansion, type FamilyNode } from './family'
-import { refreshAttentionTimes, renderAttention } from './attention'
+import { refreshAttentionTimes, renderAttention, type NotificationProjectRow, type NotificationReminderRow } from './attention'
 import { filterAgents } from './search'
 import { PALETTES, PALETTE_OPTIONS, paletteVariables } from './palettes'
 import {
@@ -78,6 +80,10 @@ const pages = [...document.querySelectorAll<HTMLElement>('.page')]
 const activityList = document.getElementById('activity-list') as HTMLElement
 const settings = document.getElementById('settings') as HTMLElement
 const attentionList = document.getElementById('attention-list') as HTMLElement
+type NotificationTarget = { signature: string; state: NotificationControlState | null; loading: boolean; busy: boolean; message: string; retry?: () => void; focusKey?: string; generation: number }
+const notificationProjects = new Map<string, NotificationTarget>()
+const notificationReminders = new Map<string, NotificationTarget>()
+const notificationExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const attentionFeedback = document.getElementById('attention-feedback') as HTMLElement
 const filterBar = document.getElementById('view-filters') as HTMLElement
 let searchText = ''
@@ -725,7 +731,7 @@ function setPage(id: string, persist = true): void {
   banner.hidden = id !== 'office' || brandCollapsed
   document.documentElement.classList.toggle('compact', prefs.density === 'compact')
   if (id === 'activity') renderActivity()
-  if (id === 'attention') renderAttentionPage()
+  if (id === 'attention') renderAttentionPage(true)
   if (refreshOffice) { listed = ''; renderList() }
   if (persist && id !== 'settings') {
     persistPrefsPatch({ selectedView: id as Prefs['selectedView'] })
@@ -733,10 +739,155 @@ function setPage(id: string, persist = true): void {
   renderDrawer()
 }
 
-function renderAttentionPage(): void {
+function notificationProjectId(agent: AgentView): string {
+  return agent.projectId ?? agent.workspaceId ?? agent.id
+}
+
+function notificationSignature(agent: AgentView): string {
+  return JSON.stringify([notificationProjectId(agent), agent.state, agent.stateStartedAt])
+}
+
+function ensureNotificationTarget(map: Map<string, NotificationTarget>, key: string, signature: string): NotificationTarget {
+  const previous = map.get(key)
+  if (previous?.signature === signature) return previous
+  if (previous) previous.generation++
+  const next: NotificationTarget = { signature, state: null, loading: false, busy: false, message: '', generation: 0 }
+  map.set(key, next)
+  return next
+}
+
+function startNotificationRead(
+  map: Map<string, NotificationTarget>, key: string, target: NotificationTarget,
+  input: { projectId: string; agentId?: string; episodeId?: string }, stillCurrent: () => boolean, force = false
+): void {
+  if (target.busy || (target.loading && !force) || (!force && target.state)) return
+  const generation = ++target.generation
+  target.loading = true
+  target.message = ''
+  target.retry = undefined
+  if (input.agentId) {
+    const timer = notificationExpiryTimers.get(input.agentId)
+    if (timer) clearTimeout(timer)
+    notificationExpiryTimers.delete(input.agentId)
+  }
+  const apply = (state: NotificationControlState): void => {
+    if (map.get(key) !== target || target.generation !== generation || !stillCurrent()) return
+    target.loading = false
+    if (state.status === 'error' && state.error?.includes('episode is no longer current') && input.agentId && input.episodeId) {
+      target.state = null
+      startNotificationRead(map, key, target, { projectId: input.projectId, agentId: input.agentId }, stillCurrent, true)
+      return
+    }
+    target.state = state.status === 'loading'
+      ? { ...state, status: 'error', error: 'Notification settings are still loading. Retry to check again.' }
+      : state
+    target.message = target.state.status === 'error' ? target.state.error ?? 'Notification settings are unavailable.' : ''
+    target.retry = target.state.status === 'ready' ? undefined : () => startNotificationRead(map, key, target, input, stillCurrent, true)
+    if (input.agentId && target.state.status === 'ready' && target.state.snoozed && target.state.expiresAt !== null && Number.isFinite(target.state.expiresAt)) {
+      const expiresAt = target.state.expiresAt
+      const delay = Math.max(0, expiresAt - Date.now()) + 25
+      notificationExpiryTimers.set(input.agentId, setTimeout(() => {
+        notificationExpiryTimers.delete(input.agentId!)
+        if (!document.hidden && map.get(key) === target && stillCurrent())
+          startNotificationRead(map, key, target, input, stillCurrent, true)
+      }, delay))
+    }
+    renderAttentionPage()
+  }
+  void orca.plugin.request('notification.control.read', input).then(apply).catch((error: unknown) => {
+    apply({ status: 'error', projectId: input.projectId, muted: null, agentId: input.agentId ?? null, episodeId: null, snoozed: null, expiresAt: null, error: error instanceof Error ? error.message : 'Could not read notification settings.' })
+  })
+}
+
+function saveNotification(
+  map: Map<string, NotificationTarget>, key: string, target: NotificationTarget,
+  request: 'notification.project.mute' | 'notification.reminder.snooze', input: Record<string, unknown>,
+  read: (force: boolean) => void, stillCurrent: () => boolean
+): void {
+  const attempt = async (): Promise<void> => {
+    if (!stillCurrent() || target.busy) return
+    target.focusKey ??= attentionList.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
+    target.busy = true
+    target.message = ''
+    target.retry = undefined
+    renderAttentionPage()
+    let result: ActionResult
+    try {
+      result = request === 'notification.project.mute'
+        ? await orca.plugin.request(request, input as { projectId: string; muted: boolean })
+        : await orca.plugin.request(request, input as { projectId: string; agentId: string; episodeId: string; choice: '15m' | '1h' | 'manual' | 'resume' })
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : 'Could not save notification settings.' }
+    }
+    if (map.get(key) !== target || !stillCurrent()) return
+    target.busy = false
+    if (result.ok) {
+      target.message = ''
+      target.retry = undefined
+      read(true)
+    } else {
+      target.message = result.error
+      target.retry = () => { void attempt() }
+      renderAttentionPage()
+    }
+  }
+  void attempt()
+}
+
+function syncNotificationControls(force = false): { projects: NotificationProjectRow[]; reminders: NotificationReminderRow[] } {
+  const inProject = (agent: AgentView): boolean => projectFilter === 'all' || notificationProjectId(agent) === projectFilter
+  const projectAgents = office.agents.filter((agent) => inProject(agent) && Boolean(agent.projectId || agent.workspaceId))
+  const projectNames = new Map<string, string>()
+  for (const agent of projectAgents) {
+    const id = notificationProjectId(agent)
+    const context = workspaceContext(agent, office)
+    projectNames.set(id, context.project ?? context.workspace ?? 'Project name unavailable')
+  }
+  for (const [id, target] of notificationProjects) {
+    if (projectNames.has(id)) continue
+    target.generation++
+    notificationProjects.delete(id)
+  }
+  const projectRows: NotificationProjectRow[] = [...projectNames].map(([projectId, name]) => {
+    const target = ensureNotificationTarget(notificationProjects, projectId, projectId)
+    const current = (): boolean => notificationProjects.get(projectId) === target && projectNames.has(projectId)
+    startNotificationRead(notificationProjects, projectId, target, { projectId }, current, force)
+    return { projectId, name, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retry: target.retry }
+  }).sort((a, b) => projectOrder().indexOf(a.projectId) - projectOrder().indexOf(b.projectId) || a.name.localeCompare(b.name))
+
+  const visible = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false)
+  const reminders = visible.filter((agent) => overdue(agent, Date.now(), prefs.stuckMinutes) !== null)
+  const reminderIds = new Set(reminders.map((agent) => agent.id))
+  for (const [id, target] of notificationReminders) {
+    if (reminderIds.has(id)) continue
+    target.generation++
+    notificationReminders.delete(id)
+    const timer = notificationExpiryTimers.get(id)
+    if (timer) clearTimeout(timer)
+    notificationExpiryTimers.delete(id)
+  }
+  const reminderRows: NotificationReminderRow[] = reminders.map((agent) => {
+    const projectId = notificationProjectId(agent)
+    const signature = notificationSignature(agent)
+    const target = ensureNotificationTarget(notificationReminders, agent.id, signature)
+    const current = (): boolean => {
+      const live = office.agents.find((item) => item.id === agent.id)
+      return notificationReminders.get(agent.id) === target && Boolean(live && notificationSignature(live) === signature && overdue(live, Date.now(), prefs.stuckMinutes))
+    }
+    const input = target.state?.status === 'ready' && target.state.episodeId
+      ? { projectId, agentId: agent.id, episodeId: target.state.episodeId }
+      : { projectId, agentId: agent.id }
+    startNotificationRead(notificationReminders, agent.id, target, input, current, force)
+    return { projectId, name: nameOf(agent), agent, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retry: target.retry }
+  })
+  return { projects: projectRows, reminders: reminderRows }
+}
+
+function renderAttentionPage(refreshNotifications = false): void {
   const filtered = { ...office, agents: filterAgents(office.agents, office, searchText, projectFilter, nameOf, false) }
   const now = Date.now()
   for (const agent of filtered.agents) refreshActions(agent.id, now)
+  const notifications = syncNotificationControls(refreshNotifications)
   renderAttention(attentionList, filtered, new Set(office.reviewedCompletions ?? []), {
     go: (agent, done) => {
       void orca.plugin.request('office.goTo', { agentId: agent.id }).then((result: ActionResult) => {
@@ -760,7 +911,38 @@ function renderAttentionPage(): void {
         done()
       }).catch(() => { attentionFeedback.textContent = 'Could not save the review. Try again.'; done('Could not save the review. Try again.') })
     }
-  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf)
+  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf, {
+    ...notifications,
+    actions: {
+      mute: (row) => {
+        const target = notificationProjects.get(row.projectId)
+        if (!target?.state || target.state.status !== 'ready') return
+        const current = (): boolean => notificationProjects.get(row.projectId) === target && office.agents.some((agent) => notificationProjectId(agent) === row.projectId)
+        saveNotification(notificationProjects, row.projectId, target, 'notification.project.mute', { projectId: row.projectId, muted: !target.state.muted },
+          (force) => startNotificationRead(notificationProjects, row.projectId, target, { projectId: row.projectId }, current, force), current)
+      },
+      snooze: (row, choice) => {
+        const target = notificationReminders.get(row.agent.id)
+        if (!target?.state || target.state.status !== 'ready' || !target.state.episodeId) return
+        const episodeId = target.state.episodeId
+        const current = (): boolean => {
+          const live = office.agents.find((agent) => agent.id === row.agent.id)
+          return notificationReminders.get(row.agent.id) === target && Boolean(live && notificationSignature(live) === target.signature && overdue(live, Date.now(), prefs.stuckMinutes))
+        }
+        saveNotification(notificationReminders, row.agent.id, target, 'notification.reminder.snooze', { projectId: row.projectId, agentId: row.agent.id, episodeId, choice },
+          (force) => startNotificationRead(notificationReminders, row.agent.id, target, { projectId: row.projectId, agentId: row.agent.id, episodeId }, current, force), current)
+      }
+    }
+  })
+  for (const target of [...notificationProjects.values(), ...notificationReminders.values()]) {
+    if (!target.focusKey) continue
+    const control = [...attentionList.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
+      .find((button) => button.dataset.focusKey === target.focusKey)
+    if (control) {
+      control.focus({ preventScroll: true })
+      target.focusKey = undefined
+    }
+  }
 }
 
 let brandCollapsed = false
@@ -1886,7 +2068,7 @@ function refreshVisibleTimes(): void {
   }
 }
 
-async function acceptSnapshot(snapshot: OfficeSnapshot): Promise<void> {
+async function acceptSnapshot(snapshot: OfficeSnapshot, refreshNotifications = false): Promise<void> {
   await agentNamesReady
   const present = new Set(snapshot.agents.map((agent) => agent.id))
   for (const id of new Set([...actionsOf.keys(), ...actionRequests.keys()])) {
@@ -1902,14 +2084,14 @@ async function acceptSnapshot(snapshot: OfficeSnapshot): Promise<void> {
   renderFilters()
   renderList()
   if (currentPage === 'activity') renderActivity()
-  if (currentPage === 'attention') renderAttentionPage()
+  if (currentPage === 'attention') renderAttentionPage(refreshNotifications)
 }
 
 function refresh(): void {
   void orca.plugin
     .request('office.snapshot')
     .then((snapshot) => {
-      return acceptSnapshot(snapshot)
+      return acceptSnapshot(snapshot, true)
     })
     .then(() => {
       frame()
@@ -2281,7 +2463,7 @@ offices.before(officeBar)
 new ResizeObserver(applyLayout).observe(document.documentElement)
 
 orca.plugin.on('office.update', (snapshot) => {
-  void acceptSnapshot(snapshot)
+  void acceptSnapshot(snapshot, true)
 })
 // Posts made while the panel was hidden are gone: ask again when it shows.
 document.addEventListener('visibilitychange', () => {

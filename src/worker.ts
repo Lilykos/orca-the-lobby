@@ -792,6 +792,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       }
       if (!await persistNotificationPolicy(next)) return { ok: false, error: 'Could not save notification settings. Try again.' }
       scheduleNotificationTimer()
+      changed()
       return { ok: true }
     })
   })
@@ -840,6 +841,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       }
       if (!await persistNotificationPolicy(update.policy)) return { ok: false, error: 'Could not save notification settings. Try again.' }
       scheduleNotificationTimer()
+      changed()
       return { ok: true }
     })
   })

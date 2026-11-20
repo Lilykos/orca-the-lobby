@@ -68,6 +68,14 @@
       #view-filters select, #view-filters input { min-height: 34px; padding: 4px 8px; color: var(--ui-foreground); background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); font: inherit; }
       #filter-count { align-self: center; color: var(--ui-muted-foreground); white-space: nowrap; }
       #attention-list { display: grid; gap: 8px; }
+      .notification-controls { display: grid; gap: 6px; min-width: 0; margin-bottom: 8px; }
+      .notification-controls > h2 { margin: 4px 0 0; font-size: 14px; }
+      .notification-note, .notification-project-status, .notification-agent-status, .notification-error { margin: 2px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .notification-card { display: grid; gap: 5px; min-width: 0; padding: 8px; background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); }
+      .notification-title { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
+      .notification-error { color: var(--ui-warning, var(--ui-muted-foreground)); }
+      .notification-card > .action { justify-self: start; min-height: 36px; max-width: 100%; white-space: normal; }
+      :root.compact .notification-card { padding: 5px; }
       .attention-heading { margin: 4px 0; font-size: 18px; }
       .attention-counts { margin: 0; color: var(--ui-muted-foreground); }
       .attention-group h2 { margin: 12px 0 6px; font-size: 13px; }

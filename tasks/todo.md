@@ -81,23 +81,23 @@ Verified in reviewed extraction commits `209ee38` and `e1f01f0`; unit and worker
 
 ## 09 — Project mute and reminder snooze (M)
 
-- [ ] Add persistent project mute and episode-scoped reminder snooze with clear controls, expiry and resume.
-- [ ] Keep blocked agents visible/counted; neither mute nor snooze changes Orca-native settings or replays an old notification backlog.
-- [ ] Verify restart, expiry, a new turn/failure, pending notifications, cancelled writes and visibly muted/snoozed UI states.
+- [x] Add persistent project mute and episode-scoped reminder snooze with clear controls, expiry and resume.
+- [x] Keep blocked agents visible/counted; neither mute nor snooze changes Orca-native settings or replays an old notification backlog.
+- [x] Verify restart, expiry, a new turn/failure, pending notifications, cancelled writes and visibly muted/snoozed UI states.
 
 Dependencies: 03, 04, 08. Likely files: src/protocol.ts, src/notifications.ts, src/worker.ts, panel/attention.ts, src/worker.test.ts. Test policy cases in the module's existing test file as needed.
 
-Status: the reviewed worker backend for project mute, episode snooze, persistence and shutdown draining is integrated in root commits `43ec1ae`–`ddcca2e`. Visible panel controls and the live trial remain pending, so acceptance stays unchecked and user-facing copy must not promise those controls yet.
+Status: reviewed worker persistence/shutdown handling and visible Attention controls are verified by worker and browser fixtures. Mute and snooze remain local to The Lobby; the live notification trial is still pending at Checkpoint C.
 
 ## 10 — Burst notification grouping (M)
 
-- [ ] Group eligible notifications by project and kind over a non-extending two-second window; preserve useful individual messages.
-- [ ] Re-check eligibility/mute before dispatch and prevent duplicate delivery or indefinite retries across polling and restart.
-- [ ] Verify isolated events, bursts, distinct projects/kinds, state changes during the window, failure and restart using deterministic time.
+- [x] Group eligible notifications by project and kind over a non-extending two-second window; preserve useful individual messages.
+- [x] Re-check eligibility/mute before dispatch and prevent duplicate delivery or indefinite retries across polling and restart.
+- [x] Verify isolated events, bursts, distinct projects/kinds, state changes during the window, failure and restart using deterministic time.
 
 Dependencies: 08–09. Likely files: src/notifications.ts, src/notifications.test.ts, src/worker.ts, src/worker.test.ts.
 
-Status: reviewed two-second burst grouping and worker dispatch backend are integrated in root commits `43ec1ae`–`ddcca2e`; final combined review and development trial remain pending. Acceptance stays unchecked; the release copy remains deferred.
+Status: reviewed two-second grouping and worker dispatch backend passed policy/worker tests and the combined full suite. Live notification trial remains pending at Checkpoint C; release copy remains deferred.
 
 ### Checkpoint C
 
