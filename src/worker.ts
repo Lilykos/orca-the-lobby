@@ -1128,6 +1128,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   orca.panels.handle('prefs.patch', (input) => {
+    if (stopped) return { ok: false, error: 'The worker stopped before saving settings.' }
     const patch = checkedPrefsPatch(input?.patch)
     if (!patch) return { ok: false, error: 'Those Lobby settings are invalid.' }
     const operation = prefsWriteQueue.then(async () => {
@@ -1151,6 +1152,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (stopped) {
       await notificationOps
       await writes
+      await prefsWriteQueue
       return
     }
     stopped = true
@@ -1167,6 +1169,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     // Snoozes can enqueue office writes, so drain notification work before the office write chain.
     await notificationOps
     await writes
+    await prefsWriteQueue
   }
 }
 

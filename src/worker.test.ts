@@ -223,6 +223,52 @@ test('serial preference patches reread latest settings and acknowledge only afte
   }
 })
 
+test('worker deactivation waits for an in-flight preference patch', async () => {
+  let gatePrefsRead = false
+  let releasePrefsRead!: () => void
+  let beginPrefsRead!: () => void
+  const prefsReadGate = new Promise<void>((resolve) => { releasePrefsRead = resolve })
+  const prefsReadStarted = new Promise<void>((resolve) => { beginPrefsRead = resolve })
+  const storedPrefs = { palette: 'github-light', notifyBlocked: true }
+  const host = mockHost({ results: {
+    'storage.get': async (params: unknown) => {
+      const key = (params as { key: string }).key
+      if (key === 'prefs' && gatePrefsRead) {
+        gatePrefsRead = false
+        beginPrefsRead()
+        await prefsReadGate
+      }
+      return { value: key === 'prefs' ? storedPrefs : null }
+    },
+    'storage.set': (params: unknown) => {
+      const { key, value } = params as { key: string; value: unknown }
+      if (key === 'prefs') Object.assign(storedPrefs, value)
+      return { ok: true }
+    }
+  } })
+  const worker = await mountWorker(main, { host })
+  try {
+    await worker.request('office.installation')
+    gatePrefsRead = true
+    const patch = worker.request('prefs.patch', { patch: { notifyBlocked: false } })
+    await prefsReadStarted
+    let deactivated = false
+    const shutdown = main.deactivate().then(() => { deactivated = true })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(deactivated, false, 'deactivation must wait for a preference patch already in progress')
+    releasePrefsRead()
+    assert.deepEqual(await patch, { ok: true })
+    await shutdown
+    assert.deepEqual(storedPrefs, { palette: 'github-light', notifyBlocked: false })
+    assert.deepEqual(await worker.request('prefs.patch', { patch: { notifyDone: false } }), {
+      ok: false, error: 'The worker stopped before saving settings.'
+    })
+  } finally {
+    releasePrefsRead()
+    await worker.deactivate()
+  }
+})
+
 test('preference patch failures are reported without changing saved values and retry cleanly', async () => {
   let failRead = true
   let failWrite = false
