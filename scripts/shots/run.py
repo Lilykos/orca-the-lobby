@@ -96,9 +96,29 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             if state != 'clear-filters': raise RuntimeError('closed active Filter did not Tab to the accessible Clear action: ' + str(state))
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            state = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.dataset.focusKey,clearHidden:document.querySelector('#clear-filters').hidden})", 'returnByValue': True})['result']['value']
+            if state != {'focus': 'shared-filter-summary', 'clearHidden': True}: raise RuntimeError('Enter Clear hid its focused control without returning focus to Filter: ' + str(state))
+            command('Runtime.evaluate', {'expression': "(()=>{const q=document.querySelector('#view-filters input');q.value='Feature';q.dispatchEvent(new Event('input',{bubbles:true}));const p=document.querySelector('#view-filters select');p.value='q';p.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('#filter-summary').focus()})()"})
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            for _ in range(3):
+                command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9})
+                command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9})
+            state = command('Runtime.evaluate', {'expression': "document.activeElement?.id", 'returnByValue': True})['result']['value']
+            if state != 'clear-filters': raise RuntimeError('keyboard traversal did not reach Clear before Space activation: ' + str(state))
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': ' ', 'code': 'Space', 'windowsVirtualKeyCode': 32, 'text': ' ', 'unmodifiedText': ' '})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': ' ', 'code': 'Space', 'windowsVirtualKeyCode': 32})
+            state = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.dataset.focusKey,query:document.querySelector('#view-filters input').value,project:document.querySelector('#view-filters select').value,hidden:document.querySelector('#clear-filters').hidden})", 'returnByValue': True})['result']['value']
+            if state != {'focus': 'shared-filter-summary', 'query': '', 'project': 'all', 'hidden': True}: raise RuntimeError('Space Clear did not reset filters and restore focus: ' + str(state))
             command('Runtime.evaluate', {'expression': "document.querySelector('#office-tab').click()"})
             state = command('Runtime.evaluate', {'expression': "({query:document.querySelector('#view-filters input').value,project:document.querySelector('#view-filters select').value,clear:document.querySelector('#clear-filters').hidden,rows:document.querySelectorAll('#offices .agent').length})", 'returnByValue': True})['result']['value']
             if state['query'] or state['project'] != 'all' or not state['clear'] or state['rows'] != 3: raise RuntimeError('Clear filters did not reset shared restrictions: ' + str(state))
+            command('Runtime.evaluate', {'expression': "document.querySelector('#attention-tab').click();document.querySelector('#filter-summary').focus()"})
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            time.sleep(.05)
+            state = command('Runtime.evaluate', {'expression': "({open:document.querySelector('#filter-disclosure').open,indicator:document.querySelector('#filter-indicator').textContent,focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if state != {'open': False, 'indicator': '▸', 'focus': 'shared-filter-summary'}: raise RuntimeError('collapsed Filter screenshot state lost its indicator or focus: ' + str(state))
         if scenario == 'sharedbanner':
             for hidden in (True, False):
                 command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})

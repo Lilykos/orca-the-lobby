@@ -1077,7 +1077,9 @@ function renderFilters(): void {
   document.getElementById('filter-summary')!.setAttribute('aria-label', active ? `Filter, ${active} active ${active === 1 ? 'filter' : 'filters'}` : 'Filter')
   document.getElementById('filter-count')!.textContent = active ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : ''
   const clear = document.getElementById('clear-filters') as HTMLButtonElement
+  const clearOwnsFocus = document.activeElement === clear
   clear.hidden = active === 0
+  if (clearOwnsFocus && clear.hidden) document.getElementById('filter-summary')!.focus({ preventScroll: true })
 }
 
 const searchInput = document.createElement('input')
@@ -1090,6 +1092,9 @@ projectSelect.setAttribute('aria-label', 'Filter by project')
 projectSelect.dataset.focusKey = 'shared-project'
 filterBar.querySelector('#filter-controls')!.append(searchInput, projectSelect)
 const clearFilters = document.getElementById('clear-filters') as HTMLButtonElement
+const filterDisclosure = document.getElementById('filter-disclosure') as HTMLDetailsElement
+const filterIndicator = document.getElementById('filter-indicator')!
+filterDisclosure.addEventListener('toggle', () => { filterIndicator.textContent = filterDisclosure.open ? '▾' : '▸' })
 clearFilters.addEventListener('click', () => {
   searchText = ''
   projectFilter = 'all'
