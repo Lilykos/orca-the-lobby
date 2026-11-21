@@ -33,7 +33,7 @@ Requires Orca **1.4.248 or newer**.
 orca plugin install Lilykos/orca-the-lobby
 ```
 
-This checkout prepares the **1.3.0** release candidate. Until it is published, the catalog install command resolves to the latest published release.
+This command installs the latest published release from the Orca community catalog.
 
 Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins).
 
@@ -115,7 +115,7 @@ Controls that cannot work for an agent are left out. A blocked agent says it nee
 
 **Appearance** comes first: choose the color palette, Comfortable or Compact density, the shared pixel banner, animation and manual room-order reset. **Notifications** keeps the global switches and reminder interval together, then a native collapsed **Project and episode controls** disclosure. Its summary shows active, muted/snoozed and unavailable counts; expand it to mute a project or snooze a current episode. Read and save errors stay visible with Retry even while the disclosure is closed.
 
-**Local data** explains the observation journal and privacy limits. **Clear activity history** asks you to Cancel or confirm Clear before deleting it, then reports the result. The compact About footer links to the guide, GitHub, What's new and issue reporting, and shows version 1.3.0.
+**Local data** explains the observation journal and privacy limits. **Clear activity history** asks you to Cancel or confirm Clear before deleting it, then reports the result. The compact About footer links to the guide, GitHub, What's new and issue reporting, and shows the installed version.
 
 Palette choices are Orca default (follows the app theme), Catppuccin Mocha / Latte, Dracula and GitHub Dark / Light; status colors keep their meaning. The shared banner starts visible. Animation also respects system reduced-motion preferences. The Office and Activity room order follows the sidebar unless you set a manual order.
 

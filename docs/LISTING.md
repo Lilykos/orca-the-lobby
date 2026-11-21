@@ -2,7 +2,7 @@
 
 What to submit for The Lobby, checked against the catalog's rules (<https://onorca.dev/plugins/add/>, the [listing policy](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-listing-policy.md) and [plugin authoring](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md), read 2026-11-13).
 
-This entry is prepared for the 1.3.0 release candidate. It is not published yet; until publication, the catalog install command resolves to the latest published tag.
+This entry describes The Lobby 1.3.0 catalog release. The install command resolves to the latest published tag.
 
 ## How listing works
 
@@ -49,7 +49,7 @@ The plugin has no telemetry or direct network requests. Orca uses its existing c
 
 ### Release status
 
-This 1.3.0 entry is prepared but not published. The install command continues to resolve to the latest published tag until the release is published. The six-image catalog limit still applies. See the [README](../README.md) for actual retention limits and completion-identity ambiguities.
+The catalog allows up to six screenshots. See the [README](../README.md) for retention limits and completion-identity ambiguities.
 
 ### Capabilities declared
 

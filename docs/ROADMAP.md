@@ -6,9 +6,9 @@ Suggested order: 1 and 2 first (small, felt every day), then 3 and 12, then whic
 
 ## Soon
 
-### 1.3.0 release candidate: Attention and everyday polish
+### Release 1.3: Attention and everyday polish
 
-The approved plan is in [tasks/plan.md](../tasks/plan.md), with the implementation checklist in [tasks/todo.md](../tasks/todo.md). Attention has compact task-first rows, a counted collapsed Finished disclosure, explicit result-drawer review, shared Filter disclosure and distinct quiet states; local Reviewed state, search/project filtering, visual density, drawer hierarchy, project mute, episode reminder snooze and burst grouping are implemented and reviewed on the development branch. The 1.3.0 release candidate is prepared but not published. The real GUI trial, paired-server behavior and Windows/Linux runtime behavior remain unverified; the source-folder development panel-load issue is documented in [Architecture](ARCHITECTURE.md). Session history, a general timeline, PR/CI integrations and broader host-health work remain later-release candidates.
+The approved plan is in [tasks/plan.md](../tasks/plan.md), with the implementation checklist in [tasks/todo.md](../tasks/todo.md). Attention has compact task-first rows, a counted collapsed Finished disclosure, explicit result-drawer review, shared Filter disclosure and distinct quiet states; local Reviewed state, search/project filtering, visual density, drawer hierarchy, project mute, episode reminder snooze and burst grouping are included in 1.3.0. The real GUI trial, paired-server behavior and Windows/Linux runtime behavior remain unverified; the source-folder panel-load failure is documented in [Architecture](ARCHITECTURE.md). Session history, a general timeline, PR/CI integrations and broader host-health work remain later-release candidates.
 
 ### Release 1.2.0 checklist: paired servers and Orca compatibility
 
