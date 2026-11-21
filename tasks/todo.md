@@ -1,5 +1,7 @@
 # The Lobby 1.3 tasks
 
+Simplification revision proposed 2026-11-21: tasks 14–19 below extend this same release plan. Existing completed work and unrun live/platform gates remain intact. Presentation decisions are in the final section of [plan.md](plan.md); implementation has not started.
+
 Implementation started, 2026-11-20. Tasks 01–03 assigned first; remaining tasks follow the documented dependencies. Scope and behavioral rules: [plan.md](plan.md). Check a task only after its acceptance criteria and verification pass. Sizes are relative scope, not calendar promises.
 
 ## 01 — Explicit workspace context (M)
@@ -141,3 +143,55 @@ Dependencies: all required tasks and checkpoints. Likely files: orca-plugin.json
 - [ ] No regressions in Office, Activity, shared order, actions, privacy or upgrade settings.
 - [ ] Development trial, code review, docs/media checks and published-release verification are recorded.
 - [ ] Deferred upstream/platform work remains visible, not falsely marked complete.
+
+## Simplification pass — proposed tasks 14–19
+
+These tasks precede task 13 release preparation. Preserve the original live gates; a new fixture preview does not satisfy them.
+
+### 14 — Validate the simpler layout (S)
+
+- [ ] Capture the actual `708c385` baseline and create isolated busy/quiet layout previews with the same synthetic data at 280/420/900px; include a long title, duplicate project/task labels and unavailable navigation.
+- [ ] Show compact task rows, title-to-details/Open agent distinction, collapsed Finished count and filter affordance; preserve the shared banner choice and Settings notifications.
+- [ ] Review the comparison with the user before interactive implementation; record the selected layout without adding product settings.
+
+Dependencies: none. Files: existing fixture tooling and disposable preview artifacts outside production sources. Verification: visual inspection, no overflow, proposed four-short-row target at 420×800 with banner collapsed. Scope: S. No production behavior changes in this task.
+
+### 15 — Compact rows with explicit navigation (M)
+
+- [ ] Implement task/project/time rows, meaningful disambiguation and separate accessible title/details and validated Open agent actions; retain unavailable-action explanations.
+- [ ] Keep Reviewed explicit in result details, preserving durable error/retry handling and focus return to the next row/group after success.
+- [ ] Verify keyboard navigation, removed rows, async navigation, drawer drafts/confirmations and review-to-next with failing-then-passing fixture tests.
+
+Dependencies: 14 approved. Files: panel/attention.ts, panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: focused interaction scenarios, full plugin tests, type/plugin checks and diff check. Scope: M.
+
+### 16 — Progressive disclosure for finished work (M)
+
+- [ ] Keep Needs input/failures expanded; put remaining eligible completions under native Finished disclosure with accurate count and truthful unknown outcomes.
+- [ ] Preserve expansion during updates/view changes, reveal filtered completion matches, and restore the previous choice after clearing search; never auto-review or hide a nonzero count.
+- [ ] Test focused summaries, last-result review, live arrivals, search/clear and removal without focus stealing or scroll jumps.
+
+Dependencies: 15. Files: panel/attention.ts, panel/main.ts, scripts/shots/fixture.js, scripts/shots/run.py. Verification: targeted RED/GREEN scenarios, full browser run and type check. Scope: M. Checkpoint: Terra reviews row/action/disclosure behavior before shared-header work.
+
+### 17 — Quiet header and discoverable filters (M)
+
+- [ ] Consolidate redundant Attention totals; expose search/project controls under a visible Filter disclosure with active state and clear action that cannot conceal an applied restriction.
+- [ ] Preserve shared queries, project disappearance reset, user banner/view/order/density preferences and ordinary keyboard access across all functional views.
+- [ ] Verify 280/420/900px, reduced motion, themes, filter focus/live updates and real-shaped legacy preferences.
+
+Dependencies: 16. Files: panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: targeted RED/GREEN scenarios, full unit/type/plugin/browser checks. Scope: M.
+
+### 18 — Calm states and busy-update accessibility (M)
+
+- [ ] Distinguish no agents, no matches, no interventions with finished results and nothing pending; report working counts only from actual state and preserve all existing warnings.
+- [ ] Avoid repeated routine live announcements; retain accessible action/error feedback and truthful ages. Preserve focus, scroll, filter input and disclosure choice during 100-agent updates.
+- [ ] Verify four short intervention rows at 420×800 with banner collapsed, readable 280px content and minimum 32px controls without hover-only information.
+
+Dependencies: 17. Files: panel/attention.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: busy-update/quiet/error fixtures and keyboard/screen-reader semantics inspection. Scope: M. Checkpoint: Terra reviews behavior and visuals; user trials actual find → open → return and explicit review before acceptance.
+
+### 19 — Refresh docs/media and final regression evidence (M)
+
+- [ ] Update the existing task-12 docs/website work for the selected layout and Settings notification location; keep contributor credit, privacy and unreleased notices accurate.
+- [ ] Regenerate public fixture media, check budgets/links/mobile rendering, and rerun the repository's final unit/type/plugin/browser verification commands.
+- [ ] Record Terra approval and actual trial outcomes; leave unavailable paired-server/platform and accessibility-dependent checks explicitly unverified.
+
+Dependencies: 18. Deliver as two bounded batches: docs (README.md, docs/guide.html, docs/index.html, CHANGELOG.md, tasks/todo.md), then existing fixture media scripts/assets. Verification: existing media/size/link/render commands plus final review. Scope: M per batch. No version bump, publication or installed-plugin switch without the separate release instruction.

@@ -134,3 +134,42 @@ If the release needs trimming, defer drawer restructuring first, then notificati
 ## Proposed defaults to review
 
 The plan proposes: Attention as the new-install default; Office preserved on upgrade; only currently listed agents in 1.3; 24-hour bounded review metadata; two-second notification grouping; and the snooze durations above. These are product choices, not claims that the features already exist.
+
+## Simplification revision — 2026-11-21 (proposed, not implemented)
+
+### Objective and current baseline
+
+Make Attention useful during real work: identify the next intervention, reach the agent, and return without managing another busy dashboard. This revision updates presentation within the existing 1.3 scope. The existing identity, classification, Reviewed, permissions, persistence and notification contracts remain authoritative. Earlier live/platform and release gates remain open.
+
+Baseline is `708c385`, including `d2d639f`: notification controls already live in Settings, the banner has one shared toggle across views, and Attention has state colors. Preserve those changes; do not rebuild the older notification-heavy inbox shown in previous screenshots. Inspect current fixtures and source before implementing.
+
+Assumptions: preserve Office's pixel character and all three functional views; reduce default information rather than add another density setting; retain existing user banner/view/order choices; do not change backend semantics to make the screen look quieter.
+
+### Presentation decisions
+
+1. **Compact Attention rows.** Replace large cards with a task title (up to two lines), a secondary line with project and waiting/completion age, and a clear action. Retain a text state label where group context is insufficient. Omit repeated state phrases, character-name paragraphs, provider and routine local-host labels. Show workspace/branch/host only when needed to distinguish otherwise identical entries; keep all known metadata searchable and available in details. Missing titles fall back honestly to reported context, never generated summaries or inferred approval questions.
+2. **Separate navigation from details.** A task-title button opens Lobby details; one visible `Open agent` action uses the existing validated navigation. Avoid a whole clickable card containing other buttons. When navigation is unavailable, the task title still opens details and an accessible explanation states the limitation. Opening never marks Reviewed or sends input. Move explicit `Mark Reviewed` into result details, with its existing durable acknowledgement, errors and predictable next-item focus. No bulk dismissal, automatic review or new keyboard shortcuts.
+3. **Prioritize intervention without hiding results.** Keep Needs input and explicit failures expanded. Show other eligible completions in a native disclosure labeled `Finished · N`, collapsed on a fresh panel session. Unknown outcomes remain honestly labeled. Search with completion matches reveals those matches; clear search restores the preceding disclosure choice. User expansion survives live updates and view switches within the panel session. New arrivals never expand it or steal focus automatically. The disclosure always shows its count, including unread eligible results; collapsing does not alter classification, review state or notifications.
+4. **Calm header and filters.** Keep the existing shared banner preference, brand and navigation. Do not forcibly collapse an existing user's chosen banner. Use one compact Attention heading/count area, not a live-agent count plus queue summary plus repeated totals. Keep a visible `Filter` disclosure for search/project controls, with an active-filter count and an always-accessible clear action when active. A hidden filter can never silently restrict results. Preserve shared query/project state across views and existing disappearance/reset behavior. Use native disclosure and ordinary Tab behavior rather than another menu system.
+5. **Useful quiet and degraded states.** Separate no agents, no filter matches, no intervention needed with finished results, and nothing pending. Show a small working-agent count from reported state where useful. Do not say everything is fine when failures exist or pretend polling proves a remote host healthy. Preserve existing data/save warnings and navigation errors. A nonzero Finished count must remain visible in the quiet state.
+6. **Keep secondary controls where they belong.** Settings remains the canonical notification-control location. Keep persisted mute/snooze status there, with at most a small existing status indicator in task context if it can be sourced accurately without adding requests. Do not add a second settings surface, a project menu, a notification popover or duplicate controls in this pass. The drawer keeps existing task/state/result/action hierarchy and supplementary disclosure; no further drawer rewrite.
+
+### Delivery order and review gates
+
+Extend the existing checklist with tasks 14–19. Start with a fixture-based static comparison at 280/420/900px using identical synthetic data, showing both a busy queue and a quiet queue. This is the cheapest place to judge whether the proposed layout is actually clearer. Review that preview before implementing interactive behavior. Then deliver compact rows/details, completion disclosure, header/filter behavior, and integrated verification/docs/media. Keep each behavioral change separately reviewable; do not refactor the worker or general panel entry point along the way.
+
+Use Luna High for development and Terra High for review through Orca workers, as already requested. Shared panel files require sequential development. A reviewer may inspect a settled slice while the next independent documentation task proceeds, but no concurrent edits to panel/main.ts.
+
+### Acceptance and verification
+
+- In a 420px-wide by 800px-high fixture with branding collapsed, render at least four short intervention rows without scrolling. This is a fixture target, not permission to truncate essential context or force users' banner preferences.
+- A user can identify blocked versus failed work and reach a navigable agent with one action. Details remain available with one action; unavailable navigation does not create a dead end.
+- The collapsed Finished section has a visible, accurate count. Search finds collapsed matches; clearing restores disclosure state. Reviewing a result keeps the next sensible focus target and never changes Orca unread/status.
+- At 280px there is no horizontal overflow; task titles remain readable, controls have at least 32px height, and essential information does not depend on hover or color. Keyboard and screen-reader names describe each action's task.
+- Gated async saves/reads, state changes, removed rows, focused disclosure/filter controls and 100-agent updates preserve draft/input, focus and reading position. Avoid announcing routine time/count changes on every poll; announce user action outcomes and actionable errors.
+- Preserve current review/notification durability, request validation, migration, project order, shared banner preference, density choices, reduced motion and remote restrictions. Add targeted failing-then-passing browser tests for changed behavior; retain existing regression coverage rather than deleting assertions to accommodate a redesign.
+- Run the existing unit/type/plugin/browser checks, regenerate fixture media only after layout approval, validate links/assets/mobile pages, and have Terra review the final diff. Record the real trial separately; headless fixtures do not complete Checkpoints B/C.
+
+### Scope limits and release decision
+
+No new dashboard, counters page, history, AI summary, backend, dependency, persistent preference family, remote service or hidden bulk action. Do not change default notification settings. Improve Office/Activity shared chrome only where needed for consistency; preserve their content and ordering. Release preparation remains separate and requires the user's instruction after the trial. If the visual comparison does not make the next action clearer, revise it before coding rather than compensate by adding features.
