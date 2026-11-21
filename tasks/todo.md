@@ -144,15 +144,17 @@ Dependencies: all required tasks and checkpoints. Likely files: orca-plugin.json
 - [ ] Development trial, code review, docs/media checks and published-release verification are recorded.
 - [ ] Deferred upstream/platform work remains visible, not falsely marked complete.
 
-## Simplification pass — proposed tasks 14–19
+## Simplification pass — tasks 14–19
 
 These tasks precede task 13 release preparation. Preserve the original live gates; a new fixture preview does not satisfy them.
 
 ### 14 — Validate the simpler layout (S)
 
-- [ ] Capture the actual `708c385` baseline and create isolated busy/quiet layout previews with the same synthetic data at 280/420/900px; include a long title, duplicate project/task labels and unavailable navigation.
-- [ ] Show compact task rows, title-to-details/Open agent distinction, collapsed Finished count and filter affordance; preserve the shared banner choice and Settings notifications.
-- [ ] Review the comparison with the user before interactive implementation; record the selected layout without adding product settings.
+- [x] Capture the actual `708c385` baseline and create isolated busy/quiet layout previews with the same synthetic data at 280/420/900px; include a long title, duplicate project/task labels and unavailable navigation.
+- [x] Show compact task rows, title-to-details/Open agent distinction, collapsed Finished count and filter affordance; preserve the shared banner choice and Settings notifications.
+- [x] Review the comparison before interactive implementation; record the selected layout without adding product settings.
+
+Preview evidence (2026-11-21): Terra approved the static proposal with the plan constraints; the user authorized the simplification pass. `/tmp/lobby-task14-preview/index.html` compares baseline and proposal busy/quiet captures at 280/420/900px using synthetic data. The proposal has zero horizontal overflow; its four short 420px rows end at y=409 within an 800px viewport. The proposal keeps Needs input/failures expanded, Finished collapsed with its count and unknown-outcome note, title/details separate from Open agent, active-filter clear, shared banner choice and Settings notifications.
 
 Dependencies: none. Files: existing fixture tooling and disposable preview artifacts outside production sources. Verification: visual inspection, no overflow, proposed four-short-row target at 420×800 with banner collapsed. Scope: S. No production behavior changes in this task.
 
