@@ -984,7 +984,6 @@ function markReviewed(agentId: string): void {
       if (!current && currentPage === 'attention' && attentionDrawerAgent === agentId) {
         attentionDrawerAgent = null
         renderDrawer()
-        attentionList.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
         return
       }
       renderDrawer()
