@@ -91,7 +91,7 @@ numbers.
 | `notification-controls.png` | 420 wide × 2 | Settings Notifications with alert preferences, project mute, and episode snooze and resume |
 | `drawer.png` | 420 × 950 × 2 | Agent drawer: Go to agent, instruction box, context and tokens |
 | `bubbles.png` | 420 wide × 2 | Two rooms close up: **Need you!**, **Stuck?**, a reply and **Failed** bubbles |
-| `settings.png` | 420 wide × 2 | The Settings tab |
+| `settings.png` | 420 wide × 2 | Appearance-first Settings with notification disclosure, Local data and About footer |
 | `office.webp` / `office.gif` | 420 wide × 1 | Looping animation: Kai finishes, walks to the coffee machine and says so, then starts a new task and walks back |
 
 The animation is real-time: `media.py` takes screenshots in a loop while it pushes two state changes to
@@ -121,14 +121,14 @@ catalog/office.png            1600 x 1000       210 KB
 catalog/palettes.png          1600 x 1000       188 KB
 cover.png                     1280 x 640        130 KB
 icon.png                       256 x 256         34 KB
-notification-controls.png      840 x 1234       115 KB
+notification-controls.png      840 x 1394       129 KB
 office-grid.png               1800 x 2458       333 KB
 office-light.png               840 x 2606       237 KB
 office.png                     840 x 2606       236 KB
 office.gif                     420 x 602         86 KB
 office.webp                    420 x 602         84 KB
-settings.png                   840 x 2241       233 KB
-total                                          3395 KB
+settings.png                   840 x 1847       194 KB
+total                                          3370 KB
 ```
 
 ## Files

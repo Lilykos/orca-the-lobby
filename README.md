@@ -51,7 +51,7 @@ The panel itself, with demo data:
 
 | Office, list | Office, light theme | Settings |
 | --- | --- | --- |
-| <img src="docs/images/office.png" alt="The Office tab in list layout" width="280"> | <img src="docs/images/office-light.png" alt="The Office tab on a light theme" width="280"> | <img src="docs/images/settings.png" alt="The Settings tab" width="280"> |
+| <img src="docs/images/office.png" alt="The Office tab in list layout" width="280"> | <img src="docs/images/office-light.png" alt="The Office tab on a light theme" width="280"> | <img src="docs/images/settings.png" alt="Settings with Appearance first, a collapsed project and episode controls disclosure, Local data and About links" width="280"> |
 
 <img src="docs/images/office-grid.png" alt="The Office tab in grid layout, two projects per row" width="100%">
 
@@ -113,13 +113,11 @@ Controls that cannot work for an agent are left out. A blocked agent says it nee
 
 ### Settings
 
-- **Color palette**: Orca default (follows the app theme), Catppuccin Mocha / Latte, Dracula, GitHub Dark / Light. It colors the panel and room artwork; state colors keep their meaning.
-- **Notify me when an agent needs me** and **Notify me when a long turn ends** (turns over a minute).
-- **Notify me when an agent seems stuck**: Off, or after 10, 20 (default), 30 or 60 minutes. One notification per quiet spell, when a working agent has shown no status, tool call or roster update for that long, or a blocked agent still needs you.
-- **Display density**: Comfortable or Compact.
-- **Hide banner / Show banner** under **Appearance** controls the shared pixel banner across all tabs. It starts visible when the panel loads.
-- **Animate the office**: off, the scene holds still (also when the system asks for reduced motion; bubbles still show).
-- **Clear local activity history**: empties the plugin's stored observation journal.
+**Appearance** comes first: choose the color palette, Comfortable or Compact density, the shared pixel banner, animation and manual room-order reset. **Notifications** keeps the global switches and reminder interval together, then a native collapsed **Project and episode controls** disclosure. Its summary shows active, muted/snoozed and unavailable counts; expand it to mute a project or snooze a current episode. Read and save errors stay visible with Retry even while the disclosure is closed.
+
+**Local data** explains the observation journal and privacy limits. **Clear activity history** asks you to Cancel or confirm Clear before deleting it, then reports the result. The compact About footer links to the guide, GitHub, What's new and issue reporting; it shows the published 1.2.0 version while 1.3 remains in development.
+
+Palette choices are Orca default (follows the app theme), Catppuccin Mocha / Latte, Dracula and GitHub Dark / Light; status colors keep their meaning. The shared banner starts visible. Animation also respects system reduced-motion preferences. The Office and Activity room order follows the sidebar unless you set a manual order.
 
 New installations start in Attention. An upgrade with existing 1.2 data opens Office first. After that, the last functional view is remembered; Settings is not remembered as a startup view. Comfortable density is the migration default.
 

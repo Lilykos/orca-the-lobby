@@ -160,6 +160,7 @@
 
       <section id="settings">
         <h2>Settings</h2>
+        <p>Settings is organized in this order: <strong>Appearance</strong> (palette, density, shared banner, animation and room order), <strong>Notifications</strong> (global alerts and the collapsed project/episode controls), <strong>Local data</strong>, then About. The About footer shows the published 1.2.0 version while 1.3 is in development, with links to the guide, GitHub, What's new and issue reporting.</p>
         <div class="table-wrap slim">
           <table>
             <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
@@ -173,7 +174,8 @@
               <tr><td>List / Grid</td><td>On Office and Activity. Two projects per line at 400px or wider; saved with your settings.</td></tr>
               <tr><td>Startup view</td><td>New installations start in Attention. A 1.2 upgrade starts in Office; after that the last functional view is remembered. Settings is never the remembered view.</td></tr>
               <tr><td>Hide banner / Show banner</td><td>Under Appearance. The shared pixel banner starts visible and this button changes its visibility across all tabs.</td></tr>
-              <tr><td>Clear local activity history</td><td>Empties the local observation journal. Does not change Orca's unread flags.</td></tr>
+              <tr><td>Project and episode controls</td><td>A native disclosure shows current project mute and episode snooze choices. Its collapsed summary shows counts; read/save errors and Retry remain visible while it is closed.</td></tr>
+              <tr><td>Clear local activity history</td><td>Asks you to Cancel or confirm Clear before removing the local journal. Does not change Orca's unread flags.</td></tr>
             </tbody>
           </table>
         </div>
@@ -272,7 +274,7 @@
         </details>
         <details>
           <summary>How do I get rid of the history it keeps?</summary>
-          <div><p>Settings, then <strong>Clear local activity history</strong>. It also drops itself after 24 hours.</p></div>
+          <div><p>Settings → <strong>Local data</strong> → <strong>Clear activity history</strong>, then confirm Clear. Cancel leaves the journal in place; it also expires after 24 hours.</p></div>
         </details>
       </section>
 

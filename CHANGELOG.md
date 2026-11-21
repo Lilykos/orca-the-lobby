@@ -11,6 +11,7 @@ Development notes for the unreleased 1.3.0 proposal. The catalog install command
 - Preserve Office as the initial view for 1.2 upgrades and open Attention by default only on genuinely new installations.
 - Put task, state, result and available action first in the drawer; progressively disclose calls, tokens and supplementary details.
 - Keep source finish timestamps distinguishable from local observation times. Completion identity remains ambiguous when Orca reports no turn/session discriminator and the transition was not observed.
+- Simplify Settings into Appearance, Notifications, Local data and a compact About footer; keep project/episode controls collapsed with counts and visible retry errors, and require confirmation before clearing the local journal.
 - Add project-local notification mute and episode reminder snooze for 15 minutes, 1 hour or until resumed. Mute affects all Lobby notifications for the project; snooze affects reminders only. Neither hides agents or changes Orca settings, and resuming/unmuting does not replay missed alerts.
 - Group eligible notifications by project and kind over a fixed two-second window from the first event; preserve individual messages for single events and summarize bursts. Bound policy storage and report read/write failures without claiming unsaved changes succeeded.
 - Preserve the pixel Office, Office on 1.2 upgrades, manual project order, palettes, reduced motion, and existing contributor credit.
