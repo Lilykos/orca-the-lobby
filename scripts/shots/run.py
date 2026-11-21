@@ -28,7 +28,7 @@ scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionvi
 scenarios += [(420, 'sharedbanner')]
 scenarios += [(280, 'settingsconsolidation'), (420, 'settingsconsolidation'), (900, 'settingsconsolidation')]
 scenarios += [(280, 'settingsredesign'), (420, 'settingsredesign'), (900, 'settingsredesign'), (420, 'settingsredesignlight'), (420, 'settingsredesignreduced'), (420, 'settingsredesignerror'), (420, 'settingsorderreset')]
-scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys'), (420, 'notificationfocus')]  # local notification controls
+scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys'), (420, 'notificationfocus'), (420, 'notificationreadpending'), (420, 'notificationretryreadfocus'), (420, 'notificationretrywritefocus')]  # local notification controls
 
 if args.only:
     wanted = set(args.only.split(','))
@@ -48,6 +48,8 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
                 for _ in range(200):
                     value = command('Runtime.evaluate', {'expression': 'window.notificationFocusStage', 'returnByValue': True})['result'].get('value')
                     if value == stage: return
+                    failure = command('Runtime.evaluate', {'expression': 'document.body?.dataset.fixture||""', 'returnByValue': True})['result'].get('value', '')
+                    if failure.startswith('FAIL '): raise RuntimeError(f'fixture failed before {stage}: {failure[5:]}')
                     time.sleep(.025)
                 raise RuntimeError(f'fixture did not reach {stage}')
             def key(name, code, vk, modifiers=0, text=''):
@@ -65,6 +67,69 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             if command('Runtime.evaluate', {'expression': "document.activeElement.id==='office-tab'&&!document.querySelector('#office-page').hidden", 'returnByValue': True})['result'].get('value') is not True:
                 raise RuntimeError('Enter did not navigate away while snooze was pending')
             command('Runtime.evaluate', {'expression': 'window.continueNotificationFocusSnooze()'})
+        if scenario == 'notificationreadpending':
+            for _ in range(200):
+                stage = command('Runtime.evaluate', {'expression': 'window.notificationSummaryStage', 'returnByValue': True})['result'].get('value')
+                if stage == 'ready': break
+                time.sleep(.025)
+            else: raise RuntimeError('notification summary did not reach the native keyboard check')
+            def toggle_notification_summary():
+                command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+                command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            command('Runtime.evaluate', {'expression': "document.querySelector('#notification-summary').focus()"})
+            state = chrome.evaluate("({focus:document.activeElement.id,open:document.querySelector('#notification-disclosure').open,rects:document.querySelector('#notification-summary').getClientRects().length,hidden:document.querySelector('#settings-page').hidden,display:getComputedStyle(document.querySelector('#notification-summary')).display,settings:document.querySelector('#settings-tab').getAttribute('aria-selected'),attention:document.querySelector('#attention-tab').getAttribute('aria-selected')})")
+            if state.get('focus') != 'notification-summary' or state.get('open') is not False: raise RuntimeError('notification summary was not focusable while closed: ' + str(state))
+            toggle_notification_summary()
+            state = command('Runtime.evaluate', {'expression': "({open:document.querySelector('#notification-disclosure').open,focus:document.activeElement.id,label:document.querySelector('#notification-summary').firstChild.textContent})", 'returnByValue': True})['result']['value']
+            if state != {'open': True, 'focus': 'notification-summary', 'label': 'Project and episode controls'}: raise RuntimeError('notification disclosure lost its native keyboard behavior or title: ' + str(state))
+            toggle_notification_summary()
+            state = command('Runtime.evaluate', {'expression': "document.querySelector('#notification-disclosure').open", 'returnByValue': True})['result']['value']
+            if state is not False: raise RuntimeError('Enter did not close the native notification disclosure')
+            command('Runtime.evaluate', {'expression': 'window.notificationSummaryKeyboardDone=true'})
+        if scenario in ('notificationretryreadfocus', 'notificationretrywritefocus'):
+            stage_name = 'notificationRetryReadStage' if scenario == 'notificationretryreadfocus' else 'notificationRetryWriteStage'
+            for _ in range(200):
+                stage = command('Runtime.evaluate', {'expression': f'window.{stage_name}', 'returnByValue': True})['result'].get('value')
+                if stage == 'ready': break
+                time.sleep(.025)
+            else: raise RuntimeError('notification retry did not reach its focus check')
+            def wait_for_expression(expression):
+                for _ in range(200):
+                    value = command('Runtime.evaluate', {'expression': expression, 'returnByValue': True})['result'].get('value')
+                    if value: return value
+                    time.sleep(.025)
+                raise RuntimeError('timed out waiting for ' + expression + ': ' + str(chrome.evaluate("({active:document.activeElement?.outerHTML,errors:window.errors})")))
+            if scenario == 'notificationretryreadfocus':
+                if chrome.evaluate("document.activeElement.dataset.focusKey") != 'notification-summary:project:p:retry': raise RuntimeError('read retry was not keyboard focusable')
+                command('Runtime.evaluate', {'expression': 'document.activeElement.click()'})
+                wait_for_expression('typeof window.releaseNotificationKeyboardRead==="function"')
+                state = chrome.evaluate("document.activeElement.dataset.focusKey")
+                if state != 'notification-summary:project:p:retry': raise RuntimeError('gated read retry lost keyboard focus while pending: ' + str(state))
+                command('Runtime.evaluate', {'expression': 'window.releaseNotificationKeyboardRead()'})
+                wait_for_expression("Boolean(document.querySelector('[data-focus-key=\"notification-summary:project:p:retry\"]'))")
+                state = chrome.evaluate("document.activeElement.dataset.focusKey")
+                if state != 'notification-summary:project:p:retry': raise RuntimeError('failed read retry lost focus from its replacement action: ' + str(state))
+                command('Runtime.evaluate', {'expression': 'document.activeElement.click()'})
+                wait_for_expression("document.querySelector('.notification-issues').hidden")
+                state = chrome.evaluate("({focus:document.activeElement.id,open:document.querySelector('#notification-disclosure').open})")
+                if state != {'focus': 'notification-summary', 'open': False}: raise RuntimeError('successful closed read retry did not return focus to the summary: ' + str(state))
+                command('Runtime.evaluate', {'expression': 'window.notificationRetryReadDone=true'})
+            else:
+                if chrome.evaluate("document.activeElement.dataset.focusKey") != 'notification-summary:project:p:retry-write': raise RuntimeError('write retry was not keyboard focusable')
+                command('Runtime.evaluate', {'expression': 'document.activeElement.click()'})
+                wait_for_expression('typeof window.releaseNotificationRetryWrite==="function"')
+                state = chrome.evaluate("({focus:document.activeElement.id,retry:!!document.querySelector('[data-focus-key=\"notification-summary:project:p:retry-write\"]')})")
+                if state != {'focus': 'notification-summary', 'retry': False}: raise RuntimeError('gated write retry did not move focus to its visible summary: ' + str(state))
+                command('Runtime.evaluate', {'expression': 'window.releaseNotificationRetryWrite()'})
+                wait_for_expression("Boolean(document.querySelector('[data-focus-key=\"notification-summary:project:p:retry-write\"]'))")
+                state = chrome.evaluate("({focus:document.activeElement.id,error:document.querySelector('.notification-error')?.textContent})")
+                if state['focus'] != 'notification-summary' or 'Write retry still unavailable' not in state['error']: raise RuntimeError('failed write retry hid its error or stole focus: ' + str(state))
+                command('Runtime.evaluate', {'expression': "window.notificationRetryWrite=true;document.querySelector('[data-focus-key=\"notification-summary:project:p:retry-write\"]').focus()"})
+                command('Runtime.evaluate', {'expression': 'document.activeElement.click()'})
+                wait_for_expression("document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted')&&!document.querySelector('.notification-project-status')?.textContent.includes('save failed')")
+                state = chrome.evaluate("({focus:document.activeElement.id,open:document.querySelector('#notification-disclosure').open})")
+                if state != {'focus': 'notification-summary', 'open': False}: raise RuntimeError('successful closed write retry did not keep focus on the summary: ' + str(state))
+                command('Runtime.evaluate', {'expression': 'window.notificationRetryWriteDone=true'})
         wait_for_fixture = {'expression': "new Promise(resolve=>{const n=setInterval(()=>{if(document.body?.dataset.fixture){clearInterval(n);resolve({result:document.body.dataset.fixture,width:innerWidth,errors:document.body.dataset.errors})}},25);setTimeout(()=>{clearInterval(n);resolve({result:'TIMEOUT'})},5000)})", 'awaitPromise': True, 'returnByValue': True}
         try:
             result = command('Runtime.evaluate', wait_for_fixture)['result']['value']

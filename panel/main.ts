@@ -1019,25 +1019,28 @@ function renderNotificationSettings(force = false): void {
   if (!notifications) return
   const disclosure = settings.querySelector<HTMLDetailsElement>('#notification-disclosure')
   const summary = settings.querySelector<HTMLElement>('#notification-summary')
+  const summaryStatus = settings.querySelector<HTMLElement>('#notification-summary-status')
   const issues = settings.querySelector<HTMLElement>('.notification-issues')
-  if (disclosure && summary && issues) {
-    const readyProjects = notifications.projects.filter((row) => row.state?.status === 'ready')
-    const muted = readyProjects.filter((row) => row.state?.status === 'ready' && row.state.muted).length
-    const loadingProjects = notifications.projects.filter((row) => row.loading || row.busy).length
-    const unavailableProjects = notifications.projects.length - readyProjects.length - loadingProjects
-    const readyReminders = notifications.reminders.filter((row) => row.state?.status === 'ready')
-    const snoozed = readyReminders.filter((row) => row.state?.status === 'ready' && row.state.snoozed).length
-    const loadingReminders = notifications.reminders.filter((row) => row.loading || row.busy).length
-    const unavailableReminders = notifications.reminders.length - readyReminders.length - loadingReminders
+  if (disclosure && summary && summaryStatus && issues) {
+    const summarize = (label: string, rows: Array<NotificationProjectRow | NotificationReminderRow>, secondary: (row: NotificationProjectRow | NotificationReminderRow) => boolean): string => {
+      const saving = rows.filter((row) => row.busy).length
+      const loading = rows.filter((row) => !row.busy && row.loading).length
+      const ready = rows.filter((row) => !row.busy && !row.loading && row.state?.status === 'ready')
+      const unavailable = rows.length - saving - loading - ready.length
+      const secondaryCount = ready.filter(secondary).length
+      const parts = [`${ready.length - secondaryCount} active`, `${secondaryCount} ${label === 'Projects' ? 'muted' : 'snoozed'}`]
+      if (loading) parts.push(`${loading} loading`)
+      if (saving) parts.push(`${saving} saving`)
+      if (unavailable) parts.push(`${unavailable} unavailable`)
+      return `${label} ${rows.length}: ${parts.join(', ')}`
+    }
     const pendingIssues = [...notifications.projects, ...notifications.reminders].filter((row) => row.retry || row.busy || row.message).length
     const counts = [
-      `Projects ${notifications.projects.length}: ${readyProjects.length - muted} active, ${muted} muted`,
-      `Reminders ${notifications.reminders.length}: ${readyReminders.length - snoozed} active, ${snoozed} snoozed`
+      summarize('Projects', notifications.projects, (row) => Boolean(row.state?.status === 'ready' && row.state.muted)),
+      summarize('Reminders', notifications.reminders, (row) => Boolean(row.state?.status === 'ready' && row.state.snoozed))
     ]
-    if (loadingProjects || loadingReminders) counts.push(`${loadingProjects + loadingReminders} loading`)
-    if (unavailableProjects || unavailableReminders) counts.push(`${unavailableProjects + unavailableReminders} unavailable`)
     if (pendingIssues) counts.push(`${pendingIssues} need attention`)
-    summary.textContent = counts.join(' · ')
+    summaryStatus.textContent = counts.join(' · ')
     renderNotificationIssues(issues, disclosure, [...notifications.projects, ...notifications.reminders])
   }
   restoringNotificationFocus = true
@@ -1083,7 +1086,8 @@ function renderNotificationIssues(root: HTMLElement, disclosure: HTMLDetailsElem
   const focusIndex = active ? [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]')].indexOf(active as HTMLButtonElement) : -1
   const issues = rows.filter((row) => row.retry || row.busy || row.message)
   root.replaceChildren(...issues.map((row) => {
-    const key = 'agent' in row ? `notification-summary:agent:${row.agent.id}:retry` : `notification-summary:project:${row.projectId}:retry`
+    const retryAction = row.retryKind === 'write' ? 'retry-write' : 'retry'
+    const key = 'agent' in row ? `notification-summary:agent:${row.agent.id}:${retryAction}` : `notification-summary:project:${row.projectId}:${retryAction}`
     const item = element('div', 'notification-issue')
     const message = element('p', 'notification-error', row.message || (row.busy ? `Saving settings for ${row.name}…` : 'Notification settings need attention.'))
     message.setAttribute('role', row.message ? 'alert' : 'status')
@@ -1106,6 +1110,7 @@ function renderNotificationIssues(root: HTMLElement, disclosure: HTMLDetailsElem
     const target = buttons.find((button) => button.dataset.focusKey === focusedKey)
       ?? buttons[Math.min(Math.max(focusIndex, 0), buttons.length - 1)]
     if (target) target.focus({ preventScroll: true })
+    else disclosure.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true })
   }
 }
 
@@ -2611,8 +2616,11 @@ function renderSettings(): void {
   notificationGrid.append(notifyBlocked, notifyDone, stuckLabel)
   const notificationDisclosure = element('details', 'notification-disclosure') as HTMLDetailsElement
   notificationDisclosure.id = 'notification-disclosure'
-  const notificationSummary = element('summary', '', 'Project and episode controls')
+  const notificationSummary = element('summary', 'notification-summary-label', 'Project and episode controls')
   notificationSummary.id = 'notification-summary'
+  const notificationSummaryStatus = element('span', 'notification-summary-status')
+  notificationSummaryStatus.id = 'notification-summary-status'
+  notificationSummary.append(notificationSummaryStatus)
   notificationDisclosure.append(notificationSummary, notificationRows)
   const notificationIssues = element('div', 'notification-issues')
   notificationDisclosure.addEventListener('toggle', () => {
