@@ -117,6 +117,10 @@ def notification_controls(chrome, html):
     page = Page(chrome, html, 420, hour=21.5, scenario='notificationmedia')
     page.tab('settings')
     page.click('notification:agent:need:snooze:manual')
+    controls_visible = page.js("(() => { const disclosure = document.querySelector('#notification-disclosure'); disclosure.open = true; return Boolean(disclosure.querySelector('[data-focus-key=\"notification:project:p:mute\"]') && disclosure.querySelector('[data-focus-key=\"notification:agent:need:snooze:15m\"]')) })()")
+    if not controls_visible:
+        raise RuntimeError('notification media fixture did not include project mute and episode snooze controls')
+    page.settle()
     page.shot('notification-controls', through=('.notification-controls', 0))
 
 

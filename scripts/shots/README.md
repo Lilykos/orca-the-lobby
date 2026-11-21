@@ -121,14 +121,14 @@ catalog/office.png            1600 x 1000       210 KB
 catalog/palettes.png          1600 x 1000       188 KB
 cover.png                     1280 x 640        130 KB
 icon.png                       256 x 256         34 KB
-notification-controls.png      840 x 1394       129 KB
+notification-controls.png      840 x 1848       175 KB
 office-grid.png               1800 x 2458       333 KB
 office-light.png               840 x 2606       237 KB
 office.png                     840 x 2606       236 KB
 office.gif                     420 x 602         86 KB
 office.webp                    420 x 602         84 KB
 settings.png                   840 x 1847       194 KB
-total                                          3370 KB
+total                                          3416 KB
 ```
 
 ## Files
