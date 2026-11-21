@@ -166,7 +166,7 @@ Dependencies: none. Files: existing fixture tooling and disposable preview artif
 
 Dependencies: 14 approved. Files: panel/attention.ts, panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: focused interaction scenarios, full plugin tests, type/plugin checks and diff check. Scope: M.
 
-Verified (2026-11-21): task15 RED/GREEN browser coverage exercises 280/420/900px compact rows, duplicate-context disambiguation, full accessible long titles, unavailable navigation, details/Open separation, durable review retry and focus return. Task15 is commit `5af8486`; integrated checks are recorded with task16 below. Terra review of tasks15–16 is pending before task17; Checkpoint B remains pending real development-panel trial.
+Verified (2026-11-21): task15 RED/GREEN browser coverage exercises 280/420/900px compact rows, duplicate-context disambiguation, full accessible long titles, unavailable navigation, details/Open separation, durable review retry and focus return. Task15 is commit `5af8486`; Terra approved tasks15–16 with no required blocker. Checkpoint B remains pending real development-panel trial.
 
 ### 16 — Progressive disclosure for finished work (M)
 
@@ -176,23 +176,27 @@ Verified (2026-11-21): task15 RED/GREEN browser coverage exercises 280/420/900px
 
 Dependencies: 15. Files: panel/attention.ts, panel/main.ts, scripts/shots/fixture.js, scripts/shots/run.py. Verification: targeted RED/GREEN scenarios, full browser run and type check. Scope: M. Checkpoint: Terra reviews row/action/disclosure behavior before shared-header work.
 
-Verified (2026-11-21): disclosure RED required a native collapsed Finished section; GREEN covers truthful unknown outcomes, both saved expansion choices, filter reveal/restore, view/live updates, keyboard summary focus and immediate live arrival. Full integration passed 238/238 plugin tests, `npx --yes --package typescript tsc --noEmit`, plugin check (valid, no errors), `git diff --check`, and all 110 browser scenarios across 280/320/340/420/900px. Checkpoint B/C and paired-server/platform/live trial gates remain pending; task17–19 remain unchecked.
+Verified (2026-11-21): disclosure RED required a native collapsed Finished section; GREEN covers truthful unknown outcomes, both saved expansion choices, filter reveal/restore, view/live updates, keyboard summary focus and immediate live arrival. Full integration passed 238/238 plugin tests, `npx --yes --package typescript tsc --noEmit`, plugin check (valid, no errors), `git diff --check`, and all 110 browser scenarios across 280/320/340/420/900px. Terra approved tasks15–16 with no required code blocker; Checkpoint B/C and paired-server/platform/live trial gates remain pending.
 
 ### 17 — Quiet header and discoverable filters (M)
 
-- [ ] Consolidate redundant Attention totals; expose search/project controls under a visible Filter disclosure with active state and clear action that cannot conceal an applied restriction.
-- [ ] Preserve shared queries, project disappearance reset, user banner/view/order/density preferences and ordinary keyboard access across all functional views.
-- [ ] Verify 280/420/900px, reduced motion, themes, filter focus/live updates and real-shaped legacy preferences.
+- [x] Consolidate redundant Attention totals; expose search/project controls under a visible Filter disclosure with active state and clear action that cannot conceal an applied restriction.
+- [x] Preserve shared queries, project disappearance reset, user banner/view/order/density preferences and ordinary keyboard access across all functional views.
+- [x] Verify 280/420/900px, reduced motion, themes, filter focus/live updates and real-shaped legacy preferences.
 
 Dependencies: 16. Files: panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: targeted RED/GREEN scenarios, full unit/type/plugin/browser checks. Scope: M.
 
+Verified (2026-11-21): RED showed the redundant live queue totals and that search/project controls were not inside a collapsed native Filter disclosure. GREEN covers active filter count and always-visible Clear, keyboard opening/search/clear, preservation across views and live updates, project disappearance, and retained group counts. Commit `6eca1b5` contains task17; integrated verification passed 238 plugin tests, TypeScript, plugin check and 126 browser scenarios across 280/320/340/420/900px (including reduced motion, themes and storage recovery). `attentionview`, `searchviews`, `projectgone`, `filterdisclosure` and startup/legacy preference fixtures passed.
+
 ### 18 — Calm states and busy-update accessibility (M)
 
-- [ ] Distinguish no agents, no matches, no interventions with finished results and nothing pending; report working counts only from actual state and preserve all existing warnings.
-- [ ] Avoid repeated routine live announcements; retain accessible action/error feedback and truthful ages. Preserve focus, scroll, filter input and disclosure choice during 100-agent updates.
-- [ ] Verify four short intervention rows at 420×800 with banner collapsed, readable 280px content and minimum 32px controls without hover-only information.
+- [x] Distinguish no agents, no matches, no interventions with finished results and nothing pending; report working counts only from actual state and preserve all existing warnings.
+- [x] Avoid repeated routine live announcements; retain accessible action/error feedback and truthful ages. Preserve focus, scroll, filter input and disclosure choice during 100-agent updates.
+- [x] Verify four short intervention rows at 420×800 with banner collapsed, readable 280px content and minimum 32px controls without hover-only information.
 
 Dependencies: 17. Files: panel/attention.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: busy-update/quiet/error fixtures and keyboard/screen-reader semantics inspection. Scope: M. Checkpoint: Terra reviews behavior and visuals; user trials actual find → open → return and explicit review before acceptance.
+
+Verified (2026-11-21): RED exposed a missing quiet-state message when a working agent and one Finished result were present (`quiet: ""`, `Finished · 1`) and exposed that removed agents could leave a stale drawer open. GREEN distinguishes no agents, filtered no-match, Finished-with-no-intervention and nothing-pending states; the live update fixture retains 100-agent search/focus/scroll and disclosure state. Task18 commit is recorded in the task completion report; `attentionpreviewbusy`/`attentionpreviewquiet` pass at 280/420/900px, including 4 intervention rows at 420×800, collapsed banner, no overflow and minimum 32px row controls. Full integration passed 238 plugin tests, TypeScript, plugin check (valid, no errors), `git diff --check` and 126 browser scenarios; the six preview width scenarios were rerun after adding size assertions. Busy/quiet screenshots inspected at `/tmp/lobby-task17-18-final-shots/inspector-280-attentionpreviewbusy.png`, `/tmp/lobby-task17-18-final-shots/inspector-420-attentionpreviewbusy.png`, `/tmp/lobby-task17-18-final-shots/inspector-420-attentionpreviewquiet.png` and `/tmp/lobby-task17-18-final-shots/inspector-900-attentionpreviewbusy.png`. Checkpoint B/C live trials, paired-server, platform and accessibility-dependent manual checks remain open; task19 remains unchecked.
 
 ### 19 — Refresh docs/media and final regression evidence (M)
 

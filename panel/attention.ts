@@ -118,8 +118,18 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   title.tabIndex = -1
   title.dataset.focusKey = 'attention-heading'
   fragment.append(title)
-  if (!groups.needsInput.length && !groups.failedToReview.length && !groups.finishedToReview.length)
-    fragment.append(el('p', 'attention-empty', filteredOut ? 'No agents match these filters.' : liveAgentCount ? 'Nothing needs your attention right now.' : 'No live agents to show yet.'))
+  if (!groups.needsInput.length && !groups.failedToReview.length) {
+    if (filteredOut) fragment.append(el('p', 'attention-empty', 'No agents match these filters.'))
+    else if (!liveAgentCount) fragment.append(el('p', 'attention-empty', 'No live agents to show yet.'))
+    else {
+      const working = office.agents.filter((agent) => agent.state === 'working').length
+      const workingText = working ? ` · ${working} working` : ''
+      const quiet = groups.finishedToReview.length
+        ? `No one needs input right now${workingText} · ${groups.finishedToReview.length} finished to review.`
+        : `Nothing needs input or review right now${workingText}.`
+      fragment.append(el('p', 'attention-empty', quiet))
+    }
+  }
   for (const [key, label, rows] of sections) {
     if (!rows.length) continue
     const section = el('section', 'attention-group')

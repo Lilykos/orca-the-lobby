@@ -2235,7 +2235,10 @@ async function acceptSnapshot(snapshot: OfficeSnapshot, refreshNotifications = f
   renderFilters()
   renderList()
   if (currentPage === 'activity') renderActivity()
-  if (currentPage === 'attention') renderAttentionPage()
+  if (currentPage === 'attention') {
+    renderAttentionPage()
+    renderDrawer()
+  }
   renderNotificationSettings(refreshNotifications)
 }
 
