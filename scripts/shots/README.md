@@ -108,28 +108,27 @@ encodes a GIF (ffmpeg palette) and a WebP (`gif2webp`).
 Current sizes (from `python3 scripts/shots/sizes.py`):
 
 ```
-activity.png                  1800 x 1613       196 KB
-attention-inbox.png            840 x 1830       144 KB
-attention.png                 1800 x 1613       205 KB
+activity.png                  1800 x 1745       187 KB
+attention-inbox.png            840 x 942         60 KB
+attention.png                 1800 x 1745       197 KB
 bubbles.png                    840 x 932         45 KB
-catalog/activity.png          1600 x 1000       211 KB
-catalog/attention.png         1600 x 1000       175 KB
-catalog/context.png           1600 x 1000       184 KB
+catalog/activity.png          1600 x 1000       203 KB
+catalog/attention.png         1600 x 1000       150 KB
+catalog/context.png           1600 x 1000       179 KB
 catalog/cover.png             1600 x 1000       174 KB
-catalog/drawer.png            1600 x 1000       177 KB
-catalog/office.png            1600 x 1000       217 KB
-catalog/palettes.png          1600 x 1000       197 KB
-cover.png                     1280 x 640        135 KB
-drawer.png                     840 x 1900       150 KB
+catalog/drawer.png            1600 x 1000       171 KB
+catalog/office.png            1600 x 1000       210 KB
+catalog/palettes.png          1600 x 1000       188 KB
+cover.png                     1280 x 640        130 KB
 icon.png                       256 x 256         34 KB
 notification-controls.png      840 x 1234       115 KB
-office-grid.png               1800 x 2523       350 KB
-office-light.png               840 x 2672       252 KB
-office.gif                     420 x 635         88 KB
-office.png                     840 x 2672       250 KB
-office.webp                    420 x 635         92 KB
+office-grid.png               1800 x 2458       333 KB
+office-light.png               840 x 2606       237 KB
+office.png                     840 x 2606       236 KB
+office.gif                     420 x 602         86 KB
+office.webp                    420 x 602         84 KB
 settings.png                   840 x 2241       233 KB
-total                                          3625 KB
+total                                          3395 KB
 ```
 
 ## Files
