@@ -123,6 +123,9 @@ const agentNamesReady = orca.storage
   })
   .catch(() => {})
 let selected: string | null = null
+let attentionDrawerAgent: string | null = null
+const reviewPending = new Set<string>()
+const reviewErrors = new Map<string, string>()
 let currentPage = 'office'
 let activityRenderKey = ''
 let activitySelected: string | null = null
@@ -728,6 +731,7 @@ function keepChartNodeVisible(focusKey: string): void {
 function setPage(id: string, persist = true): void {
   if (persist) userSelectedView = true
   const refreshOffice = shouldRefreshOffice(currentPage, id)
+  if (currentPage === 'attention' && id !== 'attention') attentionDrawerAgent = null
   if (currentPage === 'settings' && id !== 'settings') notificationFocusRevision++
   currentPage = id
   for (const tab of primaryTabs) {
@@ -945,17 +949,61 @@ function renderAttentionPage(): void {
       if (!actions || actions.signature !== actionSignature(agent) || !actions.ready) return null
       return actions.value.goTo !== null
     },
-    details: (agent) => { selected = agent.id; setPage('office'); listed = ''; renderList() },
-    review: (agent, done) => {
-      void orca.plugin.request('attention.review', { completionId: agent.completionId! }).then((result: ActionResult) => {
-        if (!result.ok) { attentionFeedback.textContent = result.error; done(result.error); return }
-        attentionFeedback.textContent = 'Reviewed in The Lobby.'
-        office = { ...office, reviewedCompletions: [...new Set([...(office.reviewedCompletions ?? []), agent.completionId!])] }
-        renderAttentionPage()
-        done()
-      }).catch(() => { attentionFeedback.textContent = 'Could not save the review. Try again.'; done('Could not save the review. Try again.') })
-    }
+    details: (agent) => { attentionDrawerAgent = agent.id; renderDrawer() }
   }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf)
+}
+
+function nextAttentionFocus(agentId: string): string {
+  const rows = [...attentionList.querySelectorAll<HTMLElement>('.attention-row')]
+  const index = rows.findIndex((row) => row.dataset.agentId === agentId)
+  const candidates = index < 0 ? rows : [...rows.slice(index + 1), ...rows.slice(0, index).reverse()]
+  const next = candidates.find((row) => row.dataset.agentId !== agentId)
+  return next?.querySelector<HTMLButtonElement>('.attention-title')?.dataset.focusKey ?? 'attention-heading'
+}
+
+function markReviewed(agentId: string): void {
+  const agent = office.agents.find((item) => item.id === agentId)
+  if (!agent || agent.state !== 'done' || !agent.completionId) return
+  const completionId = agent.completionId
+  if (office.reviewedCompletions?.includes(completionId) || reviewPending.has(completionId)) return
+  const nextFocus = currentPage === 'attention' ? nextAttentionFocus(agentId) : undefined
+  reviewErrors.delete(completionId)
+  reviewPending.add(completionId)
+  renderDrawer()
+  void orca.plugin.request('attention.review', { completionId }).then((result: ActionResult) => {
+    reviewPending.delete(completionId)
+    const current = office.agents.find((item) => item.id === agentId)
+    if (!result.ok) {
+      reviewErrors.set(completionId, result.error)
+      attentionFeedback.textContent = result.error
+      if (!current && currentPage === 'attention' && attentionDrawerAgent === agentId) {
+        attentionDrawerAgent = null
+        renderDrawer()
+        attentionList.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
+        return
+      }
+      renderDrawer()
+      return
+    }
+    if (!current || current.completionId !== completionId) {
+      const error = 'Completion changed before it could be reviewed. Open its current result and try again.'
+      reviewErrors.set(completionId, error)
+      attentionFeedback.textContent = error
+      renderDrawer()
+      return
+    }
+    reviewErrors.delete(completionId)
+    attentionFeedback.textContent = 'Reviewed in The Lobby.'
+    office = { ...office, reviewedCompletions: [...new Set([...(office.reviewedCompletions ?? []), completionId])] }
+    if (currentPage === 'attention' && attentionDrawerAgent === agentId) closeDrawer(nextFocus)
+    else renderDrawer()
+  }).catch(() => {
+    reviewPending.delete(completionId)
+    const error = 'Could not save the review. Try again.'
+    reviewErrors.set(completionId, error)
+    attentionFeedback.textContent = error
+    renderDrawer()
+  })
 }
 
 function renderNotificationSettings(force = false): void {
@@ -1718,7 +1766,7 @@ let drawerKey = ''
 let drawerOpener: string | null = null
 
 function drawerAgent(): AgentView | undefined {
-  const id = currentPage === 'office' ? selected : currentPage === 'activity' ? activitySelected : null
+  const id = currentPage === 'office' ? selected : currentPage === 'attention' ? attentionDrawerAgent : currentPage === 'activity' ? activitySelected : null
   return id ? office.agents.find((agent) => agent.id === id) : undefined
 }
 
@@ -1769,7 +1817,7 @@ function renderDrawer(): void {
   const links = agent?.workspaceId ? office.links[agent.workspaceId] : undefined
   const used = agent?.workspaceId ? office.usage?.workspaces[agent.workspaceId] : undefined
   // lastSeenAt moves with every roster poll and only feeds times that are rewritten in place.
-  const key = JSON.stringify([currentPage, agent && { ...agent, lastSeenAt: 0 }, agent && nameOf(agent), agent && overdue(agent, now, prefs.stuckMinutes)?.kind, agent && parentNoteOf(agent), helper?.key, helper?.child, agent && picked.get(agent.id), allCalls, changes, links, used, prefs.stuckMinutes])
+  const key = JSON.stringify([currentPage, agent && { ...agent, lastSeenAt: 0 }, agent && nameOf(agent), agent && overdue(agent, now, prefs.stuckMinutes)?.kind, agent && parentNoteOf(agent), helper?.key, helper?.child, agent && picked.get(agent.id), agent?.completionId && office.reviewedCompletions?.includes(agent.completionId), agent?.completionId && reviewPending.has(agent.completionId), agent?.completionId && reviewErrors.get(agent.completionId), allCalls, changes, links, used, prefs.stuckMinutes])
   const opening = !sheet.isConnected
   if (key !== drawerKey || opening) {
     drawerKey = key
@@ -1786,7 +1834,7 @@ function renderDrawer(): void {
     restHost.replaceChildren(...lower)
     placeDrawer(agent)
     if (opening) {
-      drawerOpener = agent ? (currentPage === 'office' ? `office-row:${agent.id}` : `chart-node:${agent.id}`) : `chart-helper:${helper!.key}`
+      drawerOpener = agent ? (currentPage === 'office' ? `office-row:${agent.id}` : currentPage === 'attention' ? `attention-title:${agent.id}` : `chart-node:${agent.id}`) : `chart-helper:${helper!.key}`
       sheet.classList.toggle('still', still())
       scrim.classList.toggle('still', still())
       document.body.append(scrim, sheet)
@@ -1801,13 +1849,16 @@ function renderDrawer(): void {
   tickClock(now)
 }
 
-function closeDrawer(): void {
+function closeDrawer(returnFocusKey?: string): void {
   if (!sheet.isConnected) return
-  const opener = drawerOpener
+  const opener = returnFocusKey ?? drawerOpener
   if (currentPage === 'office') {
     selected = null
     listed = ''
     renderList()
+  } else if (currentPage === 'attention') {
+    attentionDrawerAgent = null
+    renderAttentionPage()
   } else {
     activitySelected = null
     activityHelper = null
@@ -1815,7 +1866,9 @@ function closeDrawer(): void {
     renderActivity()
   }
   renderDrawer()
-  if (opener) document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(opener)}"]`)?.focus({ preventScroll: true })
+  const target = opener ? document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(opener)}"]`) : null
+  if (target?.isConnected) target.focus({ preventScroll: true })
+  else if (currentPage === 'attention') attentionList.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
 }
 
 function drawerHead(title: string, subtitle: HTMLElement | string, face?: HTMLElement): HTMLElement {
@@ -1866,6 +1919,34 @@ function agentDrawer(agent: AgentView, now: number): [HTMLElement[], HTMLElement
     const result = note(`${agent.id}:replied`, 'replied', 'Result (excerpt)', agent.reply)
     result.classList.add('drawer-result')
     upper.push(result)
+  }
+  if (agent.state === 'done' && agent.completionId) {
+    const completionId = agent.completionId
+    const review = element('div', 'drawer-review')
+    const reviewed = office.reviewedCompletions?.includes(completionId) ?? false
+    const pending = reviewPending.has(completionId)
+    const error = reviewErrors.get(completionId)
+    if (reviewed || pending) {
+      const status = element('p', 'drawer-review-status', reviewed ? 'Reviewed in The Lobby.' : 'Saving Reviewed state…')
+      status.dataset.focusKey = `drawer-review:${agent.id}`
+      status.tabIndex = -1
+      status.setAttribute('role', 'status')
+      status.setAttribute('aria-live', 'polite')
+      review.append(status)
+    } else {
+      const button = action(error ? 'Retry Mark Reviewed' : 'Mark Reviewed', () => markReviewed(agent.id))
+      button.dataset.focusKey = `drawer-review:${agent.id}`
+      button.setAttribute('aria-label', `${error ? 'Retry Mark Reviewed' : 'Mark Reviewed'}: ${taskLabel(agent)}`)
+      review.append(button)
+      if (error) {
+        const status = element('p', 'drawer-review-error', error)
+        status.id = `drawer-review-error:${agent.id}`
+        status.setAttribute('role', 'alert')
+        button.setAttribute('aria-describedby', status.id)
+        review.append(status)
+      }
+    }
+    upper.push(review)
   }
   return [upper, [details(agent, now)]]
 }

@@ -6,7 +6,6 @@ export type AttentionActions = {
   go: (agent: AgentView, done: (error?: string) => void) => void
   canGo: (agent: AgentView) => boolean | null
   details: (agent: AgentView) => void
-  review: (agent: AgentView, done: (error?: string) => void) => void
 }
 
 const elapsed = (from: number, now: number): string => {
@@ -37,6 +36,54 @@ const el = (tag: string, className = '', text = ''): HTMLElement => {
   return node
 }
 
+
+function attentionRow(agent: AgentView, group: string, disambiguate: boolean, office: OfficeSnapshot, actions: AttentionActions): HTMLElement {
+  const card = el('article', `attention-row attention-${group}${group === 'finished' ? ' attention-finished-row' : ''}`)
+  card.dataset.agentId = agent.id
+  const name = taskLabel(agent)
+  const title = el('button', 'attention-title', name) as HTMLButtonElement
+  title.type = 'button'
+  title.dataset.focusKey = `attention-title:${agent.id}`
+  title.setAttribute('aria-label', `Review details: ${name}`)
+  title.title = name
+  title.addEventListener('click', () => actions.details(agent))
+  const context = workspaceContext(agent, office)
+  const contextLabels = [context.project, ...(disambiguate ? [context.workspace, context.branch, context.host] : [])].filter(Boolean)
+  const meta = el('p', 'attention-meta')
+  if (contextLabels.length) meta.append(document.createTextNode(`${contextLabels.join(' · ')} · `))
+  const time = document.createElement('time')
+  time.className = 'attention-time'
+  time.textContent = attentionTimeText(agent, Date.now())
+  time.dataset.attentionTime = ''
+  time.dataset.agentId = agent.id
+  if (agent.state === 'done' && agent.finishedAt !== null && Number.isFinite(agent.finishedAt)) {
+    const date = new Date(agent.finishedAt)
+    if (Number.isFinite(date.getTime())) time.dateTime = date.toISOString()
+  }
+  meta.append(time)
+  card.append(title, meta)
+  const status = el('p', 'attention-feedback')
+  status.setAttribute('role', 'status')
+  const controls = el('div', 'attention-actions')
+  const canGo = actions.canGo(agent)
+  const go = document.createElement('button')
+  go.type = 'button'
+  go.className = 'action'
+  go.textContent = 'Open agent'
+  go.dataset.focusKey = `attention-open:${agent.id}`
+  go.disabled = canGo !== true
+  go.setAttribute('aria-label', `Open agent: ${name}`)
+  go.addEventListener('click', () => actions.go(agent, (message) => { status.textContent = message ?? '' }))
+  if (canGo !== true) {
+    const explanation = el('span', 'attention-unavailable', canGo === null ? 'Checking navigation availability.' : 'Navigation unavailable for this agent.')
+    explanation.id = `attention-unavailable:${agent.id}`
+    go.setAttribute('aria-describedby', explanation.id)
+    controls.append(go, explanation)
+  } else controls.append(go)
+  card.append(controls, status)
+  return card
+}
+
 /** Rebuilds only the inbox, preserving its reading position and current control where possible. */
 export function renderAttention(root: HTMLElement, office: OfficeSnapshot, reviewed: Set<string>, actions: AttentionActions, liveAgentCount = office.agents.length, filteredOut = false, nameOf: (agent: AgentView) => string = () => ''): void {
   const active = root.contains(document.activeElement) ? document.activeElement as HTMLElement : null
@@ -48,9 +95,15 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   const groups = attentionGroups(office.agents, reviewed)
   const sections = [
     ['needs-input', 'Needs input', groups.needsInput],
-    ['failed', 'Failed to review', groups.failedToReview],
-    ['finished', 'Finished to review', groups.finishedToReview]
+    ['failed', 'Failed', groups.failedToReview],
+    ['finished', 'Finished', groups.finishedToReview]
   ] as const
+  const contextCounts = new Map<string, number>()
+  for (const agent of office.agents) {
+    const context = workspaceContext(agent, office)
+    const key = `${taskLabel(agent)}\u0000${context.project ?? ''}`
+    contextCounts.set(key, (contextCounts.get(key) ?? 0) + 1)
+  }
   const fragment = document.createDocumentFragment()
   const title = el('h1', 'attention-heading', 'Attention')
   title.tabIndex = -1
@@ -64,51 +117,15 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   for (const [key, label, rows] of sections) {
     if (!rows.length) continue
     const section = el('section', 'attention-group')
-    const heading = el('h2', '', `${label} (${rows.length})`)
+    const heading = el('h2', '', `${label} · ${rows.length}`)
+    heading.tabIndex = -1
+    heading.dataset.focusKey = `attention-group:${key}`
     section.append(heading)
     for (const agent of rows) {
-      const card = el('article', `attention-card attention-${key}`)
       const name = taskLabel(agent)
-      card.append(el('h3', 'attention-title', name), el('p', 'attention-state', agent.state === 'blocked' ? 'Needs you' : agent.outcome === 'failure' ? 'Failed' : `Finished · ${agent.outcome ?? 'outcome unknown'}`))
-      if (nameOf(agent)) card.append(el('p', 'attention-name', nameOf(agent)))
-      const time = document.createElement('time')
-      time.className = 'attention-time'
-      time.textContent = attentionTimeText(agent, Date.now())
-      time.dataset.attentionTime = ''
-      time.dataset.agentId = agent.id
-      if (agent.state === 'done' && agent.finishedAt !== null && Number.isFinite(agent.finishedAt)) {
-        const date = new Date(agent.finishedAt)
-        if (Number.isFinite(date.getTime())) time.dateTime = date.toISOString()
-      }
-      card.append(time)
       const context = workspaceContext(agent, office)
-      const meta = [agent.agent ? agent.agent[0].toUpperCase() + agent.agent.slice(1) : '', context.project, context.workspace, context.branch, context.host].filter(Boolean)
-      if (meta.length) card.append(el('p', 'attention-meta', meta.join(' · ')))
-      const status = el('p', 'attention-feedback')
-      status.setAttribute('role', 'status')
-      const button = (label: string, action: () => void, keyName: string, disabled = false): HTMLButtonElement => {
-        const control = document.createElement('button')
-        control.className = 'action'
-        control.textContent = label
-        control.dataset.focusKey = `${key}:${agent.id}:${keyName}`
-        control.disabled = disabled
-        control.addEventListener('click', action)
-        return control
-      }
-      const controls = el('div', 'attention-actions')
-      const canGo = actions.canGo(agent)
-      const go = button('Go to agent', () => actions.go(agent, (message) => { status.textContent = message ?? '' }), 'go', !canGo)
-      controls.append(go, button('Review details', () => actions.details(agent), 'details'))
-      if (canGo !== true) controls.append(el('span', 'attention-unavailable', canGo === null ? 'Checking navigation…' : 'Navigation unavailable'))
-      if (key !== 'needs-input') controls.append(button('Mark Reviewed', () => actions.review(agent, (error) => {
-        status.textContent = error ?? 'Reviewed in The Lobby.'
-        if (!error) {
-          const next = controls.querySelector<HTMLElement>('[data-focus-key]')
-          next?.focus({ preventScroll: true })
-        }
-      }), 'review'))
-      card.append(controls, status)
-      section.append(card)
+      const sameLabel = (contextCounts.get(`${name}\u0000${context.project ?? ''}`) ?? 0) > 1
+      section.append(attentionRow(agent, key, sameLabel, office, actions))
     }
     fragment.append(section)
   }
@@ -125,6 +142,7 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   } else if (active?.classList.contains('attention-heading')) {
     root.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
   }
+
 }
 
 export function refreshAttentionTimes(root: HTMLElement, agents: readonly AgentView[], now: number): void {

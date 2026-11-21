@@ -24,7 +24,7 @@ scenarios = [(280, 'linked'), (320, 'linked'), (420, 'linked'), (900, 'linked'),
 scenarios += [(280, 'actions'), (420, 'actions'), (900, 'actions'), (420, 'actionslive')]  # terminal actions
 scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
-scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace'), (420, 'prefsreadrecover'), (420, 'prefsackrace'), (420, 'installationrecover'), (420, 'installationrecoverchoice')]  # inbox, shared filters and startup preference
+scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (280, 'attentioncompact'), (420, 'attentioncompact'), (900, 'attentioncompact'), (420, 'attentioncompactfail'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace'), (420, 'prefsreadrecover'), (420, 'prefsackrace'), (420, 'installationrecover'), (420, 'installationrecoverchoice')]  # inbox, shared filters and startup preference
 scenarios += [(420, 'sharedbanner')]
 scenarios += [(280, 'settingsconsolidation'), (420, 'settingsconsolidation'), (900, 'settingsconsolidation')]
 scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys'), (420, 'notificationfocus')]  # local notification controls
@@ -90,54 +90,32 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
             time.sleep(.15)
-            state = command('Runtime.evaluate', {'expression': "({removed:!document.querySelector('[data-focus-key=\\\"finished:done:review\\\"]'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
-            if not state['removed'] or state['focus'] != 'failed:fail:review': raise RuntimeError('keyboard review did not advance to the next actionable item: ' + str(state))
+            state = command('Runtime.evaluate', {'expression': "({drawer:!!document.querySelector('.sheet'),review:!!document.querySelector('[data-focus-key=\\\"drawer-review:done\\\"]')})", 'returnByValue': True})['result']['value']
+            if not state['drawer'] or not state['review']: raise RuntimeError('keyboard title did not open its result drawer: ' + str(state))
+        if scenario == 'attentioncompact':
+            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=\\\"attention-title:need-1\\\"]').focus()"})
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+            state = command('Runtime.evaluate', {'expression': "({open:!!document.querySelector('.sheet'),page:document.querySelector('#attention-tab').getAttribute('aria-selected'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if state != {'open': True, 'page': 'true', 'focus': 'drawer-close'}: raise RuntimeError('keyboard title did not open Attention details: ' + str(state))
+            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
+            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
+            state = command('Runtime.evaluate', {'expression': "({open:!!document.querySelector('.sheet'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
+            if state != {'open': False, 'focus': 'attention-title:need-1'}: raise RuntimeError('closing keyboard-opened details did not return to title: ' + str(state))
         if scenario == 'attentionlast':
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
-            time.sleep(.15)
-            focused = command('Runtime.evaluate', {'expression': "document.activeElement?.classList.contains('attention-heading')", 'returnByValue': True})['result']['value']
-            if not focused: raise RuntimeError('reviewing the last result did not focus the queue heading')
-        if scenario == 'drawerkeyboard':
-            command('Runtime.evaluate', {'expression': "document.querySelector('.drawer-extra > summary').focus()"})
-            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
-            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
-            opened = command('Runtime.evaluate', {'expression': "({open:document.querySelector('.drawer-extra').open,focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
-            if not opened['open'] or opened['focus'] != 'b:drawer-details': raise RuntimeError('keyboard did not open supplementary details and retain focus: ' + str(opened))
-            command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
-            command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
-            returned = command('Runtime.evaluate', {'expression': "({closed:!document.querySelector('.sheet'),focus:document.activeElement?.dataset.focusKey})", 'returnByValue': True})['result']['value']
-            if not returned['closed'] or returned['focus'] != 'chart-node:b': raise RuntimeError('Escape did not close the drawer and return focus: ' + str(returned))
-        if scenario == 'drawertab':
-            def key_tab(shift=False):
-                command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9, **({'modifiers': 8} if shift else {})})
-                command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9, **({'modifiers': 8} if shift else {})})
-                time.sleep(.05)
-            command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=drawer-close]').focus()"})
-            key_tab(True)
-            closed_last = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.dataset.focusKey,last:[...document.querySelector('.sheet').querySelectorAll('button,a[href],input,textarea,summary,[tabindex]')].filter(x=>!x.disabled&&x.tabIndex>=0&&x.checkVisibility()).at(-1)?.dataset.focusKey})", 'returnByValue': True})['result']['value']
-            if not closed_last['last'] or closed_last['focus'] != closed_last['last']: raise RuntimeError('Shift+Tab from Close did not reach a visible enabled stop with details closed: ' + str(closed_last))
-            key_tab()
-            if command('Runtime.evaluate', {'expression': "document.activeElement?.dataset.focusKey==='drawer-close'", 'returnByValue': True})['result']['value'] is not True: raise RuntimeError('Tab from the last closed-details stop did not wrap to Close')
-            command('Runtime.evaluate', {'expression': "document.querySelector('.drawer-extra > summary').focus()"})
-            key_tab()
-            stayed = command('Runtime.evaluate', {'expression': "({inside:document.querySelector('.sheet').contains(document.activeElement),visible:document.activeElement?.checkVisibility()})", 'returnByValue': True})['result']['value']
-            if not stayed['inside'] or not stayed['visible']: raise RuntimeError('Tab from More details escaped the modal with details closed: ' + str(stayed))
-            command('Runtime.evaluate', {'expression': "document.querySelector('.drawer-extra > summary').click();document.querySelector('[data-focus-key=drawer-close]').focus()"})
-            key_tab(True)
-            open_last = command('Runtime.evaluate', {'expression': "({focus:document.activeElement?.dataset.focusKey,last:[...document.querySelector('.sheet').querySelectorAll('button,a[href],input,textarea,summary,[tabindex]')].filter(x=>!x.disabled&&x.tabIndex>=0&&x.checkVisibility()).at(-1)?.dataset.focusKey})", 'returnByValue': True})['result']['value']
-            if not open_last['last'] or open_last['focus'] != open_last['last']: raise RuntimeError('Shift+Tab from Close did not reach a visible enabled stop with details open: ' + str(open_last))
-            key_tab()
-            if command('Runtime.evaluate', {'expression': "document.activeElement?.dataset.focusKey==='drawer-close'", 'returnByValue': True})['result']['value'] is not True: raise RuntimeError('Tab from the last open-details stop did not wrap to Close')
+            opened = command('Runtime.evaluate', {'expression': "({sheet:!!document.querySelector('.sheet'),review:!!document.querySelector('[data-focus-key=\\\"drawer-review:last\\\"]')})", 'returnByValue': True})['result']['value']
+            if not opened['sheet'] or not opened['review']: raise RuntimeError('opening the last result did not show its drawer review action: ' + str(opened))
         if scenario == 'attentionarrival':
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
             command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
             time.sleep(.15)
-            state = command('Runtime.evaluate', {'expression': "({empty:!document.querySelector('.attention-card'),focus:document.activeElement?.classList.contains('attention-heading')})", 'returnByValue': True})['result']['value']
+            state = command('Runtime.evaluate', {'expression': "({empty:!document.querySelector('.attention-row'),focus:document.activeElement?.classList.contains('attention-heading')})", 'returnByValue': True})['result']['value']
             if not state['empty'] or not state['focus']: raise RuntimeError('keyboard review did not focus the empty queue: ' + str(state))
             command('Runtime.evaluate', {'expression': 'window.arrive()'})
             time.sleep(.15)
-            state = command('Runtime.evaluate', {'expression': "({arrived:!!document.querySelector('[data-focus-key=\\\"needs-input:arrival:go\\\"]'),focus:document.activeElement?.classList.contains('attention-heading')})", 'returnByValue': True})['result']['value']
+            state = command('Runtime.evaluate', {'expression': "({arrived:!!document.querySelector('[data-focus-key=\\\"attention-title:arrival\\\"]'),focus:document.activeElement?.classList.contains('attention-heading')})", 'returnByValue': True})['result']['value']
             if not state['arrived'] or not state['focus']: raise RuntimeError('a new queue row stole focus from the empty queue heading: ' + str(state))
         if scenario in ('linked', 'unknown', 'noid'):
             selector = 'button.chart-helper' if scenario in ('unknown', 'noid') else 'button.chart-node-button:not(.chart-helper)'

@@ -70,20 +70,21 @@
       #attention-list { display: grid; gap: 8px; }
       .attention-heading { margin: 4px 0; font-size: 18px; }
       .attention-counts { margin: 0; color: var(--ui-muted-foreground); }
-      .attention-group h2 { margin: 12px 0 6px; font-size: 13px; }
-      .attention-card { min-width: 0; padding: 10px; background: var(--ui-card); border: 1px solid var(--ui-border); border-left: 4px solid var(--ui-border); border-radius: var(--radius); }
-      .attention-card.attention-needs-input { border-left-color: var(--blocked); }
-      .attention-card.attention-failed { border-left-color: var(--failed); }
-      .attention-card.attention-finished { border-left-color: var(--unread); }
-      .attention-title { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
-      .attention-state, .attention-meta, .attention-feedback { margin: 4px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
-      .attention-time { display: block; margin: 4px 0; color: var(--ui-muted-foreground); font-size: 11px; }
-      .attention-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-      .attention-actions .action { min-height: 36px; }
-      .attention-unavailable { align-self: center; color: var(--ui-muted-foreground); font-size: 11px; }
+      .attention-group h2 { margin: 8px 0 4px; font-size: 13px; }
+      .attention-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; min-width: 0; padding: 5px 0 5px 8px; border-bottom: 1px solid var(--ui-border); border-left: 3px solid var(--ui-border); }
+      .attention-row.attention-needs-input { border-left-color: var(--blocked); }
+      .attention-row.attention-failed { border-left-color: var(--failed); }
+      .attention-row.attention-finished { border-left-color: var(--unread); }
+      .attention-title { grid-column: 1; min-width: 0; width: 100%; min-height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--ui-foreground); text-align: left; font: inherit; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+      .attention-meta { grid-column: 1; min-width: 0; margin: 0; color: var(--ui-muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+      .attention-time { color: inherit; }
+      .attention-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; min-width: 0; max-width: 10em; }
+      .attention-actions .action { min-height: 32px; max-width: 100%; padding: 5px 8px; white-space: normal; }
+      .attention-unavailable { max-width: 100%; color: var(--ui-muted-foreground); font-size: 10px; line-height: 1.2; text-align: right; overflow-wrap: anywhere; }
+      .attention-feedback { grid-column: 1 / -1; margin: 0; color: var(--ui-muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
       .attention-empty { padding: 14px; border: 1px dashed var(--ui-border); border-radius: var(--radius); }
-      :root.compact .attention-card { padding: 6px; }
-      :root.compact .attention-group h2 { margin: 8px 0 4px; }
+      :root.compact .attention-row { padding-top: 3px; padding-bottom: 3px; }
+      :root.compact .attention-group h2 { margin: 6px 0 3px; }
       :root.compact .roster .agent { padding-top: 3px; padding-bottom: 3px; }
       :root.compact #activity-list { gap: 4px; }
       #banner[hidden] { display: none; }
@@ -106,6 +107,7 @@
       .primary-tab:focus-visible,
       .activity-toggle:focus-visible,
       .action:focus-visible,
+      .attention-title:focus-visible,
       #view-filters input:focus-visible,
       #view-filters select:focus-visible {
         outline: 2px solid var(--ui-primary);
@@ -1094,6 +1096,11 @@
       .drawer-close { flex: none; min-width: 32px; min-height: 32px; font-size: 16px; }
       .drawer-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
       .drawer-line { margin: 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .drawer-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+      .drawer-review .action { min-height: 32px; }
+      .drawer-review-status, .drawer-review-error { margin: 0; overflow-wrap: anywhere; }
+      .drawer-review-status { color: var(--ui-muted-foreground); }
+      .drawer-review-error { color: var(--ui-warning, var(--ui-muted-foreground)); }
       .drawer-extra { padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: var(--radius); }
       .drawer-extra > summary { min-height: 28px; color: var(--ui-primary); font-weight: 650; cursor: pointer; }
       .drawer-extra > summary:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
