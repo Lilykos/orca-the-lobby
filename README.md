@@ -33,7 +33,7 @@ Requires Orca **1.4.248 or newer**.
 orca plugin install Lilykos/orca-the-lobby
 ```
 
-This command installs the latest published release from the Orca community catalog.
+This command installs the newest tagged release from this repository.
 
 Orca shows the permissions the plugin asks for ([below](#permissions)) and asks you to approve them. Then open **The Lobby** from the right sidebar. The plugin is also listed in the [Orca community catalog](https://github.com/stablyai/orca-community-plugins) (Settings → Plugins).
 

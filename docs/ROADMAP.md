@@ -100,4 +100,4 @@ A GitHub Action that runs `tsc --noEmit` on every push and pull request, plus `o
 
 ### 13. README catalog line
 
-The README says the plugin is listed in the community catalog "once published there". It now has the `orca-plugin` topic and a status page (`orca.dev/plugins/Lilykos/orca-the-lobby`); reword the line in the next release.
+The plugin has the `orca-plugin` topic and a status page (`orca.dev/plugins/Lilykos/orca-the-lobby`). As of 2026-11-21 the public community catalog still shows 1.1.0 and lists 1.2.0 as under code review, while GitHub has the 1.3.0 release. Update catalog-facing copy when the directory catches up.

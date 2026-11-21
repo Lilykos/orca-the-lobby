@@ -2,11 +2,11 @@
 
 What to submit for The Lobby, checked against the catalog's rules (<https://onorca.dev/plugins/add/>, the [listing policy](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-listing-policy.md) and [plugin authoring](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md), read 2026-11-13).
 
-This entry describes The Lobby 1.3.0 catalog release. The install command resolves to the latest published tag.
+This is the listing copy for the published The Lobby 1.3.0 release. The install command resolves to the newest tagged release in this repository. The public community-catalog page has not caught up yet and still shows 1.1.0.
 
 ## How listing works
 
-There is no form and no queue. The directory lists a public GitHub repository that has the `orca-plugin` topic and a `vX.Y.Z` tag, usually within an hour, if the manifest passes Orca's validator and the safety checks. It lists the newest tag, pinned to its exact commit and content hash; pushes without a new tag change nothing. The plugin's status page is `https://orca.dev/plugins/Lilykos/orca-the-lobby`. Community plugins are checked by machine, not reviewed.
+There is no form and no queue. The directory lists a public GitHub repository that has the `orca-plugin` topic and a `vX.Y.Z` tag, usually within an hour, if the manifest passes Orca's validator and the safety checks. It lists the newest tag, pinned to its exact commit and content hash; pushes without a new tag change nothing. The plugin's status page is `https://orca.dev/plugins/Lilykos/orca-the-lobby`. As of 2026-11-21 the status page still shows 1.1.0 and records 1.2.0 as under code review, despite the published GitHub 1.3.0 release. Community plugins are checked by machine, not reviewed.
 
 ```sh
 gh repo edit Lilykos/orca-the-lobby --add-topic orca-plugin
@@ -20,7 +20,7 @@ git tag -a v1.3.0 -m "The Lobby 1.3.0" && git push origin v1.3.0
 | Name | The Lobby |
 | Catalog id | `lilykos.the-lobby` (`<repository owner, lowercased>.<manifest id>`; manifest `id` is `the-lobby`, `publisher` is left out) |
 | Repository | <https://github.com/Lilykos/orca-the-lobby> |
-| Version | 1.3.0 (tag `v1.3.0` must match the manifest `version` when published) |
+| Version | 1.3.0 (published tag `v1.3.0`, matching the manifest `version`) |
 | License | MIT (`LICENSE`) |
 | Execution | `trusted-worker` (shown as "Full access" on the card) |
 | Requires | Orca >= 1.4.248 (`engines.orca`) |
