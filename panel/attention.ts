@@ -90,7 +90,14 @@ function attentionRow(agent: AgentView, group: string, disambiguate: boolean, of
 export function renderAttention(root: HTMLElement, office: OfficeSnapshot, reviewed: Set<string>, actions: AttentionActions, liveAgentCount = office.agents.length, filteredOut = false, nameOf: (agent: AgentView) => string = () => '', revealFinished = false): void {
   const active = root.contains(document.activeElement) ? document.activeElement as HTMLElement : null
   const focused = active?.dataset.focusKey
-  const canFocus = (node: HTMLElement): boolean => (node.tabIndex >= 0 || node.matches('.attention-heading, .attention-group h2')) && !(node instanceof HTMLButtonElement && node.disabled)
+  const visible = (node: HTMLElement): boolean => {
+    const closedDetails = node.closest('details:not([open])')
+    return node.isConnected && node.getClientRects().length > 0 && node.checkVisibility()
+      && (!closedDetails || closedDetails.querySelector(':scope > summary') === node)
+  }
+  const canFocus = (node: HTMLElement): boolean => visible(node)
+    && (node.tabIndex >= 0 || node.matches('.attention-heading, .attention-group h2'))
+    && !(node instanceof HTMLButtonElement && node.disabled)
   const previousStops = [...root.querySelectorAll<HTMLElement>('[data-focus-key]')].filter(canFocus)
   const focusIndex = focused ? previousStops.findIndex((stop) => stop.dataset.focusKey === focused) : -1
   const scroll = root.scrollTop

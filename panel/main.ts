@@ -969,6 +969,8 @@ function markReviewed(agentId: string): void {
   if (!agent || agent.state !== 'done' || !agent.completionId) return
   const completionId = agent.completionId
   if (office.reviewedCompletions?.includes(completionId) || reviewPending.has(completionId)) return
+  const reviewDrawerGeneration = currentPage === 'attention' && attentionDrawerAgent === agentId && sheet.isConnected ? drawerGeneration : null
+  const reviewFocusKey = (document.activeElement as HTMLElement | null)?.dataset.focusKey
   const nextFocus = currentPage === 'attention' ? nextAttentionFocus(agentId) : undefined
   reviewErrors.delete(completionId)
   reviewPending.add(completionId)
@@ -998,7 +1000,11 @@ function markReviewed(agentId: string): void {
     reviewErrors.delete(completionId)
     attentionFeedback.textContent = 'Reviewed in The Lobby.'
     office = { ...office, reviewedCompletions: [...new Set([...(office.reviewedCompletions ?? []), completionId])] }
-    if (currentPage === 'attention' && attentionDrawerAgent === agentId) closeDrawer(nextFocus)
+    const ownsDrawer = reviewDrawerGeneration !== null && drawerGeneration === reviewDrawerGeneration
+      && currentPage === 'attention' && attentionDrawerAgent === agentId && sheet.isConnected
+      && sheet.contains(document.activeElement)
+      && (document.activeElement as HTMLElement).dataset.focusKey === reviewFocusKey
+    if (ownsDrawer) closeDrawer(nextFocus)
     else renderDrawer()
   }).catch(() => {
     reviewPending.delete(completionId)
@@ -1765,6 +1771,8 @@ const topHost = element('div', 'drawer-part')
 const restHost = element('div', 'drawer-part')
 let drawerHelper: FamilyNode | null = null
 let drawerKey = ''
+let drawerGeneration = 0
+let drawerAgentIdentity: string | null = null
 /** Where focus goes back to when the drawer closes. */
 let drawerOpener: string | null = null
 
@@ -1794,6 +1802,10 @@ function placeDrawer(agent: AgentView | undefined): void {
 function renderDrawer(): void {
   const now = Date.now()
   const agent = drawerAgent()
+  if (drawerAgentIdentity !== (agent?.id ?? null)) {
+    drawerAgentIdentity = agent?.id ?? null
+    drawerGeneration++
+  }
   const helper = !agent && currentPage === 'activity' ? drawerHelper : null
   // Leaving an agent (closed, another picked, or it left) drops its draft and old notes with it.
   if (controls && controls.agentId !== agent?.id) {
