@@ -60,7 +60,7 @@ Eligible state-transition alerts are grouped by project and kind for a fixed two
 
 ## Verification and release state
 
-1.3 is implemented on the development branch but remains unreleased; the manifest and About version still describe published 1.2.0. Current automated verification runs on macOS with isolated synthetic browser fixtures. Real paired-server behavior and Windows/Linux runtime behavior have not been exercised, and notification checkpoint/live-trial approval remains outstanding. Local Claude transcript enrichment reads titles and recent prompts for heuristic matching plus TodoWrite entries and edited file names; it remains on the machine, and prompt text is not added to the activity journal.
+The manifest and About are prepared for 1.3.0; publication is a separate step. Automated browser verification uses isolated synthetic fixtures on macOS. The real GUI trial, paired-server behavior and Windows/Linux runtime behavior remain unverified. In Orca 1.4.264, the source-folder development load accepted worker requests but its panel shot failed with “The plugin panel could not be loaded”; this is a development-loader issue under investigation, not a result from the packaged release. Local Claude transcript enrichment reads titles and recent prompts for heuristic matching plus TodoWrite entries and edited file names; it remains on the machine, and prompt text is not added to the activity journal.
 
 ## Context chain
 

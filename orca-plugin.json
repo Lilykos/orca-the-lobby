@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "the-lobby",
   "name": "The Lobby",
-  "version": "1.2.0",
-  "description": "See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Local and paired-server agents, with no telemetry. Tour and guide: https://lilykos.github.io/orca-the-lobby/",
+  "version": "1.3.0",
+  "description": "See every agent in every worktree in one live view: a pixel room per project, compact Attention rows for results to review, org charts, context and tokens. Local and paired-server agents, with no telemetry. Tour and guide: https://lilykos.github.io/orca-the-lobby/",
   "author": {
     "name": "Lilykos",
     "url": "https://github.com/Lilykos"
@@ -25,7 +25,7 @@
     },
     {
       "path": "docs/images/catalog/attention.png",
-      "alt": "Attention queue with Needs input, Failed to review and Finished to review groups, with Go to agent and local Mark Reviewed actions",
+      "alt": "Compact task-first Attention: title opens details; Open agent is separate; Reviewed is in result details; Finished stays counted while collapsed",
       "caption": "Know what needs a look",
       "theme": "dark"
     },

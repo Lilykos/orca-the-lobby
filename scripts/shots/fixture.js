@@ -379,7 +379,7 @@ if(['settingsredesign','settingsredesignlight','settingsredesignreduced','settin
  const stuckLabel=settings.querySelector('[data-pref-label="stuckMinutes"]');
  must(stuckLabel?.textContent.includes('Notify me when an agent seems stuck'),'stuck reminder wording was shortened or split');
  const aboutText=settings.querySelector('.about').textContent;
- must(aboutText.includes('v1.2.0')&&aboutText.includes('1.3 in development'),'published and development versions are unclear');
+ must(aboutText.includes('v1.3.0'),'About version does not match the release candidate');
  must(settings.textContent.includes('Prompts are not stored')&&settings.textContent.includes('does not change Orca unread'),'local privacy copy is incomplete');
  summary.click();await wait();
  must(disclosure.open&&disclosure.querySelectorAll('.notification-row').length===4,'expanded notification control list is incomplete');

@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased
-
-Development notes for the unreleased 1.3.0 proposal. The catalog install command still serves published 1.2.0; do not treat these notes as a release announcement.
+## 1.3.0 — 2026-11-21
 
 - Add **Attention** for blocked agents, explicit failures and unread or newly observed completions, with Lobby-local **Reviewed** state that never changes Orca's unread or status data.
 - Present Attention as compact task-first rows: titles open details, validated **Open agent** stays separate, and **Mark Reviewed** is an explicit result-drawer action. Keep Finished counted while collapsed; search reveals matching results and clear restores the user's disclosure choice.

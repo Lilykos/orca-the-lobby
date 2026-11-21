@@ -2358,7 +2358,7 @@ function applyPalette(): void {
 }
 
 /** Kept equal to orca-plugin.json's version. */
-const VERSION = '1.2.0'
+const VERSION = '1.3.0'
 const SITE = 'https://lilykos.github.io/orca-the-lobby/'
 const REPO = 'https://github.com/Lilykos/orca-the-lobby'
 
@@ -2367,7 +2367,7 @@ function aboutCard(): HTMLElement {
   const about = element('section', 'about')
   about.setAttribute('aria-label', 'About The Lobby')
   const heading = element('p', 'about-title')
-  heading.append(element('strong', '', 'The Lobby'), element('span', 'about-version', `v${VERSION} · 1.3 in development`))
+  heading.append(element('strong', '', 'The Lobby'), element('span', 'about-version', `v${VERSION}`))
   about.append(heading)
   const links = element('div', 'about-links')
   for (const [label, url] of [

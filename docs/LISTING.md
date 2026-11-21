@@ -2,7 +2,7 @@
 
 What to submit for The Lobby, checked against the catalog's rules (<https://onorca.dev/plugins/add/>, the [listing policy](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-listing-policy.md) and [plugin authoring](https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md), read 2026-11-13).
 
-This entry describes the published 1.2.0 tag. The 1.3.0 material below is not submitted or released; keep the catalog metadata and manifest at 1.2.0 until the separate release gate is authorized.
+This entry is prepared for the 1.3.0 release candidate. It is not published yet; until publication, the catalog install command resolves to the latest published tag.
 
 ## How listing works
 
@@ -10,7 +10,7 @@ There is no form and no queue. The directory lists a public GitHub repository th
 
 ```sh
 gh repo edit Lilykos/orca-the-lobby --add-topic orca-plugin
-git tag -a v1.2.0 -m "The Lobby 1.2.0" && git push origin v1.2.0
+git tag -a v1.3.0 -m "The Lobby 1.3.0" && git push origin v1.3.0
 ```
 
 ## Entry
@@ -20,7 +20,7 @@ git tag -a v1.2.0 -m "The Lobby 1.2.0" && git push origin v1.2.0
 | Name | The Lobby |
 | Catalog id | `lilykos.the-lobby` (`<repository owner, lowercased>.<manifest id>`; manifest `id` is `the-lobby`, `publisher` is left out) |
 | Repository | <https://github.com/Lilykos/orca-the-lobby> |
-| Version | 1.2.0 (tag `v1.2.0` must match the manifest `version`) |
+| Version | 1.3.0 (tag `v1.3.0` must match the manifest `version` when published) |
 | License | MIT (`LICENSE`) |
 | Execution | `trusted-worker` (shown as "Full access" on the card) |
 | Requires | Orca >= 1.4.248 (`engines.orca`) |
@@ -31,13 +31,15 @@ git tag -a v1.2.0 -m "The Lobby 1.2.0" && git push origin v1.2.0
 
 Catalog description:
 
-> See every agent in every worktree in one live view: pixel people in a room per project, who needs you or seems stuck, org charts of who started whom, and context and tokens per agent. Local and paired-server agents, with no telemetry.
+> See every agent in every worktree in one live view: compact task-first Attention rows, a pixel room per project, org charts, context and tokens. Local and paired-server agents, with no telemetry.
 
 ### Longer description
 
 Run a dozen agents in parallel worktrees and still know, at a glance, who is working, who is stuck and who needs you. The Lobby turns every agent Orca runs into a little pixel person in a lobby that lives in the sidebar: one room per project (worktrees of a repo share it), working agents at desks with an icon for what they are doing, finished ones at the coffee machine. Counts show how many are working, need you, are done or failed.
 
 - **Know who needs you.** Speech bubbles say **Need you!**, **Stuck?** or **Failed**, or show the first line of a finished agent's reply. A Needs attention filter dims everything else, and an optional desktop notification fires when an agent has had no activity, or has still needed you, for 10 to 60 minutes.
+- **Review results without losing track.** Task titles open details; validated **Open agent** stays separate. Mark **Reviewed** explicitly inside the result drawer. Finished results remain counted while collapsed, and search reveals matches.
+- **Control notifications locally.** Mute a project or snooze a current episode's reminder for 15 minutes, 1 hour or until resumed. The controls do not hide agents or change Orca settings.
 - **See who started whom.** The Activity tab draws an org chart per project from the exact parent and worker links Orca reports, also across worktrees. Nothing is guessed.
 - **Act without hunting through tabs.** Open any agent to jump to its terminal, send an instruction to an agent running in a terminal, or compact a Claude Code conversation. Previous / Next agent shortcuts (Cmd/Ctrl+Alt+Up/Down) step through the agents that need you first.
 - **Watch the context fill.** Context and tokens per agent, and tokens today per project, are read from Claude Code and Codex logs on your machine.
@@ -45,9 +47,9 @@ Run a dozen agents in parallel worktrees and still know, at a glance, who is wor
 
 The plugin has no telemetry or direct network requests. Orca uses its existing connections to list agents on paired servers and navigate to them; Git and Claude Code/Codex log enrichment remain local. Unreachable paired servers disappear until reconnection. It acts only when you press something: it opens a workspace or brings a terminal forward on **Go to agent**, and types into a terminal only on **Send** or a confirmed **Compact conversation**. Plugins cannot type into Orca chat agents, and Claude Code's logs state no context window, so Claude agents show tokens without a percentage; the README lists the other limits.
 
-### Next-release draft — 1.3.0 (not published)
+### Release status
 
-The development branch adds a compact Attention queue: task titles open details, validated **Open agent** is separate, and **Mark Reviewed** is an explicit result-drawer action (24-hour retention, 500-key cap). Finished results stay counted while collapsed; search reveals matches, and a native Filter disclosure keeps active count and Clear available. Shared search/project filtering, density, drawer disclosures and quiet states apply across functional views. It also adds local project mute, current-episode reminder snooze (15 minutes, 1 hour or manual resume) and two-second per-project/per-kind notification grouping. These changes preserve the published 1.2.0 catalog entry and its six-image limit until the 1.3 release is reviewed and authorized. See the current [development guide](../README.md) for actual limits and identity ambiguities.
+This 1.3.0 entry is prepared but not published. The install command continues to resolve to the latest published tag until the release is published. The six-image catalog limit still applies. See the [README](../README.md) for actual retention limits and completion-identity ambiguities.
 
 ### Capabilities declared
 
@@ -62,7 +64,7 @@ Alt text and captions, in the order to show them. Files are in `docs/images/`.
 | cover | `docs/images/catalog/cover.png` | The Lobby: the pixel title and orca mascot, a tagline, and two project rooms with Need you!, Stuck? and Failed speech bubbles |
 | icon | `docs/images/icon.png` | The Lobby icon: the orca mascot |
 | 1 | `docs/images/catalog/office.png` | Every agent, every worktree, one glance |
-| 2 | `docs/images/catalog/attention.png` | Attention queue: Needs input and results to review |
+| 2 | `docs/images/catalog/attention.png` | Compact task-first Attention rows; titles open details, Open agent is separate, Reviewed is in the result drawer, Finished stays counted while collapsed |
 | 3 | `docs/images/catalog/activity.png` | See who started whom |
 | 4 | `docs/images/catalog/drawer.png` | Jump in without hunting tabs |
 | 5 | `docs/images/catalog/context.png` | Context and tokens, per agent |
@@ -98,7 +100,7 @@ Leave `publisher` out: Orca derives it from the repository owner, and a `publish
 - Run plugin validation, unit tests, type checking and screenshot checks.
 - Check permissions and privacy copy against the final behavior; paired-server requests use Orca's existing connections.
 - Keep the README, guide, landing page and regenerated catalog images current.
-- Keep the manifest, About version and release tag at 1.2.0.
+- Keep the manifest, About version and release tag at 1.3.0.
 - Publish the changelog and GitHub release with contributor credit.
 - Verify the public catalog status and deployed GitHub Pages site after publishing.
 - Never move a published tag; use a new version for later changes.
