@@ -129,17 +129,17 @@
     <article class="feature wide" id="attention-queue">
       <div class="text">
         <h3>Attention: the next thing to look at</h3>
-        <p>See three live groups: <strong>Needs input</strong> for blocked agents, <strong>Failed to review</strong> for explicit failures, and <strong>Finished to review</strong> for unread or newly observed completions. Waiting, cancelled, interrupted or unconfirmed work is not called successful.</p>
-        <p><strong>Go to agent</strong> is offered only when Orca reports a valid destination. <strong>Review details</strong> opens the drawer; <strong>Mark Reviewed</strong> records a Lobby-only decision. It does not clear Orca's unread flag, change status, or happen when you navigate or open the drawer. Reviewed keys are kept locally for up to 24 hours, with a 500-key cap.</p>
-        <p>Search and the project filter also apply to Office and Activity. Search is literal and case-insensitive over reported task, friendly name, provider and known project/workspace/branch/host context. A missing project resets to All projects; Activity keeps reported ancestors needed to place a matching agent.</p>
+        <p>Compact task-first rows group <strong>Needs input</strong> for blocked agents, <strong>Failed to review</strong> for explicit failures, and eligible <strong>Finished</strong> results. Needs input and failures remain expanded; Finished is collapsed with its count visible. Search reveals matching Finished results, and clearing search restores your disclosure choice. Waiting, cancelled, interrupted or unconfirmed work is not called successful.</p>
+        <p>The task title opens details; a separate <strong>Open agent</strong> action appears only when Orca reports a valid destination. <strong>Mark Reviewed</strong> is an explicit result-drawer action. It does not clear Orca's unread flag or change status, and navigation or opening details never reviews a result. Reviewed keys are kept locally for up to 24 hours, with a 500-key cap.</p>
+        <p>Search and project selection are shared with Office and Activity under a native <strong>Filter</strong> disclosure. Its active-filter count and <strong>Clear</strong> stay available while results are restricted; a hidden filter cannot silently restrict the queue. Search is literal and case-insensitive over reported task, friendly name, provider and known project/workspace/branch/host context. A missing project resets to All projects; Activity keeps reported ancestors needed to place a matching agent. Quiet states distinguish no live agents, no matches and no current intervention, while keeping any Finished count visible.</p>
         <p>In <strong>Settings → Notifications</strong>, mute a project to pause all Lobby notifications for it, or snooze an eligible reminder for 15 minutes, 1 hour or until resumed. Snooze affects reminders only. Agents stay visible and counted; clearing a mute or snooze never sends catch-up alerts. Transition alerts group by project and kind for two seconds from the first event.</p>
       </div>
     </article>
 
     <div class="gallery" aria-label="Attention and notification controls">
       <figure class="shot">
-        <div class="frame tall"><a href="images/attention-inbox.png" title="Open the full-size image"><img src="images/attention-inbox.png" width="840" height="1830" loading="lazy" alt="The Attention queue with Needs input, Failed to review and Finished to review groups."></a></div>
-        <figcaption>The live review queue. Reviewed is a local decision for that completion only.</figcaption>
+        <div class="frame tall"><a href="images/attention-inbox.png" title="Open the full-size image"><img src="images/attention-inbox.png" width="840" height="1830" loading="lazy" alt="Compact Attention task rows, Filter disclosure and a counted collapsed Finished group."></a></div>
+        <figcaption>Compact task-first queue; open a title for details or use the separate agent action.</figcaption>
       </figure>
       <figure class="shot">
         <div class="frame tall"><a href="images/notification-controls.png" title="Open the full-size image"><img src="images/notification-controls.png" width="840" height="1234" loading="lazy" alt="The Settings Notifications section with alert preferences, project mute and current-episode reminder snooze."></a></div>

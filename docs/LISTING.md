@@ -47,7 +47,7 @@ The plugin has no telemetry or direct network requests. Orca uses its existing c
 
 ### Next-release draft — 1.3.0 (not published)
 
-The development branch adds Attention with completion-scoped local Reviewed markers (24-hour retention, 500-key cap), shared search/project filtering, density and drawer disclosures. It also adds local project mute, current-episode reminder snooze (15 minutes, 1 hour or manual resume) and two-second per-project/per-kind notification grouping. These changes preserve the published 1.2.0 catalog entry and its six-image limit until the 1.3 release is reviewed and authorized. See the current [development guide](../README.md) for actual limits and identity ambiguities.
+The development branch adds a compact Attention queue: task titles open details, validated **Open agent** is separate, and **Mark Reviewed** is an explicit result-drawer action (24-hour retention, 500-key cap). Finished results stay counted while collapsed; search reveals matches, and a native Filter disclosure keeps active count and Clear available. Shared search/project filtering, density, drawer disclosures and quiet states apply across functional views. It also adds local project mute, current-episode reminder snooze (15 minutes, 1 hour or manual resume) and two-second per-project/per-kind notification grouping. These changes preserve the published 1.2.0 catalog entry and its six-image limit until the 1.3 release is reviewed and authorized. See the current [development guide](../README.md) for actual limits and identity ambiguities.
 
 ### Capabilities declared
 

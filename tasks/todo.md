@@ -200,8 +200,10 @@ Verified (2026-11-21): RED exposed a missing quiet-state message when a working 
 
 ### 19 — Refresh docs/media and final regression evidence (M)
 
-- [ ] Update the existing task-12 docs/website work for the selected layout and Settings notification location; keep contributor credit, privacy and unreleased notices accurate.
+- [x] Update the existing task-12 docs/website work for the selected layout and Settings notification location; keep contributor credit, privacy and unreleased notices accurate.
 - [ ] Regenerate public fixture media, check budgets/links/mobile rendering, and rerun the repository's final unit/type/plugin/browser verification commands.
 - [ ] Record Terra approval and actual trial outcomes; leave unavailable paired-server/platform and accessibility-dependent checks explicitly unverified.
 
 Dependencies: 18. Deliver as two bounded batches: docs (README.md, docs/guide.html, docs/index.html, CHANGELOG.md, tasks/todo.md), then existing fixture media scripts/assets. Verification: existing media/size/link/render commands plus final review. Scope: M per batch. No version bump, publication or installed-plugin switch without the separate release instruction.
+
+Docs batch evidence (2026-11-21): README, architecture, landing page, guide/FAQ, Unreleased changelog, listing draft, roadmap and screenshot guide now describe compact task-first Attention rows, title-to-details versus separate validated Open agent, explicit drawer review, collapsed/counted Finished/search behavior, shared native filters and quiet states. Existing published 1.2.0 notices, 1.3 unreleased wording, contributor credit, privacy disclosures, Settings notification controls and shared banner preference remain intact. Local HTML links, image references and fragment anchors pass; media refresh and full integration verification are still pending. Terra has approved the earlier implementation slices 15–18; no actual live trial is claimed.

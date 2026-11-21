@@ -3,7 +3,7 @@
 This folder renders the plugin's **real panel code** (`panel/`) in headless Chrome, against stubbed
 data, and uses that for two things:
 
-- **Checks** (`run.py`): 105 scenarios that load the panel at exact widths, click, type, press
+- **Checks** (`run.py`): 126 scenarios that load the panel at exact widths, click, type, press
   keys and scroll, and fail on the first thing that is wrong. They double as an end-to-end test of the
   panel.
 - **Media** (`media.py`): the images in `docs/images/` (README and website) and a short animation, drawn from
@@ -87,7 +87,7 @@ numbers.
 | `office-grid.png` | 900 wide × 2 | Office in Grid, two rooms side by side |
 | `activity.png` | 900 wide × 2 | Activity: one connected org chart per project |
 | `attention.png` | 900 wide × 2 | Activity with **Needs attention** on |
-| `attention-inbox.png` | 420 wide × 2 | Attention queue: Needs input, Failed to review and Finished to review |
+| `attention-inbox.png` | 420 wide × 2 | Compact Attention rows, Filter disclosure, and counted collapsed Finished results |
 | `notification-controls.png` | 420 wide × 2 | Settings Notifications with alert preferences, project mute, and episode snooze and resume |
 | `drawer.png` | 420 × 950 × 2 | Agent drawer: Go to agent, instruction box, context and tokens |
 | `bubbles.png` | 420 wide × 2 | Two rooms close up: **Need you!**, **Stuck?**, a reply and **Failed** bubbles |

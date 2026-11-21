@@ -100,10 +100,11 @@
         <p>The panel has four views: Attention, Office, Activity and Settings. One search box and project filter are shared by the three functional views.</p>
         <h3 id="attention-guide">Attention and Reviewed</h3>
         <ul>
-          <li><strong>Needs input</strong> contains currently blocked agents. <strong>Failed to review</strong> contains current completions with an explicit failure outcome. <strong>Finished to review</strong> contains unread results and completions observed after tracking began.</li>
-          <li>Waiting, quiet, cancelled, interrupted and unconfirmed states are not promoted to success or failure. Missing outcomes are labeled unknown. Use <strong>Go to agent</strong> when enabled, or <strong>Review details</strong> to open its drawer.</li>
-          <li><strong>Mark Reviewed</strong> is a local Lobby marker for that completion. It does not mark Orca's result read, change the agent or send terminal text. Opening details and navigating do not review it. Markers expire after 24 hours and storage retains at most 500 completion keys.</li>
-          <li>Search is literal and case-insensitive over reported task/prompt, friendly name, provider and known project/workspace/branch/host labels. Project selection also filters. Activity keeps the reported chart ancestors needed to locate matching agents.</li>
+          <li>Compact rows put the task title first. Activate it to open details; use the separate <strong>Open agent</strong> action to navigate when available. If navigation is unavailable, the task still opens details and explains why.</li>
+          <li><strong>Needs input</strong> contains currently blocked agents; <strong>Failed to review</strong> contains explicit failure outcomes; the native <strong>Finished · N</strong> disclosure counts eligible results while collapsed. Search reveals matching Finished results; clearing search restores your previous disclosure choice.</li>
+          <li>Waiting, quiet, cancelled, interrupted and unconfirmed states are not promoted to success or failure. Missing outcomes are labeled unknown. <strong>Mark Reviewed</strong> is an explicit result-drawer action for that completion only; it does not mark Orca's result read, change the agent or send terminal text. Markers expire after 24 hours and storage retains at most 500 completion keys.</li>
+          <li>Search is literal and case-insensitive over reported task/prompt, friendly name, provider and known project/workspace/branch/host labels. The native <strong>Filter</strong> disclosure shows an active-filter count; <strong>Clear</strong> remains visible while a filter restricts results. Filters are shared with Office and Activity, which keeps reported chart ancestors needed to locate matching agents.</li>
+          <li>Quiet states distinguish no live agents, no filter matches and no current intervention. A nonzero Finished count remains visible alongside working count. A saved-office capacity error is logged rather than truncating required identity data.</li>
         </ul>
         <p class="note">Completion identity prefers source finish time and reported turn/session identifiers. When those are missing, The Lobby persists the identity of its local observation. If Orca omits every discriminator and an entire new turn happens while unobserved in the same pane, it cannot be distinguished reliably from the previous turn. A source finish is labeled “Finished”; a local timestamp is labeled “Done observed”.</p>
         <h3 id="notification-guide">Project mute and reminder snooze</h3>
@@ -255,7 +256,11 @@
         </details>
         <details>
           <summary>Where do finished agents go?</summary>
-          <div><p>They stand around the coffee machine (up to four drawn) and stay in the roster and Activity. Attention keeps unread or newly observed results in <em>Finished to review</em> until you mark that completion Reviewed in The Lobby. That local choice is separate from Orca's unread flag.</p></div>
+          <div><p>They stand around the coffee machine (up to four drawn) and stay in the roster and Activity. Attention keeps eligible unread or newly observed results in the collapsed, counted <em>Finished</em> disclosure until you mark that completion Reviewed in The Lobby. Search reveals matching results; clearing search restores your disclosure choice. That local choice is separate from Orca's unread flag.</p></div>
+        </details>
+        <details>
+          <summary>Why can I see a Finished count but not its rows?</summary>
+          <div><p>Finished results start collapsed to keep the queue focused. Open the native disclosure to browse them, or search for a matching result; clearing search restores the disclosure choice you made. Collapsing the group does not change Reviewed state or notifications.</p></div>
         </details>
         <details>
           <summary>What are the colours?</summary>

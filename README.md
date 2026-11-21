@@ -14,7 +14,7 @@ An [Orca](https://onorca.dev) plugin with four views: Attention, Office, Activit
 
 - **See everything at once.** Every agent in every worktree, one room per project. Worktrees of a repo share a room, and counts show how many are working, need you, are done or failed.
 - **Know who needs you.** Speech bubbles say **Need you!**, **Stuck?** or **Failed**, **Needs attention** dims the rest, and an optional desktop notification fires when an agent has gone quiet for 10 to 60 minutes.
-- **Review results in one queue.** Attention groups blocked agents, explicit failures and finished results. Marking a result **Reviewed** is local to The Lobby; it does not clear Orca's unread flag or change agent status.
+- **Review results in one queue.** Compact Attention rows put the task first: open the title for details or use the separate, validated **Open agent** action. Needs input and failures stay expanded; **Finished · N** keeps other results counted while collapsed, and matching search results reveal them. Mark **Reviewed** inside result details; it is local to The Lobby and does not clear Orca's unread flag or change agent status.
 - **See who started whom.** An org chart per project, drawn from the exact parent-to-worker links Orca reports, across worktrees. Nothing is guessed.
 - **Search across views.** One literal search and project filter apply to Attention, Office and Activity. Comfortable or Compact density keeps the roster and chart readable at different panel sizes.
 - **Act without hunting through tabs.** Open any agent to jump to its terminal, send it an instruction (terminal agents), or compact a Claude Code conversation. `Cmd/Ctrl+Alt+↑/↓` steps through the agents that need you first.
@@ -39,9 +39,9 @@ Orca shows the permissions the plugin asks for ([below](#permissions)) and asks 
 
 ## Screenshots
 
-| Attention: three live groups | See who started whom |
+| Attention: compact queue | See who started whom |
 | --- | --- |
-| <img src="docs/images/catalog/attention.png" alt="Attention queue with Needs input, Failed to review and Finished to review groups" width="100%"> | <img src="docs/images/catalog/activity.png" alt="An org chart per project with who started whom" width="100%"> |
+| <img src="docs/images/catalog/attention.png" alt="Compact Attention queue with task-first rows and separate agent actions" width="100%"> | <img src="docs/images/catalog/activity.png" alt="An org chart per project with who started whom" width="100%"> |
 | **Act without hunting through tabs** | **Watch the context fill** |
 | <img src="docs/images/catalog/drawer.png" alt="The agent drawer: Go to agent, an instruction box and Compact" width="100%"> | <img src="docs/images/catalog/context.png" alt="Context fill and tokens per agent" width="100%"> |
 
@@ -59,17 +59,17 @@ Attention queue and its local notification controls:
 
 | Attention | Settings → Notifications |
 | --- | --- |
-| <img src="docs/images/attention-inbox.png" alt="Attention queue with needs-input, failed and finished results" width="320"> | <img src="docs/images/notification-controls.png" alt="Lobby-local project notification mute and episode reminder snooze controls" width="320"> |
+| <img src="docs/images/attention-inbox.png" alt="Compact Attention queue with a native Filter disclosure and counted collapsed Finished group" width="320"> | <img src="docs/images/notification-controls.png" alt="Lobby-local project notification mute and episode reminder snooze controls" width="320"> |
 
 ## Features
 
 ### Attention
 
-Attention groups the current live roster into **Needs input** (blocked), **Failed to review** (explicit failure outcomes) and **Finished to review** (unread or newly observed completions). Waiting, cancelled, interrupted and unconfirmed work is not relabeled as a successful result. **Go to agent** follows the same validated navigation rules as the drawer; **Review details** opens the drawer; **Mark Reviewed** records a local decision only.
+Attention groups the current live roster into **Needs input** (blocked), **Failed to review** (explicit failure outcomes) and **Finished** (eligible unread or newly observed completions). Needs input and failures remain open; Finished is a native collapsed disclosure with a visible count. Search can reveal matching Finished items, and clearing search restores your disclosure choice. Waiting, cancelled, interrupted and unconfirmed work is not relabeled as a successful result. Each compact task title opens details; a separate **Open agent** action follows validated navigation rules. **Mark Reviewed** is inside result details and records a local decision only.
 
 Reviewed markers are stored in Orca's per-plugin storage for up to 24 hours and at most 500 completion keys. Opening a drawer or navigating does not mark anything Reviewed, and a later completion gets its own identity when its transition is observed or Orca reports a distinguishing turn/session value.
 
-Search and the project filter are shared with Office and Activity. Search uses reported task, prompt, friendly name, provider and project/workspace/branch/host labels; chart ancestors remain visible to keep matching agents in context.
+Search and project selection are shared with Office and Activity under a native **Filter** disclosure. The active-filter count and **Clear** action remain visible whenever a filter restricts results; hidden filters cannot silently restrict the queue. Search uses reported task, prompt, friendly name, provider and project/workspace/branch/host labels; chart ancestors remain visible to keep matching agents in context. Quiet states distinguish no live agents, no matches, and no current intervention; a nonzero Finished count remains visible.
 
 ### Notification controls
 

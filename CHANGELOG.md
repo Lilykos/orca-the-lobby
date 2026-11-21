@@ -5,6 +5,8 @@
 Development notes for the unreleased 1.3.0 proposal. The catalog install command still serves published 1.2.0; do not treat these notes as a release announcement.
 
 - Add **Attention** for blocked agents, explicit failures and unread or newly observed completions, with Lobby-local **Reviewed** state that never changes Orca's unread or status data.
+- Present Attention as compact task-first rows: titles open details, validated **Open agent** stays separate, and **Mark Reviewed** is an explicit result-drawer action. Keep Finished counted while collapsed; search reveals matching results and clear restores the user's disclosure choice.
+- Add a native **Filter** disclosure with an active-filter count and always-visible **Clear** while results are restricted; distinguish empty-roster, no-match and no-intervention states.
 - Share literal search and project filtering across Attention, Office and Activity; add Comfortable / Compact density and remember the selected functional view.
 - Preserve Office as the initial view for 1.2 upgrades and open Attention by default only on genuinely new installations.
 - Put task, state, result and available action first in the drawer; progressively disclose calls, tokens and supplementary details.
