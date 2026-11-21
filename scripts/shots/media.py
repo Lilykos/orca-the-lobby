@@ -115,7 +115,9 @@ def attention_inbox(chrome, html):
 
 def notification_controls(chrome, html):
     page = Page(chrome, html, 420, hour=21.5, scenario='notificationmedia')
-    page.shot('notification-controls', through=('#attention-list', 0))
+    page.tab('settings')
+    page.click('notification:agent:need:snooze:manual')
+    page.shot('notification-controls', through=('.notification-controls', 0))
 
 
 def drawer(chrome, html):
@@ -136,7 +138,7 @@ NO_TABS = '#primary-tabs { visibility: hidden; height: 0; margin: 0; border: 0 }
 
 
 def settings(chrome, html):
-    page = Page(chrome, html, 420, hour=21.5)
+    page = Page(chrome, html, 420, hour=21.5, only='atlas-web')
     page.tab('settings')
     page.shot('settings', through=('#settings', 0))
 

@@ -38,7 +38,8 @@ import { assignAgentNames, readAgentNames } from './names'
 import { moveProject, orderProjects, projectGroups, taskLabel } from './work-map'
 import { chartLayout, needsAttention, hasAttention, attentionBranches, NODE_WIDTH, NODE_HEIGHT } from './chart'
 import { buildFamilyTree, syncFamilyExpansion, type FamilyNode } from './family'
-import { refreshAttentionTimes, renderAttention, type NotificationProjectRow, type NotificationReminderRow } from './attention'
+import { refreshAttentionTimes, renderAttention } from './attention'
+import { renderNotificationControls, type NotificationProjectRow, type NotificationReminderRow } from './notification-settings'
 import { filterAgents } from './search'
 import { PALETTES, PALETTE_OPTIONS, paletteVariables } from './palettes'
 import {
@@ -79,15 +80,17 @@ const primaryTabs = [...document.querySelectorAll<HTMLButtonElement>('.primary-t
 const pages = [...document.querySelectorAll<HTMLElement>('.page')]
 const activityList = document.getElementById('activity-list') as HTMLElement
 const settings = document.getElementById('settings') as HTMLElement
+const notificationRows = document.createElement('div')
+notificationRows.tabIndex = -1
 const attentionList = document.getElementById('attention-list') as HTMLElement
 type NotificationTarget = { signature: string; state: NotificationControlState | null; loading: boolean; busy: boolean; message: string; writeFailureMessage?: string; retry?: () => void; retryKind?: 'read' | 'write'; focusKey?: string; focusRevision?: number; generation: number }
 const notificationProjects = new Map<string, NotificationTarget>()
 const notificationReminders = new Map<string, NotificationTarget>()
 const notificationExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let notificationFocusRevision = 0
-let restoringAttentionFocus = false
+let restoringNotificationFocus = false
 document.addEventListener('focusin', () => {
-  if (!restoringAttentionFocus) notificationFocusRevision++
+  if (!restoringNotificationFocus) notificationFocusRevision++
 })
 const attentionFeedback = document.getElementById('attention-feedback') as HTMLElement
 const filterBar = document.getElementById('view-filters') as HTMLElement
@@ -725,6 +728,7 @@ function keepChartNodeVisible(focusKey: string): void {
 function setPage(id: string, persist = true): void {
   if (persist) userSelectedView = true
   const refreshOffice = shouldRefreshOffice(currentPage, id)
+  if (currentPage === 'settings' && id !== 'settings') notificationFocusRevision++
   currentPage = id
   for (const tab of primaryTabs) {
     const active = tab.id === `${id}-tab`
@@ -733,10 +737,10 @@ function setPage(id: string, persist = true): void {
   }
   for (const page of pages) page.hidden = page.id !== `${id}-page`
   filterBar.hidden = id === 'settings'
-  banner.hidden = brandCollapsed
   document.documentElement.classList.toggle('compact', prefs.density === 'compact')
   if (id === 'activity') renderActivity()
-  if (id === 'attention') renderAttentionPage(true)
+  if (id === 'attention') renderAttentionPage()
+  if (id === 'settings') renderNotificationSettings(true)
   if (refreshOffice) { listed = ''; renderList() }
   if (persist && id !== 'settings') {
     persistPrefsPatch({ selectedView: id as Prefs['selectedView'] })
@@ -766,6 +770,13 @@ function startNotificationRead(
   input: { projectId: string; agentId?: string; episodeId?: string }, stillCurrent: () => boolean, force = false
 ): void {
   if (target.busy || (target.loading && !force) || (!force && target.state)) return
+  const focused = document.activeElement as HTMLElement | null
+  const targetKey = input.agentId ? `notification:agent:${input.agentId}` : `notification:project:${input.projectId}`
+  if (target.focusRevision !== notificationFocusRevision
+    && notificationRows.contains(focused) && focused?.closest<HTMLElement>('.notification-row')?.dataset.notificationTarget === targetKey) {
+    target.focusKey = focused.dataset.focusKey
+    target.focusRevision = notificationFocusRevision
+  }
   const generation = ++target.generation
   target.loading = true
   const preserveWriteFailure = target.retryKind === 'write'
@@ -813,7 +824,7 @@ function startNotificationRead(
           startNotificationRead(map, key, target, input, stillCurrent, true)
       }, delay))
     }
-    renderAttentionPage()
+    if (currentPage === 'settings') renderNotificationSettings()
   }
   void orca.plugin.request('notification.control.read', input).then(apply).catch((error: unknown) => {
     apply({ status: 'error', projectId: input.projectId, muted: null, agentId: input.agentId ?? null, episodeId: null, snoozed: null, expiresAt: null, error: error instanceof Error ? error.message : 'Could not read notification settings.' })
@@ -827,14 +838,14 @@ function saveNotification(
 ): void {
   const attempt = async (): Promise<void> => {
     if (!stillCurrent() || target.busy) return
-    target.focusKey = attentionList.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
+    target.focusKey = notificationRows.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.focusKey : undefined
     target.focusRevision = notificationFocusRevision
     target.busy = true
     target.message = ''
     target.writeFailureMessage = undefined
     target.retry = undefined
     target.retryKind = undefined
-    renderAttentionPage()
+    renderNotificationSettings()
     let result: ActionResult
     try {
       result = request === 'notification.project.mute'
@@ -856,15 +867,17 @@ function saveNotification(
       target.writeFailureMessage = result.error
       target.retry = () => { void attempt() }
       target.retryKind = 'write'
-      renderAttentionPage()
+      if (currentPage === 'settings') renderNotificationSettings()
     }
   }
   void attempt()
 }
 
-function syncNotificationControls(force = false): { projects: NotificationProjectRow[]; reminders: NotificationReminderRow[] } {
-  const inProject = (agent: AgentView): boolean => projectFilter === 'all' || notificationProjectId(agent) === projectFilter
-  const projectAgents = office.agents.filter((agent) => inProject(agent) && Boolean(agent.projectId || agent.workspaceId))
+function syncNotificationControls(force: boolean): { projects: NotificationProjectRow[]; reminders: NotificationReminderRow[] } | undefined {
+  const visible = currentPage === 'settings'
+  if (!visible && !notificationProjects.size && !notificationReminders.size) return
+
+  const projectAgents = office.agents.filter((agent) => Boolean(agent.projectId || agent.workspaceId))
   const projectNames = new Map<string, string>()
   for (const agent of projectAgents) {
     const id = notificationProjectId(agent)
@@ -876,24 +889,28 @@ function syncNotificationControls(force = false): { projects: NotificationProjec
     target.generation++
     notificationProjects.delete(id)
   }
-  const projectRows: NotificationProjectRow[] = [...projectNames].map(([projectId, name]) => {
-    const target = ensureNotificationTarget(notificationProjects, projectId, projectId)
-    const current = (): boolean => notificationProjects.get(projectId) === target && projectNames.has(projectId)
-    startNotificationRead(notificationProjects, projectId, target, { projectId }, current, force)
-    return { projectId, name, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retryKind: target.retryKind, retry: target.retry }
-  }).sort((a, b) => projectOrder().indexOf(a.projectId) - projectOrder().indexOf(b.projectId) || a.name.localeCompare(b.name))
-
-  const visible = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false)
-  const reminders = visible.filter((agent) => overdue(agent, Date.now(), prefs.stuckMinutes) !== null)
-  const reminderIds = new Set(reminders.map((agent) => agent.id))
+  const now = Date.now()
+  const reminders = office.agents.filter((agent) => overdue(agent, now, prefs.stuckMinutes) !== null)
+  const reminderSignatures = new Map(reminders.map((agent) => [agent.id, notificationSignature(agent)]))
   for (const [id, target] of notificationReminders) {
-    if (reminderIds.has(id)) continue
+    if (reminderSignatures.get(id) === target.signature) continue
     target.generation++
     notificationReminders.delete(id)
     const timer = notificationExpiryTimers.get(id)
     if (timer) clearTimeout(timer)
     notificationExpiryTimers.delete(id)
   }
+  // Retire stale targets on every live update so pending writes stay tied to their original episode.
+  if (!visible) return
+
+  const order = projectOrder()
+  const projectRows: NotificationProjectRow[] = [...projectNames].map(([projectId, name]) => {
+    const target = ensureNotificationTarget(notificationProjects, projectId, projectId)
+    const current = (): boolean => notificationProjects.get(projectId) === target && projectNames.has(projectId)
+    startNotificationRead(notificationProjects, projectId, target, { projectId }, current, force)
+    return { projectId, name, state: target.state, loading: target.loading, busy: target.busy, message: target.message, retryKind: target.retryKind, retry: target.retry }
+  }).sort((a, b) => order.indexOf(a.projectId) - order.indexOf(b.projectId) || a.name.localeCompare(b.name))
+
   const reminderRows: NotificationReminderRow[] = reminders.map((agent) => {
     const projectId = notificationProjectId(agent)
     const signature = notificationSignature(agent)
@@ -911,14 +928,10 @@ function syncNotificationControls(force = false): { projects: NotificationProjec
   return { projects: projectRows, reminders: reminderRows }
 }
 
-function renderAttentionPage(refreshNotifications = false): void {
+function renderAttentionPage(): void {
   const filtered = { ...office, agents: filterAgents(office.agents, office, searchText, projectFilter, nameOf, false) }
   const now = Date.now()
   for (const agent of filtered.agents) refreshActions(agent.id, now)
-  const notifications = syncNotificationControls(refreshNotifications)
-  const previousRestoring = restoringAttentionFocus
-  restoringAttentionFocus = true
-  try {
   renderAttention(attentionList, filtered, new Set(office.reviewedCompletions ?? []), {
     go: (agent, done) => {
       void orca.plugin.request('office.goTo', { agentId: agent.id }).then((result: ActionResult) => {
@@ -942,9 +955,15 @@ function renderAttentionPage(refreshNotifications = false): void {
         done()
       }).catch(() => { attentionFeedback.textContent = 'Could not save the review. Try again.'; done('Could not save the review. Try again.') })
     }
-  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf, {
-    ...notifications,
-    actions: {
+  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf)
+}
+
+function renderNotificationSettings(force = false): void {
+  const notifications = syncNotificationControls(force)
+  if (!notifications) return
+  restoringNotificationFocus = true
+  try {
+    renderNotificationControls(notificationRows, notifications.projects, notifications.reminders, {
       mute: (row) => {
         const target = notificationProjects.get(row.projectId)
         if (!target?.state || target.state.status !== 'ready') return
@@ -963,36 +982,21 @@ function renderAttentionPage(refreshNotifications = false): void {
         saveNotification(notificationReminders, row.agent.id, target, 'notification.reminder.snooze', { projectId: row.projectId, agentId: row.agent.id, episodeId, choice },
           (force) => startNotificationRead(notificationReminders, row.agent.id, target, { projectId: row.projectId, agentId: row.agent.id, episodeId }, current, force), current)
       }
-    }
-  })
-  for (const target of [...notificationProjects.values(), ...notificationReminders.values()]) {
-    if (!target.focusKey) continue
-    if (target.focusRevision !== notificationFocusRevision || !attentionList.contains(document.activeElement)) {
-      target.focusKey = undefined
-      target.focusRevision = undefined
-      continue
-    }
-    const control = [...attentionList.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
-      .find((button) => button.dataset.focusKey === target.focusKey)
-    if (control) {
-      control.focus({ preventScroll: true })
+    })
+    for (const target of [...notificationProjects.values(), ...notificationReminders.values()]) {
+      if (!target.focusKey) continue
+      if (target.focusRevision === notificationFocusRevision && notificationRows.contains(document.activeElement)) {
+        const control = notificationRows.querySelector<HTMLButtonElement>(`button[data-focus-key="${CSS.escape(target.focusKey)}"]:not(:disabled)`)
+        if (!control) continue
+        control.focus({ preventScroll: true })
+      }
       target.focusKey = undefined
       target.focusRevision = undefined
     }
-  }
   } finally {
-    restoringAttentionFocus = previousRestoring
+    restoringNotificationFocus = false
   }
 }
-
-let brandCollapsed = false
-document.getElementById('brand-toggle')!.addEventListener('click', (event) => {
-  brandCollapsed = !brandCollapsed
-  banner.hidden = brandCollapsed
-  const button = event.currentTarget as HTMLButtonElement
-  button.textContent = brandCollapsed ? 'Show banner' : 'Hide banner'
-  button.setAttribute('aria-expanded', String(!brandCollapsed))
-})
 
 function renderFilters(): void {
   const query = filterBar.querySelector<HTMLInputElement>('input')!
@@ -2124,7 +2128,8 @@ async function acceptSnapshot(snapshot: OfficeSnapshot, refreshNotifications = f
   renderFilters()
   renderList()
   if (currentPage === 'activity') renderActivity()
-  if (currentPage === 'attention') renderAttentionPage(refreshNotifications)
+  if (currentPage === 'attention') renderAttentionPage()
+  renderNotificationSettings(refreshNotifications)
 }
 
 function refresh(): void {
@@ -2284,6 +2289,7 @@ function renderSettings(): void {
   stuckSelect.value = String(prefs.stuckMinutes)
   stuckSelect.addEventListener('change', () => {
     persistPrefsPatch({ stuckMinutes: Number(stuckSelect.value) })
+    renderNotificationSettings()
   })
   stuckLabel.append(stuckSelect, element('span', 'setting-hint', 'Working with no activity seen, or still needing you, for that long.'))
   const densityLabel = element('label', 'palette-setting', 'Display density')
@@ -2312,7 +2318,29 @@ function renderSettings(): void {
     renderSettings()
     showOrder()
   }))
-  settings.replaceChildren(paletteLabel, ...controls, densityLabel, stuckLabel, orderSetting, privacy, aboutCard())
+  const [notifyBlocked, notifyDone, animate] = controls
+  const notifications = element('section', 'notification-controls')
+  const notificationHeading = element('h2', '', 'Notifications')
+  notificationHeading.id = 'notification-controls-heading'
+  notifications.setAttribute('aria-labelledby', notificationHeading.id)
+  notifications.append(notificationHeading, notifyBlocked, notifyDone, stuckLabel,
+    element('p', 'notification-note', 'Project mute pauses all The Lobby notifications for that project. Episode snooze affects reminders only. Agents stay visible in Attention.'),
+    notificationRows)
+
+  const bannerToggle = action(banner.hidden ? 'Show banner' : 'Hide banner', () => {
+    banner.hidden = !banner.hidden
+    bannerToggle.textContent = banner.hidden ? 'Show banner' : 'Hide banner'
+    bannerToggle.setAttribute('aria-expanded', String(!banner.hidden))
+  })
+  bannerToggle.id = 'brand-toggle'
+  bannerToggle.setAttribute('aria-controls', banner.id)
+  bannerToggle.setAttribute('aria-expanded', String(!banner.hidden))
+  const appearance = element('section', 'appearance-settings')
+  const appearanceHeading = element('div', 'appearance-heading')
+  appearanceHeading.append(element('h2', '', 'Appearance'), bannerToggle)
+  appearance.append(appearanceHeading, paletteLabel, densityLabel, animate)
+
+  settings.replaceChildren(notifications, appearance, orderSetting, privacy, aboutCard())
   applyPalette()
 }
 
@@ -2358,6 +2386,7 @@ function applyStoredPrefs(value: unknown): void {
   showOrder()
   renderFilters()
   if (currentPage === 'attention') renderAttentionPage()
+  renderNotificationSettings()
 }
 function persistPrefsPatch(patch: Partial<Prefs>): void {
   prefs = { ...prefs, ...patch }

@@ -3,7 +3,7 @@
 This folder renders the plugin's **real panel code** (`panel/`) in headless Chrome, against stubbed
 data, and uses that for two things:
 
-- **Checks** (`run.py`): 102 scenarios that load the panel at exact widths, click, type, press
+- **Checks** (`run.py`): 105 scenarios that load the panel at exact widths, click, type, press
   keys and scroll, and fail on the first thing that is wrong. They double as an end-to-end test of the
   panel.
 - **Media** (`media.py`): the images in `docs/images/` (README and website) and a short animation, drawn from
@@ -88,7 +88,7 @@ numbers.
 | `activity.png` | 900 wide × 2 | Activity: one connected org chart per project |
 | `attention.png` | 900 wide × 2 | Activity with **Needs attention** on |
 | `attention-inbox.png` | 420 wide × 2 | Attention queue: Needs input, Failed to review and Finished to review |
-| `notification-controls.png` | 420 wide × 2 | Project mute and the three reminder snooze choices alongside visible agents |
+| `notification-controls.png` | 420 wide × 2 | Settings Notifications with alert preferences, project mute, and episode snooze and resume |
 | `drawer.png` | 420 × 950 × 2 | Agent drawer: Go to agent, instruction box, context and tokens |
 | `bubbles.png` | 420 wide × 2 | Two rooms close up: **Need you!**, **Stuck?**, a reply and **Failed** bubbles |
 | `settings.png` | 420 wide × 2 | The Settings tab |
@@ -109,7 +109,7 @@ Current sizes (from `python3 scripts/shots/sizes.py`):
 
 ```
 activity.png                  1800 x 1613       196 KB
-attention-inbox.png            840 x 2314       203 KB
+attention-inbox.png            840 x 1830       144 KB
 attention.png                 1800 x 1613       205 KB
 bubbles.png                    840 x 932         45 KB
 catalog/activity.png          1600 x 1000       211 KB
@@ -122,14 +122,14 @@ catalog/palettes.png          1600 x 1000       197 KB
 cover.png                     1280 x 640        135 KB
 drawer.png                     840 x 1900       150 KB
 icon.png                       256 x 256         34 KB
-notification-controls.png      840 x 1877       166 KB
+notification-controls.png      840 x 1234       115 KB
 office-grid.png               1800 x 2523       350 KB
 office-light.png               840 x 2672       252 KB
 office.gif                     420 x 635         88 KB
 office.png                     840 x 2672       250 KB
 office.webp                    420 x 635         92 KB
-settings.png                   840 x 1573       179 KB
-total                                          3681 KB
+settings.png                   840 x 2241       233 KB
+total                                          3625 KB
 ```
 
 ## Files

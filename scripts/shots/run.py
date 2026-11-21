@@ -26,6 +26,7 @@ scenarios += [(280, 'context'), (420, 'context'), (900, 'context')]  # context
 scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'bubblesgrid'), (420, 'bubblesmotion'), (280, 'emojibubble'), (420, 'emojibubble')]  # bubbles
 scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentionemptyview'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace'), (420, 'prefsreadrecover'), (420, 'prefsackrace'), (420, 'installationrecover'), (420, 'installationrecoverchoice')]  # inbox, shared filters and startup preference
 scenarios += [(420, 'sharedbanner')]
+scenarios += [(280, 'settingsconsolidation'), (420, 'settingsconsolidation'), (900, 'settingsconsolidation')]
 scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys'), (420, 'notificationfocus')]  # local notification controls
 
 if args.only:
@@ -52,9 +53,9 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
                 command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': name, 'code': code, 'windowsVirtualKeyCode': vk, **({'modifiers': modifiers} if modifiers else {}), **({'text': text, 'unmodifiedText': text} if text else {})})
                 command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': name, 'code': code, 'windowsVirtualKeyCode': vk, **({'modifiers': modifiers} if modifiers else {})})
             wait_for_stage('mutePending')
-            command('Runtime.evaluate', {'expression': "document.querySelector('#view-filters input').focus()"})
+            command('Runtime.evaluate', {'expression': "document.querySelector('.notification-controls input').focus()"})
             key('Tab', 'Tab', 9)
-            if command('Runtime.evaluate', {'expression': "document.activeElement===document.querySelector('#view-filters select')", 'returnByValue': True})['result'].get('value') is not True:
+            if command('Runtime.evaluate', {'expression': "document.activeElement===document.querySelectorAll('.notification-controls input')[1]", 'returnByValue': True})['result'].get('value') is not True:
                 raise RuntimeError('Tab did not move focus elsewhere while mute was pending')
             command('Runtime.evaluate', {'expression': 'window.continueNotificationFocusMute()'})
             wait_for_stage('snoozePending')
@@ -72,6 +73,12 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
             result = command('Runtime.evaluate', wait_for_fixture)['result']['value']
         print(width, scenario, json.dumps(result))
         if result.get('result') != 'PASS' or result.get('width') != width or result.get('errors'): raise RuntimeError('fixture failed')
+        if scenario == 'sharedbanner':
+            for hidden in (True, False):
+                command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})
+                command('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+                state = chrome.evaluate("({hidden:document.querySelector('#banner').hidden,focus:document.activeElement.id})")
+                if state != {'hidden': hidden, 'focus': 'brand-toggle'}: raise RuntimeError('banner keyboard toggle lost focus or did not update: ' + str(state))
         if scenario == 'notificationkeys':
             command('Runtime.evaluate', {'expression': "document.querySelector('[data-focus-key=notification\\\\:project\\\\:p\\\\:mute]')?.focus()"})
             command('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13, 'text': '\r', 'unmodifiedText': '\r'})

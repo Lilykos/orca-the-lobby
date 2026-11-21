@@ -12,7 +12,12 @@ if(scenario==='notificationexpiry'){const clock=Date.now.bind(Date);let elapsed=
 if(['notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario)){window.fixture.agents=[agent('need','Needs a decision','blocked',{stateStartedAt:now-35*60_000}),agent('quiet','Quiet agent','working',{lastSeenAt:now-35*60_000})];window.fixture.projects.p='Fixture project'}
 if(['attentionview','attentionkeyboard','attentionfail'].includes(scenario))window.fixture.agents=[agent('need','Needs a decision','blocked'),agent('fail','Failed result','done',{outcome:'failure',finishedAt:now-8000,finishedAtSource:'source',completionId:'a'.repeat(64),completionTracked:true}),agent('done','Successful result','done',{outcome:'success',finishedAt:now-5000,finishedAtSource:'observed',completionId:'b'.repeat(64),completionTracked:true})];
 if(scenario==='attentionmedia'){window.fixture.agents=[agent('need','Approve the checkout validation plan','blocked',{projectId:'p',workspaceId:'/demo/atlas-web',stateStartedAt:now-12*60_000}),agent('fail','Repair the webhook key migration','done',{projectId:'q',workspaceId:'/demo/beacon-api',outcome:'failure',finishedAt:now-8000,finishedAtSource:'source',completionId:'a'.repeat(64),completionTracked:true}),agent('done','Review the updated cart flow','done',{projectId:'p',workspaceId:'/demo/atlas-web',outcome:'success',finishedAt:now-5000,finishedAtSource:'observed',completionId:'b'.repeat(64),completionTracked:true,unread:true})];Object.assign(window.fixture.projects,{p:'Atlas web app · local',q:'Beacon API · local'});Object.assign(window.fixture.workspaces,{'/demo/atlas-web':'atlas-web','/demo/beacon-api':'beacon-api'})}
-if(scenario==='notificationmedia')window.fixture.agents=[agent('need','Approve the checkout validation plan','blocked',{stateStartedAt:now-35*60_000}),agent('done','Review the updated cart flow','done',{outcome:'success',finishedAt:now-5000,finishedAtSource:'source',completionId:'b'.repeat(64),completionTracked:true,unread:true})];
+if(scenario==='notificationmedia'){
+ window.fixture.agents=[agent('need','Approve the checkout validation plan','blocked',{stateStartedAt:now-35*60_000}),agent('done','Review the updated cart flow','done',{outcome:'success',finishedAt:now-5000,finishedAtSource:'source',completionId:'b'.repeat(64),completionTracked:true,unread:true})];window.fixture.projects.p='Atlas web app · local';
+}
+if(scenario==='settingsconsolidation'){
+ window.fixture.agents=[agent('need','Needs a decision','blocked',{stateStartedAt:now-35*60_000}),agent('quiet','Quiet agent','working',{projectId:'q',workspaceId:'/q',lastSeenAt:now-35*60_000})];window.fixture.projects.q='Other project';
+}
 if(scenario==='attentionemptyview')window.fixture.agents=[agent('quiet','No action needed','working')];
 if(scenario==='attentionlive')window.fixture.agents=Array.from({length:100},(_,i)=>agent('a'+i,'Agent '+i,i===0?'blocked':'working'));
 if(scenario==='attentionlast')window.fixture.agents=[agent('last','Last result','done',{outcome:'success',completionId:'c'.repeat(64),completionTracked:true})];
@@ -147,8 +152,9 @@ if(scenario==='attentionmedia'||scenario==='notificationmedia'){await wait();doc
 if(['notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario)){
  const must=(ok,m)=>{if(!ok)throw Error(m)}, until=async(test,message)=>{for(let i=0;i<30&&!test();i++)await wait();must(test(),message)}, byKey=(key)=>document.querySelector(`[data-focus-key="${key}"]`), click=async(key)=>{const b=byKey(key);must(b&&!b.disabled,'missing or disabled '+key);b.click();await until(()=>![...document.querySelectorAll('.notification-project-status,.notification-agent-status')].some(x=>x.textContent.includes('Saving')||x.textContent.includes('Loading')),'action stayed pending: '+key)};
  must(document.querySelector('#attention-tab').getAttribute('aria-selected')==='true','fresh install did not start in Attention');
- must(document.documentElement.scrollWidth<=innerWidth,'notification controls overflow the panel at '+innerWidth+'px');
  const initialCounts=document.querySelector('.attention-counts')?.textContent, initialRows=document.querySelectorAll('.attention-card').length;
+ document.querySelector('#settings-tab').click();await wait();
+ must(document.documentElement.scrollWidth<=innerWidth,'notification controls overflow the panel at '+innerWidth+'px');
  await until(()=>scenario==='notificationerrors'?document.querySelector('.notification-error'):document.querySelector('[data-focus-key="notification:project:p:mute"]')&&!document.querySelector('.notification-loading'),'notification controls did not load');
  if(scenario==='notificationerrors'){
    must(document.querySelector('.notification-error')?.textContent.includes('Temporary notification storage failure'),'read failure was hidden');
@@ -181,21 +187,21 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
    await until(()=>typeof window.releaseNotificationMute==='function','mute write was not gated');
    must(byKey('notification:project:p:mute')?.disabled&&document.querySelector('.notification-project-status')?.textContent.includes('Saving'),'pending mute was not visibly disabled');
    window.notificationFocusStage='mutePending';await new Promise(resolve=>window.continueNotificationFocusMute=resolve);
-   const search=document.querySelector('#view-filters input'),projectSelect=document.querySelector('#view-filters select');
-   must(document.activeElement===projectSelect,'Tab navigation did not move from search while mute was pending');
+   const longTurn=document.querySelectorAll('.notification-controls input')[1];
+   must(document.activeElement===longTurn,'Tab navigation did not move between notification settings while mute was pending');
    window.releaseNotificationMute();
    await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted'),'gated mute did not finish');
-   must(document.activeElement===projectSelect,'mute completion stole focus from keyboard navigation');
+   must(document.activeElement===longTurn,'mute completion stole focus from keyboard navigation');
    const readsBefore=window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length;
    const snooze=byKey('notification:agent:need:snooze:manual');snooze.focus();snooze.click();
    await until(()=>typeof window.releaseNotificationSnooze==='function','snooze write was not gated');
    const officeTab=document.querySelector('#office-tab');window.notificationFocusStage='snoozePending';await new Promise(resolve=>window.continueNotificationFocusSnooze=resolve);
-   must(document.activeElement===officeTab&&document.querySelector('#office-page').hidden===false,'keyboard navigation did not leave Attention during snooze');
+   must(document.activeElement===officeTab&&document.querySelector('#office-page').hidden===false,'keyboard navigation did not leave Settings during snooze');
    window.releaseNotificationSnooze();
    await until(()=>window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length>readsBefore,'gated snooze was not reread');
-   await wait();must(document.activeElement===officeTab&&document.querySelector('#office-page').hidden===false,'snooze completion stole focus or navigated back to Attention');
-   document.querySelector('#attention-tab').click();
-   await until(()=>byKey('notification:agent:need:snooze:15m')&&!byKey('notification:agent:need:snooze:15m').disabled,'Attention controls did not reload');
+   await wait();must(document.activeElement===officeTab&&document.querySelector('#office-page').hidden===false,'snooze completion stole focus or navigated back to Settings');
+   document.querySelector('#settings-tab').click();
+   await until(()=>byKey('notification:agent:need:snooze:15m')&&!byKey('notification:agent:need:snooze:15m').disabled,'Settings controls did not reload');
    const retained=byKey('notification:agent:need:snooze:15m');retained.focus();retained.click();
    await until(()=>typeof window.releaseNotificationSnooze==='function','retained-focus snooze was not gated');
    must(byKey('notification:agent:need:snooze:15m')?.disabled,'gated snooze did not disable its action');
@@ -204,14 +210,16 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
    await until(()=>window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length>retainedReads,'retained-focus snooze was not reread');await wait();
    must(document.activeElement?.dataset.focusKey==='notification:agent:need:snooze:15m','focus was not restored when the user stayed on the pending action');
    const note=document.querySelector('.notification-note')?.textContent??'';
-   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('changes Orca settings')&&note.includes('Attention'),'mute and snooze effects are not distinguished: '+note);
+   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('Agents stay visible in Attention'),'mute and snooze effects are not distinguished: '+note);
  } else {
    must(document.querySelector('.notification-project-status')?.textContent.includes('Notifications active'),'initial mute state missing');
    const note=document.querySelector('.notification-note')?.textContent??'';
-   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('changes Orca settings')&&note.includes('Attention'),'mute and snooze effects are not distinguished: '+note);
+   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('Agents stay visible in Attention'),'mute and snooze effects are not distinguished: '+note);
    if(scenario==='notificationcontrols'){
+     byKey('notification:agent:need:snooze:1h').focus();
      window.notificationPolicy.muted=true;listener(window.fixture);
      await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications muted'),'another panel mute update was not reread');
+     must(document.activeElement?.dataset.focusKey==='notification:agent:need:snooze:1h','live mute refresh moved keyboard focus');
      window.notificationPolicy.muted=false;listener(window.fixture);
      await until(()=>document.querySelector('.notification-project-status')?.textContent.includes('Notifications active'),'another panel unmute update was not reread');
    }
@@ -254,6 +262,7 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
      must(document.querySelector('.notification-agent-status')?.textContent.includes('until resumed'),'manual snooze status missing');
      await click('notification:agent:need:resume');
      must(document.querySelector('.notification-agent-status')?.textContent.includes('Reminders active'),'resume was not reflected');
+     document.querySelector('#attention-tab').click();await wait();
      must(document.querySelector('.attention-counts')?.textContent===beforeCounts&&document.querySelectorAll('.attention-card').length===beforeRows,'notification controls changed Attention membership or counts');
      must(window.notificationCalls.some(c=>c.name==='notification.project.mute'&&c.input.muted===false)&&window.notificationCalls.some(c=>c.name==='notification.reminder.snooze'&&c.input.choice==='resume'),'control requests did not use validated API choices');
    }
@@ -486,15 +495,35 @@ if(document.querySelector('#activity-tab').getAttribute('aria-selected')!=='true
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='preferences'){
-const must=(ok,m)=>{if(!ok)throw Error(m)};must(document.querySelector('#office-tab').getAttribute('aria-selected')==='true','1.2 preferences did not preserve Office');const brand=document.querySelector('#brand-toggle');must(!document.querySelector('#banner').hidden,'Office banner unexpectedly hidden');brand.click();must(document.querySelector('#banner').hidden&&brand.getAttribute('aria-expanded')==='false','Office branding did not collapse accessibly');brand.click();
+const must=(ok,m)=>{if(!ok)throw Error(m)};must(document.querySelector('#office-tab').getAttribute('aria-selected')==='true','1.2 preferences did not preserve Office');
 document.querySelector('#settings-tab').click();await wait();const density=document.querySelector('select[name="density"]');must(density.value==='comfortable','upgrade density was not Comfortable');density.value='compact';density.focus();density.dispatchEvent(new Event('change',{bubbles:true}));await wait();must(document.documentElement.classList.contains('compact'),'Compact density not applied');must(document.querySelector('#settings-tab').getAttribute('aria-selected')==='true'&&document.activeElement===density,'preference storage change navigated away or stole Settings focus');document.querySelector('#activity-tab').click();await wait();must(stored.prefs.selectedView==='activity','functional view was not persisted');document.querySelector('#settings-tab').click();await wait();must(stored.prefs.selectedView==='activity','Settings was persisted as startup view');density.value='comfortable';density.focus();density.dispatchEvent(new Event('change',{bubbles:true}));await wait();must(document.querySelector('#settings-tab').getAttribute('aria-selected')==='true'&&document.activeElement===density&&stored.prefs.selectedView==='activity','editing settings navigated away from the previously selected view');
 must(document.querySelector('#settings-tab').getAttribute('aria-selected')==='true','preference storage change navigated away from Settings');
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
+if(scenario==='settingsconsolidation'){
+ const must=(ok,m)=>{if(!ok)throw Error(m)}, tab=async(id)=>{document.querySelector(`#${id}-tab`).click();await wait()};
+ const banner=document.querySelector('#banner'),toggle=document.querySelector('#brand-toggle'),settings=document.querySelector('#settings-page'),attention=document.querySelector('#attention-page');
+ await tab('attention');
+ must(attention.querySelector('.attention-counts')?.textContent.startsWith('1 need input')&&attention.querySelector('[data-focus-key="needs-input:need:details"]'),'Attention lost its count or queue actions');
+ const projectFilter=document.querySelector('#view-filters select');projectFilter.value='p';projectFilter.dispatchEvent(new Event('change',{bubbles:true}));
+ const search=document.querySelector('#view-filters input');search.value='no matching agents';search.dispatchEvent(new Event('input',{bubbles:true}));
+ await tab('settings');
+ const controls=settings.querySelector('.notification-controls');
+ must(!document.querySelector('#view-filters').getClientRects().length,'Attention filters were visible in Settings');
+ must(controls?.querySelector('[data-focus-key="notification:project:p:mute"]')&&controls.querySelector('[data-focus-key="notification:agent:need:snooze:15m"]'),'project mute and current-episode snooze were not grouped under Settings');
+ must(controls.querySelector('[data-focus-key="notification:project:q:mute"]')&&controls.querySelector('[data-focus-key="notification:agent:quiet:snooze:15m"]'),'Attention filters limited Settings controls');
+ must(controls.querySelectorAll('input[type="checkbox"]').length===2&&controls.querySelector('select[name="stuck"]'),'notification preferences were not grouped with mute and snooze');
+ must(!attention.querySelector('.notification-controls,[data-focus-key^="notification:"]'),'notification controls remained in Attention');
+ must(settings.contains(toggle)&&toggle.getAttribute('aria-controls')===banner.id,'the banner control was not in Settings or did not identify the banner');
+ for(const id of ['office','activity','attention','settings']){await tab(id);must(!banner.hidden,`banner missing in ${id}`);must(Boolean(toggle.getClientRects().length)===(id==='settings'),`banner control visibility is wrong in ${id}`)}
+ toggle.click();must(banner.hidden&&toggle.textContent==='Show banner'&&toggle.getAttribute('aria-expanded')==='false','Settings did not hide the banner accessibly');
+ for(const id of ['office','activity','attention','settings']){await tab(id);must(banner.hidden,`hidden banner reappeared in ${id}`)}
+ toggle.click();must(!banner.hidden&&toggle.textContent==='Hide banner'&&toggle.getAttribute('aria-expanded')==='true','Settings did not show the banner accessibly');
+ await tab('attention');must(!banner.hidden,'restored banner disappeared after switching tabs');
+ window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
 if(scenario==='sharedbanner'){
-const must=(ok,m)=>{if(!ok)throw Error(m)};const banner=document.querySelector('#banner'),toggle=document.querySelector('#brand-toggle');
-for(const id of ['office','activity','attention','settings']){document.querySelector(`#${id}-tab`).click();await wait();must(!banner.hidden,`banner disappeared in ${id}`);must(toggle.isConnected,`banner toggle disappeared in ${id}`)}
-toggle.click();must(banner.hidden&&toggle.getAttribute('aria-expanded')==='false','shared banner did not collapse accessibly');document.querySelector('#attention-tab').click();await wait();must(banner.hidden,'collapsed banner reappeared after switching tabs');toggle.click();must(!banner.hidden&&toggle.getAttribute('aria-expanded')==='true','shared banner did not reopen from another tab');
+document.querySelector('#settings-tab').click();await wait();document.querySelector('#brand-toggle').focus();
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='attentionemptyview'){

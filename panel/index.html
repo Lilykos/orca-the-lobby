@@ -63,19 +63,11 @@
         border-bottom: 1px solid var(--ui-border);
         scrollbar-width: none;
       }
-      #view-filters { display: flex; gap: 6px; margin: 0 0 8px; }
+      #view-filters:not([hidden]) { display: flex; gap: 6px; margin: 0 0 8px; }
       #view-filters input { flex: 1 1 12em; min-width: 0; }
       #view-filters select, #view-filters input { min-height: 34px; padding: 4px 8px; color: var(--ui-foreground); background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); font: inherit; }
       #filter-count { align-self: center; color: var(--ui-muted-foreground); white-space: nowrap; }
       #attention-list { display: grid; gap: 8px; }
-      .notification-controls { display: grid; gap: 6px; min-width: 0; margin-bottom: 8px; }
-      .notification-controls > h2 { margin: 4px 0 0; font-size: 14px; }
-      .notification-note, .notification-project-status, .notification-agent-status, .notification-error { margin: 2px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
-      .notification-card { display: grid; gap: 5px; min-width: 0; padding: 8px; background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); }
-      .notification-title { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
-      .notification-error { color: var(--ui-warning, var(--ui-muted-foreground)); }
-      .notification-card > .action { justify-self: start; min-height: 36px; max-width: 100%; white-space: normal; }
-      :root.compact .notification-card { padding: 5px; }
       .attention-heading { margin: 4px 0; font-size: 18px; }
       .attention-counts { margin: 0; color: var(--ui-muted-foreground); }
       .attention-group h2 { margin: 12px 0 6px; font-size: 13px; }
@@ -90,7 +82,6 @@
       .attention-actions .action { min-height: 36px; }
       .attention-unavailable { align-self: center; color: var(--ui-muted-foreground); font-size: 11px; }
       .attention-empty { padding: 14px; border: 1px dashed var(--ui-border); border-radius: var(--radius); }
-      .brand-toggle { margin: 0 0 8px; }
       :root.compact .attention-card { padding: 6px; }
       :root.compact .attention-group h2 { margin: 8px 0 4px; }
       :root.compact .roster .agent { padding-top: 3px; padding-bottom: 3px; }
@@ -400,6 +391,23 @@
         margin: 0;
         accent-color: var(--ui-primary);
       }
+      .notification-controls, .appearance-settings { display: grid; gap: 6px; min-width: 0; }
+      .notification-controls > h2, .appearance-heading > h2 { margin: 4px 0 2px; font-size: 14px; }
+      .notification-controls .choice { white-space: normal; min-height: 24px; }
+      .notification-controls .palette-setting { padding: 6px 0; }
+      .notification-note, .notification-project-status, .notification-agent-status, .notification-error { margin: 2px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .notification-group { margin-top: 8px; }
+      .notification-group > h3 { margin: 0 0 3px; font-size: 12px; }
+      .notification-row { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; padding: 5px 0; border-top: 1px solid var(--ui-border); }
+      .notification-detail { flex: 1 1 135px; min-width: 0; }
+      .notification-title { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
+      .notification-error { color: var(--ui-warning, var(--ui-muted-foreground)); }
+      .notification-actions { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+      .notification-actions:empty { display: none; }
+      .notification-controls .notification-actions .action { min-height: 36px; max-width: 100%; white-space: normal; }
+      .appearance-settings { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--ui-border); }
+      .appearance-heading { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+      #brand-toggle { min-height: 36px; }
       .palette-setting {
         display: grid;
         gap: 7px;
@@ -1161,7 +1169,6 @@
   </head>
   <body>
     <canvas id="banner" role="img" aria-label="The Lobby"></canvas>
-    <button id="brand-toggle" class="action brand-toggle" aria-expanded="true">Hide banner</button>
     <nav id="primary-tabs" role="tablist" aria-label="The Lobby sections">
       <button class="primary-tab" id="office-tab" role="tab" aria-controls="office-page" aria-selected="true">Office</button>
       <button class="primary-tab" id="activity-tab" role="tab" aria-controls="activity-page" aria-selected="false">Activity</button>

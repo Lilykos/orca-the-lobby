@@ -57,7 +57,7 @@ The panel itself, with demo data:
 
 Attention queue and its local notification controls:
 
-| Attention | Project mute and reminder snooze |
+| Attention | Settings → Notifications |
 | --- | --- |
 | <img src="docs/images/attention-inbox.png" alt="Attention queue with needs-input, failed and finished results" width="320"> | <img src="docs/images/notification-controls.png" alt="Lobby-local project notification mute and episode reminder snooze controls" width="320"> |
 
@@ -73,7 +73,7 @@ Search and the project filter are shared with Office and Activity. Search uses r
 
 ### Notification controls
 
-Mute a project to pause all Lobby notifications for it, or snooze an eligible blocked/quiet episode's reminder for 15 minutes, 1 hour or until you resume it. Agents remain visible and counted; snoozing affects reminders only, not transition notifications, and resuming or unmuting does not send missed alerts later. A snooze shows its absolute expiry, and a new episode is treated separately.
+Open **Settings → Notifications** for alert preferences, project mute and current-episode reminders. Mute a project to pause all Lobby notifications for it, or snooze an eligible blocked/quiet episode's reminder for 15 minutes, 1 hour or until you resume it. Agents stay visible and counted in Attention. Snoozing affects reminders only, and resuming or unmuting does not send missed alerts later. A snooze shows its absolute expiry, and a new episode is treated separately.
 
 Eligible transition alerts are grouped by project and kind over a fixed two-second window from the first event. One event keeps its individual message; a burst becomes one count summary. Duplicate events from the hook, roster and restart are suppressed. These controls are separate from Orca's notification settings.
 
@@ -88,7 +88,7 @@ Eligible transition alerts are grouped by project and kind over a fixed two-seco
 - **Status colors**: green working, orange **Needs you**, amber waiting, red failed, grey done, blue done with an unread result.
 - **Tokens today** per project appear under each room.
 - **List or Grid.** Grid puts two projects on each row once the panel is at least 400px wide.
-- **Comfortable or Compact density.** Compact reduces spacing and secondary detail while keeping text and controls usable. The pixel banner stays visible across views, with one shared button to collapse or restore it.
+- **Comfortable or Compact density.** Compact reduces spacing and secondary detail while keeping text and controls usable.
 
 ### Activity
 
@@ -117,6 +117,7 @@ Controls that cannot work for an agent are left out. A blocked agent says it nee
 - **Notify me when an agent needs me** and **Notify me when a long turn ends** (turns over a minute).
 - **Notify me when an agent seems stuck**: Off, or after 10, 20 (default), 30 or 60 minutes. One notification per quiet spell, when a working agent has shown no status, tool call or roster update for that long, or a blocked agent still needs you.
 - **Display density**: Comfortable or Compact.
+- **Hide banner / Show banner** under **Appearance** controls the shared pixel banner across all tabs. It starts visible when the panel loads.
 - **Animate the office**: off, the scene holds still (also when the system asks for reduced motion; bubbles still show).
 - **Clear local activity history**: empties the plugin's stored observation journal.
 

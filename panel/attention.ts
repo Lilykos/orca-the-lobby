@@ -1,5 +1,5 @@
 import { attentionGroups } from '../src/attention'
-import { workspaceContext, type AgentView, type NotificationControlState, type OfficeSnapshot } from '../src/protocol'
+import { workspaceContext, type AgentView, type OfficeSnapshot } from '../src/protocol'
 import { taskLabel } from './work-map'
 
 export type AttentionActions = {
@@ -7,22 +7,6 @@ export type AttentionActions = {
   canGo: (agent: AgentView) => boolean | null
   details: (agent: AgentView) => void
   review: (agent: AgentView, done: (error?: string) => void) => void
-}
-
-export type NotificationProjectRow = {
-  projectId: string
-  name: string
-  state: NotificationControlState | null
-  loading: boolean
-  busy: boolean
-  message: string
-  retryKind?: 'read' | 'write'
-  retry?: () => void
-}
-export type NotificationReminderRow = NotificationProjectRow & { agent: AgentView }
-export type NotificationControlActions = {
-  mute: (row: NotificationProjectRow) => void
-  snooze: (row: NotificationReminderRow, choice: '15m' | '1h' | 'manual' | 'resume') => void
 }
 
 const elapsed = (from: number, now: number): string => {
@@ -54,11 +38,10 @@ const el = (tag: string, className = '', text = ''): HTMLElement => {
 }
 
 /** Rebuilds only the inbox, preserving its reading position and current control where possible. */
-export function renderAttention(root: HTMLElement, office: OfficeSnapshot, reviewed: Set<string>, actions: AttentionActions, liveAgentCount = office.agents.length, filteredOut = false, nameOf: (agent: AgentView) => string = () => '', notifications?: { projects: NotificationProjectRow[]; reminders: NotificationReminderRow[]; actions: NotificationControlActions }): void {
+export function renderAttention(root: HTMLElement, office: OfficeSnapshot, reviewed: Set<string>, actions: AttentionActions, liveAgentCount = office.agents.length, filteredOut = false, nameOf: (agent: AgentView) => string = () => ''): void {
   const active = root.contains(document.activeElement) ? document.activeElement as HTMLElement : null
   const focused = active?.dataset.focusKey
-  const queueFocus = Boolean(focused && /^(needs-input|failed|finished):/.test(focused))
-  const previousControls = [...root.querySelectorAll<HTMLButtonElement>(queueFocus ? '.attention-group button[data-focus-key]:not(:disabled)' : 'button[data-focus-key]:not(:disabled)')]
+  const previousControls = [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
   const focusIndex = focused ? previousControls.findIndex((control) => control.dataset.focusKey === focused) : -1
   const scroll = root.scrollTop
   const pageScroll = document.scrollingElement?.scrollTop ?? 0
@@ -76,93 +59,6 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   const summary = el('p', 'attention-counts', `${groups.needsInput.length} need input · ${groups.failedToReview.length} failed · ${groups.finishedToReview.length} finished to review`)
   summary.setAttribute('aria-live', 'polite')
   fragment.append(summary)
-  if (notifications) {
-    const section = el('section', 'notification-controls')
-    const heading = el('h2', '', 'Notification controls')
-    heading.id = 'notification-controls-heading'
-    section.setAttribute('aria-labelledby', heading.id)
-    section.append(heading, el('p', 'notification-note', 'Project mute pauses all The Lobby notifications for that project; snooze affects reminders only. Neither changes Orca settings or hides agents from Attention.'))
-    for (const row of notifications.projects) {
-      const card = el('article', 'notification-card')
-      card.append(el('h3', 'notification-title', row.name))
-      const status = el('p', 'notification-project-status')
-      status.setAttribute('role', 'status')
-      status.setAttribute('aria-live', 'polite')
-      status.textContent = `${row.loading ? 'Loading notification settings…' : row.busy ? 'Saving notification settings…' : row.state?.status === 'ready' ? row.state.muted ? 'Notifications muted' : 'Notifications active' : 'Notification settings unavailable'}${row.retryKind === 'write' && !row.busy ? ' · save failed' : ''}`
-      card.append(status)
-      if (row.message || row.state?.status === 'error') {
-        const error = el('p', 'notification-error', row.message || row.state?.error || 'Notification settings are unavailable.')
-        error.setAttribute('role', 'status')
-        error.setAttribute('aria-live', 'polite')
-        card.append(error)
-      }
-      if (row.state?.status === 'ready') {
-        const button = el('button', 'action', row.state.muted ? 'Unmute project notifications' : 'Mute project notifications') as HTMLButtonElement
-        button.dataset.focusKey = `notification:project:${row.projectId}:mute`
-        button.setAttribute('aria-pressed', String(Boolean(row.state.muted)))
-        button.disabled = row.loading || row.busy
-        button.addEventListener('click', () => notifications.actions.mute(row))
-        card.append(button)
-      }
-      if (row.retry) {
-        const button = el('button', 'action', row.retryKind === 'write' ? 'Retry save' : 'Retry loading notification settings') as HTMLButtonElement
-        button.dataset.focusKey = `notification:project:${row.projectId}:${row.retryKind === 'write' ? 'retry-write' : 'retry'}`
-        button.disabled = row.busy || row.loading
-        button.addEventListener('click', row.retry)
-        card.append(button)
-      }
-      section.append(card)
-    }
-    for (const row of notifications.reminders) {
-      const card = el('article', 'notification-card notification-reminder')
-      card.append(el('h3', 'notification-title', `${row.name} · ${row.agent.state === 'blocked' ? 'Needs you' : 'Quiet'}`))
-      const status = el('p', 'notification-agent-status')
-      status.setAttribute('role', 'status')
-      status.setAttribute('aria-live', 'polite')
-      if (row.loading) status.textContent = 'Loading reminder settings…'
-      else if (row.busy) status.textContent = 'Saving reminder settings…'
-      else if (row.state?.status === 'ready' && row.state.snoozed) {
-        status.append(document.createTextNode('Reminders snoozed until '))
-        if (row.state.expiresAt === null) status.append(document.createTextNode('resumed'))
-        else {
-          const time = document.createElement('time')
-          time.dateTime = new Date(row.state.expiresAt).toISOString()
-          time.textContent = new Date(row.state.expiresAt).toLocaleString()
-          status.append(time)
-        }
-      } else status.textContent = row.state?.status === 'ready' ? 'Reminders active' : 'Reminder settings unavailable'
-      if (row.retryKind === 'write' && !row.busy) status.append(document.createTextNode(' · save failed'))
-      card.append(status)
-      if (row.message || row.state?.status === 'error') {
-        const error = el('p', 'notification-error', row.message || row.state?.error || 'Reminder settings are unavailable.')
-        error.setAttribute('role', 'status')
-        error.setAttribute('aria-live', 'polite')
-        card.append(error)
-      }
-      if (row.state?.status === 'ready' && row.state.episodeId) {
-        const controls = el('div', 'attention-actions')
-        const choices: ['15m' | '1h' | 'manual' | 'resume', string][] = [['15m', 'Snooze 15 minutes'], ['1h', 'Snooze 1 hour'], ['manual', 'Snooze until resumed']]
-        if (row.state.snoozed) choices.push(['resume', 'Resume reminders'])
-        for (const [choice, label] of choices) {
-          const button = el('button', 'action', label) as HTMLButtonElement
-          button.dataset.focusKey = `notification:agent:${row.agent.id}:${choice === 'resume' ? 'resume' : `snooze:${choice}`}`
-          button.disabled = row.loading || row.busy
-          button.addEventListener('click', () => notifications.actions.snooze(row, choice))
-          controls.append(button)
-        }
-        card.append(controls)
-      }
-      if (row.retry) {
-        const button = el('button', 'action', row.retryKind === 'write' ? 'Retry save' : 'Retry loading reminder settings') as HTMLButtonElement
-        button.dataset.focusKey = `notification:agent:${row.agent.id}:${row.retryKind === 'write' ? 'retry-write' : 'retry'}`
-        button.disabled = row.busy || row.loading
-        button.addEventListener('click', row.retry)
-        card.append(button)
-      }
-      section.append(card)
-    }
-    fragment.append(section)
-  }
   if (!groups.needsInput.length && !groups.failedToReview.length && !groups.finishedToReview.length)
     fragment.append(el('p', 'attention-empty', filteredOut ? 'No agents match these filters.' : liveAgentCount ? 'Nothing needs your attention right now.' : 'No live agents to show yet.'))
   for (const [key, label, rows] of sections) {
@@ -221,7 +117,7 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   if (document.scrollingElement) document.scrollingElement.scrollTop = pageScroll
   if (focused) {
     const target = root.querySelector<HTMLButtonElement>(`button[data-focus-key="${CSS.escape(focused)}"]:not(:disabled)`)
-    const controls = [...root.querySelectorAll<HTMLButtonElement>(queueFocus ? '.attention-group button[data-focus-key]:not(:disabled)' : 'button[data-focus-key]:not(:disabled)')]
+    const controls = [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
     if (focused === 'attention-heading') root.querySelector<HTMLElement>('.attention-heading')?.focus({ preventScroll: true })
     else if (target) target.focus({ preventScroll: true })
     else if (controls.length) controls[Math.min(Math.max(focusIndex, 0), controls.length - 1)].focus({ preventScroll: true })
