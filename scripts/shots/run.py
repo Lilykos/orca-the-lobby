@@ -27,6 +27,7 @@ scenarios += [(280, 'bubbles'), (420, 'bubbles'), (420, 'bubblesgrid'), (900, 'b
 scenarios += [(280, 'attentionview'), (420, 'attentionview'), (900, 'attentionview'), (280, 'attentioncapture'), (420, 'attentioncapture'), (900, 'attentioncapture'), (280, 'attentioncompact'), (420, 'attentioncompact'), (900, 'attentioncompact'), (420, 'attentioncompactfail'), (420, 'attentionkeyboard'), (420, 'attentionlast'), (420, 'attentionarrival'), (420, 'attentionpending'), (420, 'attentionfail'), (420, 'attentionaction'), (420, 'attentionstale'), (420, 'attentionreappear'), (420, 'attentiondisclosure'), (420, 'attentionfocusfallback'), (420, 'attentionreviewremovedfailure'), (420, 'attentionreviewgeneration'), (420, 'attentionreviewother'), (420, 'attentionreviewaway'), (420, 'attentionemptyview'), (420, 'attentionquietfinished'), (420, 'attentionnoagents'), (280, 'filterdisclosure'), (420, 'filterdisclosure'), (900, 'filterdisclosure'), (280, 'attentionpreviewbusy'), (420, 'attentionpreviewbusy'), (900, 'attentionpreviewbusy'), (280, 'attentionpreviewquiet'), (420, 'attentionpreviewquiet'), (900, 'attentionpreviewquiet'), (900, 'attentionlive'), (420, 'searchviews'), (420, 'projectgone'), (280, 'preferences'), (420, 'preferences'), (900, 'preferences'), (420, 'newinstall'), (420, 'delayedfresh'), (420, 'legacynoprefs'), (420, 'prefsreadfail'), (420, 'installationunknown'), (420, 'prefshydration'), (420, 'prefsrace'), (420, 'prefsreadrecover'), (420, 'prefsackrace'), (420, 'installationrecover'), (420, 'installationrecoverchoice')]  # inbox, shared filters and startup preference
 scenarios += [(420, 'sharedbanner')]
 scenarios += [(280, 'settingsconsolidation'), (420, 'settingsconsolidation'), (900, 'settingsconsolidation')]
+scenarios += [(280, 'settingsredesign'), (420, 'settingsredesign'), (900, 'settingsredesign'), (420, 'settingsredesignlight'), (420, 'settingsredesignreduced'), (420, 'settingsredesignerror'), (420, 'settingsorderreset')]
 scenarios += [(280, 'notificationcontrols'), (420, 'notificationcontrols'), (900, 'notificationcontrols'), (420, 'notificationerrors'), (420, 'notificationstale'), (420, 'notificationreadstale'), (420, 'notificationexpiry'), (420, 'notificationkeys'), (420, 'notificationfocus')]  # local notification controls
 
 if args.only:
@@ -40,8 +41,8 @@ with tempfile.TemporaryDirectory(prefix='lobby-fixture-') as scratch, Chrome() a
     html = args.fixture.resolve() if args.fixture else build_fixture(pathlib.Path(scratch) / 'fixture.html')
     for width, scenario in scenarios:
         command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 800 if scenario in ('attentionpreviewbusy', 'attentionpreviewquiet') and width == 420 else 900, 'deviceScaleFactor': 1, 'mobile': False})
-        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario in ('reduced', 'drawer-reduced', 'notificationkeys') else 'no-preference'}]})
-        command('Page.navigate', {'url': html.as_uri() + '?scenario=' + scenario + ('&theme=light' if scenario == 'light' else '')})
+        command('Emulation.setEmulatedMedia', {'features': [{'name': 'prefers-reduced-motion', 'value': 'reduce' if scenario in ('reduced', 'drawer-reduced', 'notificationkeys', 'settingsredesignreduced') else 'no-preference'}]})
+        command('Page.navigate', {'url': html.as_uri() + '?scenario=' + scenario + ('&theme=light' if scenario in ('light', 'settingsredesignlight') else '')})
         if scenario == 'notificationfocus':
             def wait_for_stage(stage):
                 for _ in range(200):

@@ -1018,6 +1018,54 @@
       .about-links { display: flex; flex-wrap: wrap; gap: 2px 14px; }
       .about-link { display: inline; }
       .about-fine { margin: 8px 0 0; font-size: 10.5px; color: var(--ui-muted-foreground); }
+      #settings { display: grid; gap: 10px; min-width: 0; }
+      #settings > section { min-width: 0; margin: 0; padding: 0 0 8px; border-bottom: 1px solid var(--ui-border); }
+      #settings h2 { margin: 2px 0 5px; font-size: 13px; }
+      .notification-controls, .appearance-settings { display: grid; gap: 5px; min-width: 0; }
+      .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 14px; min-width: 0; }
+      .settings-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(125px, 42%); align-items: center; gap: 6px; min-width: 0; min-height: 40px; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent); box-sizing: border-box; }
+      .settings-row > .settings-label { min-width: 0; overflow-wrap: break-word; word-break: normal; }
+      .settings-row select { width: 100%; min-width: 0; min-height: 34px; padding: 5px 8px; color: var(--ui-foreground); background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--radius); font: inherit; }
+      .settings-check { grid-template-columns: minmax(0, 1fr) auto; cursor: pointer; }
+      .settings-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--ui-primary); }
+      .settings-row .setting-hint { grid-column: 1 / -1; margin: 0; font-size: 10.5px; color: var(--ui-muted-foreground); }
+      .settings-span { grid-column: 1 / -1; }
+      .settings-grid .palette-preview { min-height: 28px; margin: 2px 0 4px; padding: 3px 7px; }
+      .appearance-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+      .appearance-heading > h2 { margin: 2px 0 5px; }
+      #brand-toggle { min-height: 36px; }
+      .settings-order { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; padding-top: 5px; }
+      .settings-order .action { max-width: 170px; min-height: 32px; white-space: normal; }
+      .notification-controls .notification-note { margin: 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .notification-disclosure { min-width: 0; border: 1px solid var(--ui-border); border-radius: var(--radius); background: var(--ui-card); }
+      .notification-disclosure > summary { min-height: 36px; padding: 8px; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+      .notification-disclosure > summary:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+      .notification-issues { display: grid; gap: 4px; min-width: 0; }
+      .notification-issue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; min-width: 0; }
+      .notification-issue .notification-error { margin: 0; color: var(--ui-warning, var(--ui-muted-foreground)); overflow-wrap: anywhere; }
+      .notification-issue .action { max-width: 150px; min-height: 32px; white-space: normal; }
+      .notification-group { margin: 5px 8px 8px; }
+      .notification-row { gap: 5px 8px; }
+      .notification-controls .notification-actions .action { min-height: 32px; max-width: 100%; white-space: normal; }
+      .local-data > p { margin: 4px 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .settings-clear-confirm { margin-top: 6px; padding: 8px; border: 1px solid var(--ui-border); border-radius: var(--radius); background: var(--ui-card); }
+      .settings-clear-confirm > p { margin: 0 0 6px; }
+      .settings-clear-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .settings-clear-actions .action { min-height: 32px; }
+      .history-feedback { min-height: 0; margin: 4px 0 0; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
+      .history-feedback:empty { display: none; }
+      .history-feedback[role='alert'] { color: var(--ui-warning, var(--ui-muted-foreground)); }
+      .about { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 6px 0 0; border: 0; border-radius: 0; background: transparent; }
+      .about-title { margin: 0; }
+      .about-links { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+      .about-link { min-height: 32px; padding: 4px 2px; }
+      @media (min-width: 700px) {
+        .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 420px) {
+        #settings { gap: 8px; }
+        .about { align-items: flex-start; flex-direction: column; }
+      }
       /* Activity: a scrollable connected chart, independent of the Office artwork. */
       .chart-filter { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
       .chart-filter-button { min-height: 32px; }

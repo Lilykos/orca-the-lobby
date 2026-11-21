@@ -436,8 +436,8 @@ function listItem(agent: AgentView, now: number): HTMLElement {
   return item
 }
 
-function action(label: string, run: () => void): HTMLElement {
-  const button = element('button', 'action', label)
+function action(label: string, run: () => void): HTMLButtonElement {
+  const button = element('button', 'action', label) as HTMLButtonElement
   button.addEventListener('click', run)
   return button
 }
@@ -1017,6 +1017,29 @@ function markReviewed(agentId: string): void {
 function renderNotificationSettings(force = false): void {
   const notifications = syncNotificationControls(force)
   if (!notifications) return
+  const disclosure = settings.querySelector<HTMLDetailsElement>('#notification-disclosure')
+  const summary = settings.querySelector<HTMLElement>('#notification-summary')
+  const issues = settings.querySelector<HTMLElement>('.notification-issues')
+  if (disclosure && summary && issues) {
+    const readyProjects = notifications.projects.filter((row) => row.state?.status === 'ready')
+    const muted = readyProjects.filter((row) => row.state?.status === 'ready' && row.state.muted).length
+    const loadingProjects = notifications.projects.filter((row) => row.loading || row.busy).length
+    const unavailableProjects = notifications.projects.length - readyProjects.length - loadingProjects
+    const readyReminders = notifications.reminders.filter((row) => row.state?.status === 'ready')
+    const snoozed = readyReminders.filter((row) => row.state?.status === 'ready' && row.state.snoozed).length
+    const loadingReminders = notifications.reminders.filter((row) => row.loading || row.busy).length
+    const unavailableReminders = notifications.reminders.length - readyReminders.length - loadingReminders
+    const pendingIssues = [...notifications.projects, ...notifications.reminders].filter((row) => row.retry || row.busy || row.message).length
+    const counts = [
+      `Projects ${notifications.projects.length}: ${readyProjects.length - muted} active, ${muted} muted`,
+      `Reminders ${notifications.reminders.length}: ${readyReminders.length - snoozed} active, ${snoozed} snoozed`
+    ]
+    if (loadingProjects || loadingReminders) counts.push(`${loadingProjects + loadingReminders} loading`)
+    if (unavailableProjects || unavailableReminders) counts.push(`${unavailableProjects + unavailableReminders} unavailable`)
+    if (pendingIssues) counts.push(`${pendingIssues} need attention`)
+    summary.textContent = counts.join(' · ')
+    renderNotificationIssues(issues, disclosure, [...notifications.projects, ...notifications.reminders])
+  }
   restoringNotificationFocus = true
   try {
     renderNotificationControls(notificationRows, notifications.projects, notifications.reminders, {
@@ -1051,6 +1074,38 @@ function renderNotificationSettings(force = false): void {
     }
   } finally {
     restoringNotificationFocus = false
+  }
+}
+
+function renderNotificationIssues(root: HTMLElement, disclosure: HTMLDetailsElement, rows: Array<NotificationProjectRow | NotificationReminderRow>): void {
+  const active = root.contains(document.activeElement) ? document.activeElement as HTMLElement : null
+  const focusedKey = active?.dataset.focusKey
+  const focusIndex = active ? [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]')].indexOf(active as HTMLButtonElement) : -1
+  const issues = rows.filter((row) => row.retry || row.busy || row.message)
+  root.replaceChildren(...issues.map((row) => {
+    const key = 'agent' in row ? `notification-summary:agent:${row.agent.id}:retry` : `notification-summary:project:${row.projectId}:retry`
+    const item = element('div', 'notification-issue')
+    const message = element('p', 'notification-error', row.message || (row.busy ? `Saving settings for ${row.name}…` : 'Notification settings need attention.'))
+    message.setAttribute('role', row.message ? 'alert' : 'status')
+    item.append(message)
+    if (row.retry) {
+      const retry = action(`Retry ${row.name}`, () => row.retry?.())
+      retry.dataset.focusKey = key
+      retry.disabled = row.busy || row.loading
+      item.append(retry)
+    }
+    return item
+  }))
+  root.hidden = disclosure.open || !issues.length
+  if (active) {
+    if (root.hidden) {
+      disclosure.querySelector('summary')?.focus({ preventScroll: true })
+      return
+    }
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('button[data-focus-key]:not(:disabled)')]
+    const target = buttons.find((button) => button.dataset.focusKey === focusedKey)
+      ?? buttons[Math.min(Math.max(focusIndex, 0), buttons.length - 1)]
+    if (target) target.focus({ preventScroll: true })
   }
 }
 
@@ -2307,8 +2362,8 @@ function aboutCard(): HTMLElement {
   const about = element('section', 'about')
   about.setAttribute('aria-label', 'About The Lobby')
   const heading = element('p', 'about-title')
-  heading.append(element('strong', '', 'The Lobby'), element('span', 'about-version', `v${VERSION}`))
-  about.append(heading, element('p', 'about-pitch', 'Your coding agents as pixel people, one room per project: who is working, who is stuck, and who needs you.'))
+  heading.append(element('strong', '', 'The Lobby'), element('span', 'about-version', `v${VERSION} · 1.3 in development`))
+  about.append(heading)
   const links = element('div', 'about-links')
   for (const [label, url] of [
     ['Website & guide', SITE],
@@ -2322,7 +2377,7 @@ function aboutCard(): HTMLElement {
     link.addEventListener('click', () => void orca.shell?.openExternal(url))
     links.append(link)
   }
-  about.append(links, element('p', 'about-fine', 'Everything it shows is read on this machine; nothing is sent anywhere.'))
+  about.append(links)
   return about
 }
 
@@ -2337,15 +2392,45 @@ function renderSettings(): void {
   const existingPalette = settings.querySelector<HTMLSelectElement>('select[name="palette"]')
   const existingStuck = settings.querySelector<HTMLSelectElement>('select[name="stuck"]')
   const existingDensity = settings.querySelector<HTMLSelectElement>('select[name="density"]')
+  const syncProjectOrder = (): void => {
+    const orderSetting = settings.querySelector<HTMLElement>('.settings-order')
+    if (!orderSetting) return
+    const manualOrder = prefs.projectOrder.length > 0
+    const label = manualOrder ? 'Projects use your manual room order.' : 'Projects follow Orca sidebar order.'
+    const reset = orderSetting.querySelector<HTMLButtonElement>('[data-focus-key="settings-project-order-reset"]')
+    let orderLabel = orderSetting.querySelector<HTMLElement>('.settings-label')
+    if (!orderLabel) {
+      orderLabel = element('span', 'settings-label')
+      orderSetting.prepend(orderLabel)
+    }
+    orderLabel.textContent = label
+    if (!manualOrder && reset) {
+      const hadFocus = document.activeElement === reset
+      orderSetting.tabIndex = -1
+      reset.remove()
+      if (hadFocus) orderSetting.focus({ preventScroll: true })
+    } else if (manualOrder && !reset) {
+      const next = action('Use the sidebar order again', () => {
+        persistPrefsPatch({ projectOrder: [] })
+        renderSettings()
+        showOrder()
+      })
+      next.dataset.focusKey = 'settings-project-order-reset'
+      orderSetting.append(next)
+    }
+  }
   if (existing.length === choices.length && existingPalette && existingStuck && existingDensity) {
-    choices.forEach(([key], index) => (existing[index].checked = prefs[key]))
+    choices.forEach(([key]) => {
+      const control = settings.querySelector<HTMLInputElement>(`input[data-pref-key="${key}"]`)
+      if (control) control.checked = prefs[key]
+    })
     existingPalette.value = prefs.palette
     existingStuck.value = String(prefs.stuckMinutes)
     existingDensity.value = prefs.density
+    syncProjectOrder()
     applyPalette()
     return
   }
-  const paletteLabel = element('label', 'palette-setting', 'Color palette')
   const paletteSelect = document.createElement('select')
   paletteSelect.className = 'palette-select'
   paletteSelect.name = 'palette'
@@ -2360,54 +2445,34 @@ function renderSettings(): void {
   const preview = element('div', 'palette-preview', 'Palette preview')
   preview.setAttribute('role', 'status')
   preview.setAttribute('aria-live', 'polite')
+  preview.append(element('span', 'palette-swatch'))
   paletteSelect.addEventListener('change', () => {
     persistPrefsPatch({ palette: paletteSelect.value as PaletteChoice })
     applyPalette()
   })
-  paletteLabel.append(paletteSelect, preview)
   const controls = choices.map(([key, label]) => {
-    const row = element('label', 'choice')
+    const row = element('label', 'choice settings-row settings-check')
+    row.dataset.prefLabel = key
+    const text = element('span', 'settings-label', label)
     const box = document.createElement('input')
     box.type = 'checkbox'
     box.checked = prefs[key]
+    box.dataset.prefKey = key
     box.addEventListener('change', () => {
       persistPrefsPatch({ [key]: box.checked })
     })
-    row.append(box, label)
+    row.append(text, box)
     return row
   })
-  const privacy = element('section', 'history-settings')
-  privacy.append(element('p', '', 'Local observed activity is retained for up to 24 hours, oldest dropped first to fit Orca\'s storage limit. Result excerpts and tool details may contain sensitive content; prompts are not stored in the journal. Clearing history does not change Orca unread.'))
-  const feedback = element('p', 'quiet')
-  feedback.setAttribute('role', 'status')
-  const clear = action('Clear local activity history', () => {
-    clear.setAttribute('disabled', '')
-    void orca.plugin.request('office.clearHistory').then((result) => {
-      feedback.textContent = result.cleared ? 'Local activity history cleared.' : 'History cleared in memory, but could not be cleared from storage.'
-      if (result.cleared) void orca.storage.set('activity-view-cursors', {}).catch(() => {})
-      refresh()
-    }).catch(() => { feedback.textContent = 'Could not clear local activity history.' })
-      .finally(() => clear.removeAttribute('disabled'))
-  })
-  privacy.append(clear, feedback)
-  const stuckLabel = element('label', 'palette-setting', 'Notify me when an agent seems stuck')
-  const stuckSelect = document.createElement('select')
-  stuckSelect.className = 'palette-select'
-  stuckSelect.name = 'stuck'
-  stuckSelect.setAttribute('aria-label', 'Notify me when an agent seems stuck')
-  for (const minutes of STUCK_CHOICES) {
-    const option = document.createElement('option')
-    option.value = String(minutes)
-    option.textContent = minutes ? `After ${minutes} minutes` : 'Off'
-    stuckSelect.append(option)
+  const selectRow = (key: string, label: string, control: HTMLSelectElement): HTMLLabelElement => {
+    const row = element('label', 'settings-row') as HTMLLabelElement
+    row.dataset.prefLabel = key
+    row.append(element('span', 'settings-label', label), control)
+    return row
   }
-  stuckSelect.value = String(prefs.stuckMinutes)
-  stuckSelect.addEventListener('change', () => {
-    persistPrefsPatch({ stuckMinutes: Number(stuckSelect.value) })
-    renderNotificationSettings()
-  })
-  stuckLabel.append(stuckSelect, element('span', 'setting-hint', 'Working with no activity seen, or still needing you, for that long.'))
-  const densityLabel = element('label', 'palette-setting', 'Display density')
+  const paletteLabel = selectRow('palette', 'Color palette', paletteSelect)
+  const densityLabel = element('label', 'settings-row') as HTMLLabelElement
+  densityLabel.dataset.prefLabel = 'density'
   const densitySelect = document.createElement('select')
   densitySelect.className = 'palette-select'
   densitySelect.name = 'density'
@@ -2423,25 +2488,33 @@ function renderSettings(): void {
     persistPrefsPatch({ density: densitySelect.value as Prefs['density'] })
     applyLayout()
   })
-  densityLabel.append(densitySelect)
-  const orderSetting = element('section', 'history-settings')
-  orderSetting.append(element('p', '', prefs.projectOrder.length
-    ? 'Projects are in the order you set with their ↑ ↓ buttons, in both Office and Activity.'
-    : 'Projects follow the order of Orca\'s sidebar. Use the ↑ ↓ buttons on a room or chart to set your own.'))
-  if (prefs.projectOrder.length) orderSetting.append(action('Use the sidebar order again', () => {
-    persistPrefsPatch({ projectOrder: [] })
-    renderSettings()
-    showOrder()
-  }))
-  const [notifyBlocked, notifyDone, animate] = controls
-  const notifications = element('section', 'notification-controls')
-  const notificationHeading = element('h2', '', 'Notifications')
-  notificationHeading.id = 'notification-controls-heading'
-  notifications.setAttribute('aria-labelledby', notificationHeading.id)
-  notifications.append(notificationHeading, notifyBlocked, notifyDone, stuckLabel,
-    element('p', 'notification-note', 'Project mute pauses all The Lobby notifications for that project. Episode snooze affects reminders only. Agents stay visible in Attention.'),
-    notificationRows)
+  densityLabel.append(element('span', 'settings-label', 'Display density'), densitySelect)
 
+  const stuckLabel = element('label', 'settings-row') as HTMLLabelElement
+  stuckLabel.dataset.prefLabel = 'stuckMinutes'
+  const stuckSelect = document.createElement('select')
+  stuckSelect.className = 'palette-select'
+  stuckSelect.name = 'stuck'
+  stuckSelect.setAttribute('aria-label', 'Notify me when an agent seems stuck')
+  for (const minutes of STUCK_CHOICES) {
+    const option = document.createElement('option')
+    option.value = String(minutes)
+    option.textContent = minutes ? `After ${minutes} minutes` : 'Off'
+    stuckSelect.append(option)
+  }
+  stuckSelect.value = String(prefs.stuckMinutes)
+  stuckSelect.addEventListener('change', () => {
+    persistPrefsPatch({ stuckMinutes: Number(stuckSelect.value) })
+    renderNotificationSettings()
+  })
+  stuckLabel.append(element('span', 'settings-label', 'Notify me when an agent seems stuck'), stuckSelect,
+    element('span', 'setting-hint', 'After this long without activity or while it still needs you.'))
+
+  const [notifyBlocked, notifyDone, animate] = controls
+  const appearance = element('section', 'appearance-settings')
+  const appearanceHeading = element('div', 'appearance-heading')
+  const appearanceTitle = element('h2', '', 'Appearance')
+  appearanceHeading.append(appearanceTitle)
   const bannerToggle = action(banner.hidden ? 'Show banner' : 'Hide banner', () => {
     banner.hidden = !banner.hidden
     bannerToggle.textContent = banner.hidden ? 'Show banner' : 'Hide banner'
@@ -2450,12 +2523,106 @@ function renderSettings(): void {
   bannerToggle.id = 'brand-toggle'
   bannerToggle.setAttribute('aria-controls', banner.id)
   bannerToggle.setAttribute('aria-expanded', String(!banner.hidden))
-  const appearance = element('section', 'appearance-settings')
-  const appearanceHeading = element('div', 'appearance-heading')
-  appearanceHeading.append(element('h2', '', 'Appearance'), bannerToggle)
-  appearance.append(appearanceHeading, paletteLabel, densityLabel, animate)
+  appearanceHeading.append(bannerToggle)
+  const appearanceGrid = element('div', 'settings-grid')
+  appearanceGrid.append(paletteLabel, densityLabel, animate)
+  preview.classList.add('settings-span')
+  const bannerRow = element('div', 'settings-row')
+  bannerRow.append(element('span', 'settings-label', 'Pixel banner'), bannerToggle)
+  appearanceGrid.insertBefore(bannerRow, appearanceGrid.children[2])
+  appearanceGrid.append(preview)
+  appearance.append(appearanceHeading, appearanceGrid)
 
-  settings.replaceChildren(notifications, appearance, orderSetting, privacy, aboutCard())
+  const orderSetting = element('div', 'settings-order')
+  appearance.append(orderSetting)
+  syncProjectOrder()
+
+  const privacy = element('section', 'local-data')
+  const privacyHeading = element('h2', '', 'Local data')
+  privacy.append(privacyHeading,
+    element('p', '', 'Local observed activity is kept for up to 24 hours; oldest records are dropped first to fit Orca storage. Clearing history does not change Orca unread.'),
+    element('p', '', 'Result excerpts and tool details may contain sensitive content. Prompts are not stored in the journal.'))
+  const clearFeedback = element('p', 'history-feedback')
+  clearFeedback.setAttribute('role', 'status')
+  const clearPrompt = element('div', 'settings-clear-confirm')
+  clearPrompt.hidden = true
+  const clearQuestion = element('p', '', 'Clear local activity history from The Lobby?')
+  clearQuestion.id = 'settings-clear-question'
+  clearPrompt.append(clearQuestion)
+  const clearActions = element('div', 'settings-clear-actions')
+  const clearConfirm = action('Clear history', () => { void clearHistory() })
+  clearConfirm.dataset.focusKey = 'settings-clear-confirm'
+  clearConfirm.setAttribute('aria-describedby', clearQuestion.id)
+  const clearCancel = action('Cancel', () => {
+    clearPrompt.hidden = true
+    clearFeedback.textContent = ''
+    clearFeedback.setAttribute('role', 'status')
+    if (document.activeElement === clearCancel) clear.focus({ preventScroll: true })
+  })
+  clearCancel.dataset.focusKey = 'settings-clear-cancel'
+  clearCancel.setAttribute('aria-describedby', clearQuestion.id)
+  clearActions.append(clearConfirm, clearCancel)
+  clearPrompt.append(clearActions)
+  const clear = action('Clear activity history', () => {
+    clearPrompt.hidden = false
+    clearConfirm.textContent = 'Clear history'
+    clearFeedback.textContent = ''
+    clearFeedback.setAttribute('role', 'status')
+    clearCancel.focus({ preventScroll: true })
+  })
+  clear.dataset.focusKey = 'settings-clear-open'
+  privacy.append(clear, clearPrompt, clearFeedback)
+  async function clearHistory(): Promise<void> {
+    clearConfirm.disabled = true
+    clearCancel.disabled = true
+    clearConfirm.textContent = 'Clearing…'
+    clearFeedback.textContent = 'Clearing local activity history…'
+    clearFeedback.setAttribute('role', 'status')
+    try {
+      const result = await orca.plugin.request('office.clearHistory')
+      if (result.cleared) {
+        void orca.storage.set('activity-view-cursors', {}).catch(() => {})
+        clearFeedback.textContent = 'Local activity history cleared.'
+        clearFeedback.setAttribute('role', 'status')
+        const ownsFocus = clearPrompt.contains(document.activeElement)
+        clearPrompt.hidden = true
+        if (ownsFocus) clear.focus({ preventScroll: true })
+      } else {
+        clearFeedback.textContent = 'History cleared in memory, but could not be cleared from storage.'
+        clearFeedback.setAttribute('role', 'alert')
+        clearConfirm.textContent = 'Try again'
+      }
+      refresh()
+    } catch {
+      clearFeedback.textContent = 'Could not clear local activity history.'
+      clearFeedback.setAttribute('role', 'alert')
+      clearConfirm.textContent = 'Try again'
+    } finally {
+      clearConfirm.disabled = false
+      clearCancel.disabled = false
+    }
+  }
+
+  const notifications = element('section', 'notification-controls')
+  const notificationHeading = element('h2', '', 'Notifications')
+  notificationHeading.id = 'notification-controls-heading'
+  notifications.setAttribute('aria-labelledby', notificationHeading.id)
+  const notificationGrid = element('div', 'settings-grid')
+  notificationGrid.append(notifyBlocked, notifyDone, stuckLabel)
+  const notificationDisclosure = element('details', 'notification-disclosure') as HTMLDetailsElement
+  notificationDisclosure.id = 'notification-disclosure'
+  const notificationSummary = element('summary', '', 'Project and episode controls')
+  notificationSummary.id = 'notification-summary'
+  notificationDisclosure.append(notificationSummary, notificationRows)
+  const notificationIssues = element('div', 'notification-issues')
+  notificationDisclosure.addEventListener('toggle', () => {
+    notificationIssues.hidden = notificationDisclosure.open || !notificationIssues.childElementCount
+  })
+  notifications.append(notificationHeading, notificationGrid,
+    element('p', 'notification-note', 'Project mute pauses all Lobby notifications for that project. Episode snooze pauses repeat reminders only for this episode; it does not hide the agent.'),
+    notificationDisclosure, notificationIssues)
+
+  settings.replaceChildren(appearance, notifications, privacy, aboutCard())
   applyPalette()
 }
 

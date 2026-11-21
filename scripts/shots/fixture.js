@@ -81,7 +81,13 @@ if(['projectgone','delayedfresh'].includes(scenario))stored.office={agents:[],jo
 stored.installation={version:1,kind:['newinstall','delayedfresh','attentionmedia','notificationmedia','notificationcontrols','notificationerrors','notificationstale','notificationreadstale','notificationexpiry','notificationkeys','notificationfocus'].includes(scenario)?'fresh':scenario==='installationunknown'?'unknown':'legacy'};
 if(scenario==='prefsrace')stored.prefs={notifyBlocked:true,notifyDone:true,animate:true,palette:'orca',layout:'list',stuckMinutes:20,projectOrder:['/old']};
 if(scenario==='prefsreadrecover'&&!restartedPrefs)stored.prefs={notifyBlocked:true,notifyDone:false,animate:true,palette:'paper',layout:'list',density:'comfortable',stuckMinutes:30,projectOrder:['/legacy'],selectedView:'office'};
-window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releasePrefsPatch=null;window.prefsPatchCalls=0;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;window.notificationCalls=[];window.notificationPolicy={muted:false,snoozed:new Map()};window.releaseNotificationWrite=null;window.releaseStaleNotificationWrite=null;window.releaseStaleNotificationRead=null;window.releaseNotificationMute=null;window.releaseNotificationSnooze=null;window.notificationSnoozeWrites=0;window.notificationFocusStage='';window.notificationReadCalls=0;
+window.releaseReview=null;window.releaseOffice=null;window.releasePrefs=null;window.releasePrefsPatch=null;window.prefsPatchCalls=0;window.releaseOldAction=null;window.actionRequestCount=0;window.installRequests=0;window.goToCalls=0;window.notificationCalls=[];window.historyClearCalls=0;window.notificationPolicy={muted:false,snoozed:new Map()};window.releaseNotificationWrite=null;window.releaseStaleNotificationWrite=null;window.releaseStaleNotificationRead=null;window.releaseNotificationMute=null;window.releaseNotificationSnooze=null;window.notificationSnoozeWrites=0;window.notificationFocusStage='';window.notificationReadCalls=0;
+if(['settingsredesign','settingsredesignlight','settingsredesignreduced','settingsredesignerror','settingsorderreset'].includes(scenario)){
+ window.fixture.agents=[agent('need','Needs a decision','blocked',{stateStartedAt:now-35*60_000}),agent('quiet','Quiet project agent','working',{projectId:'q',workspaceId:'/q',lastSeenAt:now-35*60_000})];
+ window.fixture.projects.q='Quiet project';
+ window.notificationPolicy.snoozed.set(`episode-quiet-${window.fixture.agents[1].stateStartedAt}`,{expiresAt:now+15*60_000});
+ stored.prefs={...stored.prefs,projectOrder:['p','q']};
+}
 window.orca={
 storage:{
   get:async k=>{if(scenario==='prefsreadfail'&&k==='prefs')throw Error('storage unavailable');if(scenario==='prefsreadrecover'&&k==='prefs'&&!restartedPrefs&&!window.prefsRecovered){window.prefsRecovered=true;throw Error('temporary storage failure')}if(['installationrecover','installationrecoverchoice'].includes(scenario)&&k==='prefs')await new Promise(resolve=>window.releasePrefs=resolve);return stored[k]??null},
@@ -119,6 +125,7 @@ plugin:{
     if(name==='notification.project.mute'){
       window.notificationCalls.push({name,input});
       if(scenario==='notificationfocus'&&!window.notificationMuteStarted){window.notificationMuteStarted=true;return new Promise(resolve=>window.releaseNotificationMute=()=>{window.notificationPolicy.muted=input.muted;resolve({ok:true})})}
+      if(['settingsredesign','settingsredesignlight','settingsredesignreduced','settingsredesignerror'].includes(scenario)&&!window.settingsMuteFailed){window.settingsMuteFailed=true;return {ok:false,error:'Could not save project notification settings.'}}
       if(scenario==='notificationerrors'&&!window.notificationWriteFailed){window.notificationWriteFailed=true;return {ok:false,error:'Could not save notification settings. Try again.'}}
       if(scenario==='notificationerrors'&&window.notificationRetryWrite)return (window.notificationPolicy.muted=input.muted,{ok:true});
       window.notificationPolicy.muted=input.muted;return {ok:true};
@@ -146,7 +153,12 @@ plugin:{
     if(name==='office.actions'&&['attentioncompact','attentioncompactfail'].includes(scenario)&&input.agentId==='no-go')return {goTo:null,send:false,compact:null};
     if(name==='office.actions')return {goTo:'workspace',send:false,compact:null};
     if(name==='office.goTo')return (window.goToCalls++,{ok:true,note:'Opened fixture agent.'});
-    if(name==='office.clearHistory')return (window.fixture.journal=[],listener(window.fixture),{cleared:scenario!=='clearfail'});
+    if(name==='office.clearHistory'){
+      window.historyClearCalls++;
+      if(['settingsredesign','settingsredesignlight','settingsredesignreduced','settingsredesignerror'].includes(scenario)&&!window.historyClearRetry)return new Promise(resolve=>window.releaseHistoryClear=resolve);
+      if(['settingsredesign','settingsredesignlight','settingsredesignreduced','settingsredesignerror'].includes(scenario)){window.fixture.journal=[];listener(window.fixture);return {cleared:true}}
+      return (window.fixture.journal=[],listener(window.fixture),{cleared:scenario!=='clearfail'});
+    }
     return {opened:true};
   }
 },
@@ -172,6 +184,7 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
  document.querySelector('#settings-tab').click();await wait();
  must(document.documentElement.scrollWidth<=innerWidth,'notification controls overflow the panel at '+innerWidth+'px');
  await until(()=>scenario==='notificationerrors'?document.querySelector('.notification-error'):document.querySelector('[data-focus-key="notification:project:p:mute"]')&&!document.querySelector('.notification-loading'),'notification controls did not load');
+ const notificationDisclosure=document.querySelector('#notification-disclosure');notificationDisclosure.open=true;notificationDisclosure.dispatchEvent(new Event('toggle'));
  if(scenario==='notificationerrors'){
    must(document.querySelector('.notification-error')?.textContent.includes('Temporary notification storage failure'),'read failure was hidden');
    await click('notification:project:p:retry');
@@ -226,11 +239,11 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
    await until(()=>window.notificationCalls.filter(c=>c.name==='notification.control.read'&&c.input.agentId==='need').length>retainedReads,'retained-focus snooze was not reread');await wait();
    must(document.activeElement?.dataset.focusKey==='notification:agent:need:snooze:15m','focus was not restored when the user stayed on the pending action');
    const note=document.querySelector('.notification-note')?.textContent??'';
-   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('Agents stay visible in Attention'),'mute and snooze effects are not distinguished: '+note);
+   must(note.includes('all Lobby notifications')&&note.includes('snooze pauses repeat reminders only')&&note.includes('does not hide the agent'),'mute and snooze effects are not distinguished: '+note);
  } else {
    must(document.querySelector('.notification-project-status')?.textContent.includes('Notifications active'),'initial mute state missing');
    const note=document.querySelector('.notification-note')?.textContent??'';
-   must(note.includes('all The Lobby notifications')&&note.includes('snooze affects reminders only')&&note.includes('Agents stay visible in Attention'),'mute and snooze effects are not distinguished: '+note);
+   must(note.includes('all Lobby notifications')&&note.includes('snooze pauses repeat reminders only')&&note.includes('does not hide the agent'),'mute and snooze effects are not distinguished: '+note);
    if(scenario==='notificationcontrols'){
      byKey('notification:agent:need:snooze:1h').focus();
      window.notificationPolicy.muted=true;listener(window.fixture);
@@ -283,6 +296,74 @@ if(['notificationcontrols','notificationerrors','notificationstale','notificatio
      must(window.notificationCalls.some(c=>c.name==='notification.project.mute'&&c.input.muted===false)&&window.notificationCalls.some(c=>c.name==='notification.reminder.snooze'&&c.input.choice==='resume'),'control requests did not use validated API choices');
    }
  }
+ window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+// fixture checks: Settings ordering, compact controls, visible notification retries and safe history clearing
+if(['settingsredesign','settingsredesignlight','settingsredesignreduced','settingsredesignerror'].includes(scenario)){
+ const must=(ok,m)=>{if(!ok)throw Error(m)}, until=async(test,message)=>{for(let i=0;i<40&&!test();i++)await wait();must(test(),message)};
+ const tab=document.querySelector('#settings-tab');tab.click();await wait();
+ const settings=document.querySelector('#settings'), sections=[...settings.children];
+ if(scenario==='settingsredesignerror'){
+   const disclosure=settings.querySelector('#notification-disclosure');disclosure.open=true;disclosure.dispatchEvent(new Event('toggle'));
+   const mute=settings.querySelector('[data-focus-key="notification:project:p:mute"]');must(mute&&!mute.disabled,'project mute is unavailable');mute.click();await until(()=>settings.querySelector('.notification-error')?.textContent.includes('Could not save project notification settings'),'failed mute feedback was hidden');
+   disclosure.open=false;disclosure.dispatchEvent(new Event('toggle'));
+   must(!settings.querySelector('.notification-issues').hidden&&settings.querySelector('.notification-issues').textContent.includes('Could not save project notification settings')&&settings.querySelector('.notification-issues [data-focus-key="notification-summary:project:p:retry"]'),'closed disclosure concealed error or retry');
+   window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+ }
+ must(sections[0].classList.contains('appearance-settings'),'Appearance is not the first Settings section');
+ must(sections[1].querySelector('h2')?.textContent==='Notifications','Notifications no longer follows Appearance');
+ must(sections[2].classList.contains('local-data'),'Local data is not separate from notifications');
+ must(settings.querySelector('[name="palette"]')&&settings.querySelector('[name="density"]')&&settings.querySelector('[name="stuck"]'),'an existing preference control is missing');
+ must(settings.querySelector('[data-pref-key="notifyBlocked"]')&&settings.querySelector('[data-pref-key="notifyDone"]')&&settings.querySelector('[data-pref-key="animate"]'),'an existing notification or animation toggle is missing');
+ must(settings.querySelector('#brand-toggle')&&settings.querySelector('.palette-preview')&&settings.querySelector('[data-focus-key="settings-project-order-reset"]'),'an existing Appearance control is missing: '+JSON.stringify({banner:!!settings.querySelector('#brand-toggle'),preview:!!settings.querySelector('.palette-preview'),order:!!settings.querySelector('[data-focus-key="settings-project-order-reset"]'),orderText:settings.querySelector('.settings-order')?.textContent,prefs:stored.prefs}));
+ must(settings.querySelectorAll('.about-link').length===4,'About links are incomplete');
+ must(!settings.querySelector('#notification-disclosure').open,'notification detail list should start collapsed');
+ const disclosure=settings.querySelector('#notification-disclosure'),summary=disclosure.querySelector('summary');
+ must(summary.textContent.includes('Projects 2: 2 active, 0 muted')&&summary.textContent.includes('Reminders 2: 1 active, 1 snoozed'),'collapsed notification summary omitted active/muted/snoozed counts: '+summary.textContent);
+ must(document.documentElement.scrollWidth<=innerWidth,'Settings overflows at '+innerWidth+'px');
+ const grid=settings.querySelector('.settings-grid');
+ must((getComputedStyle(grid).gridTemplateColumns.split(' ').length>1)===(innerWidth>=700),'Settings grid breakpoint is wrong for '+innerWidth+'px');
+ const stuckLabel=settings.querySelector('[data-pref-label="stuckMinutes"]');
+ must(stuckLabel?.textContent.includes('Notify me when an agent seems stuck'),'stuck reminder wording was shortened or split');
+ const aboutText=settings.querySelector('.about').textContent;
+ must(aboutText.includes('v1.2.0')&&aboutText.includes('1.3 in development'),'published and development versions are unclear');
+ must(settings.textContent.includes('Prompts are not stored')&&settings.textContent.includes('does not change Orca unread'),'local privacy copy is incomplete');
+ summary.click();await wait();
+ must(disclosure.open&&disclosure.querySelectorAll('.notification-row').length===4,'expanded notification control list is incomplete');
+ const mute=settings.querySelector('[data-focus-key="notification:project:p:mute"]');must(mute&&!mute.disabled,'project mute is unavailable');mute.click();await until(()=>settings.querySelector('.notification-error')?.textContent.includes('Could not save project notification settings'),'failed mute feedback was hidden');
+ disclosure.open=false;disclosure.dispatchEvent(new Event('toggle'));
+ const issues=settings.querySelector('.notification-issues');
+ must(!issues.hidden&&issues.textContent.includes('Could not save project notification settings')&&issues.querySelector('[data-focus-key="notification-summary:project:p:retry"]'),'closed disclosure concealed the error or retry');
+ issues.querySelector('[data-focus-key="notification-summary:project:p:retry"]').click();
+ await until(()=>settings.querySelector('#notification-summary').textContent.includes('1 muted')&&issues.hidden,'successful retry did not update muted count');
+ must(!settings.querySelector('.notification-error'),'successful retry left a stale error visible');
+ const clear=settings.querySelector('[data-focus-key="settings-clear-open"]');clear.click();
+ const confirm=settings.querySelector('[data-focus-key="settings-clear-confirm"]'),cancel=settings.querySelector('[data-focus-key="settings-clear-cancel"]');
+ must(!settings.querySelector('.settings-clear-confirm').hidden&&document.activeElement===cancel,'opening clear history did not show inline confirmation and focus Cancel');
+ must(cancel.getAttribute('aria-describedby')==='settings-clear-question'&&confirm.getAttribute('aria-describedby')==='settings-clear-question','clear-history confirmation question is not described by its actions');
+ const callsBefore=window.historyClearCalls;
+ cancel.click();must(settings.querySelector('.settings-clear-confirm').hidden&&document.activeElement===clear,'Cancel did not close confirmation and return focus');
+ clear.click();confirm.click();await until(()=>typeof window.releaseHistoryClear==='function','clear-history confirmation did not invoke worker request');
+ const palette=settings.querySelector('[name="palette"]');palette.focus();window.releaseHistoryClear({cleared:false});
+ await until(()=>settings.querySelector('[role="alert"].history-feedback')?.textContent.includes('could not be cleared from storage'),'clear failure was hidden');
+ must(document.activeElement===palette&&!settings.querySelector('.settings-clear-confirm').hidden,'clear failure stole focus or hid retry');
+ const retryClear=settings.querySelector('[data-focus-key="settings-clear-confirm"]');must(retryClear.textContent==='Try again','clear retry action is not explicit');
+ retryClear.focus();retryClear.click();await until(()=>typeof window.releaseHistoryClear==='function','second clear attempt was not gated');window.releaseHistoryClear({cleared:false});
+ await until(()=>settings.querySelector('[role="alert"].history-feedback')?.textContent.includes('could not be cleared from storage'),'second clear failure was hidden');
+ must(document.activeElement===retryClear,'clear failure did not restore focus to the retry action when focus stayed in the confirmation');
+ window.historyClearRetry=true;retryClear.click();await until(()=>settings.querySelector('.history-feedback')?.textContent==='Local activity history cleared.','successful history clear was not acknowledged truthfully');
+ must(settings.querySelector('.settings-clear-confirm').hidden&&document.activeElement===clear,'successful clear did not close confirmation and restore trigger focus');
+ must(window.historyClearCalls===callsBefore+3,'Cancel unexpectedly cleared history or request count was wrong');
+ must(!document.querySelector('.sheet')&&!document.querySelector('.attention-row'),'Settings test modified Attention or opened agent details');
+ settings.querySelector('.history-feedback').textContent='';
+ document.activeElement?.blur();window.scrollTo(0,0);
+ document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
+}
+if(scenario==='settingsorderreset'){
+ const must=(ok,m)=>{if(!ok)throw Error(m)};document.querySelector('#settings-tab').click();await wait();
+ const settings=document.querySelector('#settings'),order=settings.querySelector('.settings-order'),reset=order.querySelector('[data-focus-key="settings-project-order-reset"]');must(reset,'manual order reset was not rendered after preference hydration');
+ reset.focus();reset.click();for(let i=0;i<40&&stored.prefs.projectOrder.length;i++)await wait();
+ must(stored.prefs.projectOrder.length===0&&!order.querySelector('[data-focus-key="settings-project-order-reset"]')&&order.textContent==='Projects follow Orca sidebar order.'&&document.activeElement===order,'reset did not persist, update its explanation, and retain a visible focus target');
  window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 // fixture checks: terminal actions
@@ -468,11 +549,11 @@ if(document.body.classList.contains('prefs-ready'))throw Error('panel became vis
 }
 if(scenario==='prefsreadrecover'){
 const must=(ok,m)=>{if(!ok)throw Error(m)};
-if(restartedPrefs){await wait();must(document.querySelector('#activity-tab').getAttribute('aria-selected')==='true','restart lost the selected view');must(document.querySelector('select[name="density"]').value==='comfortable','restart lost the last queued density intent');must(document.querySelector('select[name="palette"]').value==='dracula','restart lost the concurrent palette');must(document.querySelectorAll('#settings input[type="checkbox"]')[0].checked===false&&document.querySelectorAll('#settings input[type="checkbox"]')[1].checked===true,'restart lost preserved notification preferences');must(JSON.stringify(stored.prefs.projectOrder)===JSON.stringify(['/concurrent']),'restart lost the concurrent project order');localStorage.removeItem('prefs-recovery');}
+if(restartedPrefs){await wait();must(document.querySelector('#activity-tab').getAttribute('aria-selected')==='true','restart lost the selected view');must(document.querySelector('select[name="density"]').value==='comfortable','restart lost the last queued density intent');must(document.querySelector('select[name="palette"]').value==='dracula','restart lost the concurrent palette');must(document.querySelector('#settings input[data-pref-key="notifyBlocked"]').checked===false&&document.querySelector('#settings input[data-pref-key="notifyDone"]').checked===true,'restart lost preserved notification preferences');must(JSON.stringify(stored.prefs.projectOrder)===JSON.stringify(['/concurrent']),'restart lost the concurrent project order');localStorage.removeItem('prefs-recovery');}
 else{
 await wait();must(document.querySelector('#prefs-status').textContent.includes('Could not load saved Lobby settings'),'failed initial read was not reported');
 document.querySelector('#activity-tab').click();document.querySelector('#settings-tab').click();
-const notify=document.querySelectorAll('#settings input[type="checkbox"]')[0];notify.checked=false;notify.dispatchEvent(new Event('change',{bubbles:true}));
+const notify=document.querySelector('#settings input[data-pref-key="notifyBlocked"]');notify.checked=false;notify.dispatchEvent(new Event('change',{bubbles:true}));
 const density=document.querySelector('select[name="density"]');density.value='compact';density.dispatchEvent(new Event('change',{bubbles:true}));
 must(stored.prefs.palette==='paper'&&stored.prefs.notifyDone===false&&JSON.stringify(stored.prefs.projectOrder)==='["/legacy"]','actions overwrote stored preferences before a successful reread');
 for(let i=0;i<50&&!window.releasePrefsPatch;i++)await new Promise(resolve=>setTimeout(resolve,20));must(typeof window.releasePrefsPatch==='function','worker retry did not reach the gated write');
@@ -506,8 +587,8 @@ if(scenario==='prefsrace'){
 if(document.body.classList.contains('prefs-ready'))throw Error('panel became visible before its worker state was ready');
 const latest={...stored.prefs,notifyBlocked:false,selectedView:'activity',density:'compact',projectOrder:['/latest']};
 await window.orca.storage.set('prefs',latest);window.releaseOffice();await wait();
-const checkboxes=[...document.querySelectorAll('#settings input[type="checkbox"]')];const order=[...stored.prefs.projectOrder];
-if(document.querySelector('#activity-tab').getAttribute('aria-selected')!=='true'||!document.documentElement.classList.contains('compact')||checkboxes[0]?.checked!==false||checkboxes[1]?.checked!==true||JSON.stringify(order)!==JSON.stringify(['/latest'])||stored.prefs.selectedView!=='activity')throw Error('stale hydration overwrote a concurrent panel preference: '+JSON.stringify({prefs:stored.prefs,view:document.querySelector('#activity-tab').getAttribute('aria-selected'),compact:document.documentElement.classList.contains('compact'),notify:[...checkboxes].map(box=>box.checked)}));
+const notifyBlocked=document.querySelector('#settings input[data-pref-key="notifyBlocked"]'),notifyDone=document.querySelector('#settings input[data-pref-key="notifyDone"]');const order=[...stored.prefs.projectOrder];
+if(document.querySelector('#activity-tab').getAttribute('aria-selected')!=='true'||!document.documentElement.classList.contains('compact')||notifyBlocked?.checked!==false||notifyDone?.checked!==true||JSON.stringify(order)!==JSON.stringify(['/latest'])||stored.prefs.selectedView!=='activity')throw Error('stale hydration overwrote a concurrent panel preference: '+JSON.stringify({prefs:stored.prefs,view:document.querySelector('#activity-tab').getAttribute('aria-selected'),compact:document.documentElement.classList.contains('compact'),notify:[notifyBlocked?.checked,notifyDone?.checked]}));
 window.scrollTo(0,0);document.body.dataset.width=String(innerWidth);document.body.dataset.fixture='PASS';document.body.dataset.errors=window.errors.join('|');return;
 }
 if(scenario==='preferences'){
