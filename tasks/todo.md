@@ -160,19 +160,23 @@ Dependencies: none. Files: existing fixture tooling and disposable preview artif
 
 ### 15 — Compact rows with explicit navigation (M)
 
-- [ ] Implement task/project/time rows, meaningful disambiguation and separate accessible title/details and validated Open agent actions; retain unavailable-action explanations.
-- [ ] Keep Reviewed explicit in result details, preserving durable error/retry handling and focus return to the next row/group after success.
-- [ ] Verify keyboard navigation, removed rows, async navigation, drawer drafts/confirmations and review-to-next with failing-then-passing fixture tests.
+- [x] Implement task/project/time rows, meaningful disambiguation and separate accessible title/details and validated Open agent actions; retain unavailable-action explanations.
+- [x] Keep Reviewed explicit in result details, preserving durable error/retry handling and focus return to the next row/group after success.
+- [x] Verify keyboard navigation, removed rows, async navigation, drawer drafts/confirmations and review-to-next with failing-then-passing fixture tests.
 
 Dependencies: 14 approved. Files: panel/attention.ts, panel/main.ts, panel/index.html, scripts/shots/fixture.js, scripts/shots/run.py. Verification: focused interaction scenarios, full plugin tests, type/plugin checks and diff check. Scope: M.
 
+Verified (2026-11-21): task15 RED/GREEN browser coverage exercises 280/420/900px compact rows, duplicate-context disambiguation, full accessible long titles, unavailable navigation, details/Open separation, durable review retry and focus return. Task15 is commit `5af8486`; integrated checks are recorded with task16 below. Terra review of tasks15–16 is pending before task17; Checkpoint B remains pending real development-panel trial.
+
 ### 16 — Progressive disclosure for finished work (M)
 
-- [ ] Keep Needs input/failures expanded; put remaining eligible completions under native Finished disclosure with accurate count and truthful unknown outcomes.
-- [ ] Preserve expansion during updates/view changes, reveal filtered completion matches, and restore the previous choice after clearing search; never auto-review or hide a nonzero count.
-- [ ] Test focused summaries, last-result review, live arrivals, search/clear and removal without focus stealing or scroll jumps.
+- [x] Keep Needs input/failures expanded; put remaining eligible completions under native Finished disclosure with accurate count and truthful unknown outcomes.
+- [x] Preserve expansion during updates/view changes, reveal filtered completion matches, and restore the previous choice after clearing search; never auto-review or hide a nonzero count.
+- [x] Test focused summaries, last-result review, live arrivals, search/clear and removal without focus stealing or scroll jumps.
 
 Dependencies: 15. Files: panel/attention.ts, panel/main.ts, scripts/shots/fixture.js, scripts/shots/run.py. Verification: targeted RED/GREEN scenarios, full browser run and type check. Scope: M. Checkpoint: Terra reviews row/action/disclosure behavior before shared-header work.
+
+Verified (2026-11-21): disclosure RED required a native collapsed Finished section; GREEN covers truthful unknown outcomes, both saved expansion choices, filter reveal/restore, view/live updates, keyboard summary focus and immediate live arrival. Full integration passed 238/238 plugin tests, `npx --yes --package typescript tsc --noEmit`, plugin check (valid, no errors), `git diff --check`, and all 110 browser scenarios across 280/320/340/420/900px. Checkpoint B/C and paired-server/platform/live trial gates remain pending; task17–19 remain unchecked.
 
 ### 17 — Quiet header and discoverable filters (M)
 

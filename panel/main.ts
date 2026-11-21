@@ -950,11 +950,14 @@ function renderAttentionPage(): void {
       return actions.value.goTo !== null
     },
     details: (agent) => { attentionDrawerAgent = agent.id; renderDrawer() }
-  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf)
+  }, office.agents.length, !filtered.agents.length && Boolean(searchText || projectFilter !== 'all'), nameOf, Boolean(searchText || projectFilter !== 'all'))
 }
 
 function nextAttentionFocus(agentId: string): string {
-  const rows = [...attentionList.querySelectorAll<HTMLElement>('.attention-row')]
+  const rows = [...attentionList.querySelectorAll<HTMLElement>('.attention-row')].filter((row) => {
+    const disclosure = row.closest('details')
+    return !disclosure || disclosure.open
+  })
   const index = rows.findIndex((row) => row.dataset.agentId === agentId)
   const candidates = index < 0 ? rows : [...rows.slice(index + 1), ...rows.slice(0, index).reverse()]
   const next = candidates.find((row) => row.dataset.agentId !== agentId)

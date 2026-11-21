@@ -71,6 +71,9 @@
       .attention-heading { margin: 4px 0; font-size: 18px; }
       .attention-counts { margin: 0; color: var(--ui-muted-foreground); }
       .attention-group h2 { margin: 8px 0 4px; font-size: 13px; }
+      .attention-finished > summary { min-height: 32px; margin: 8px 0 4px; padding: 6px 0; font-size: 13px; font-weight: 600; cursor: pointer; }
+      .attention-finished > summary:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+      .attention-finished-rows { min-width: 0; }
       .attention-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; min-width: 0; padding: 5px 0 5px 8px; border-bottom: 1px solid var(--ui-border); border-left: 3px solid var(--ui-border); }
       .attention-row.attention-needs-input { border-left-color: var(--blocked); }
       .attention-row.attention-failed { border-left-color: var(--failed); }
