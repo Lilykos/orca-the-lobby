@@ -202,7 +202,8 @@ Verified (2026-11-21): RED exposed a missing quiet-state message when a working 
 
 - [x] Update the existing task-12 docs/website work for the selected layout and Settings notification location; keep contributor credit, privacy and unreleased notices accurate.
 - [x] Regenerate public fixture media, check budgets/links/mobile rendering, and rerun the repository's final unit/type/plugin/browser verification commands.
-- [x] Record Terra approval and actual trial outcomes; leave unavailable paired-server/platform and accessibility-dependent checks explicitly unverified.
+- [x] Record Terra approval and final automated verification; distinguish review clearance from live trials.
+- [ ] Complete actual development-copy find/open/review and notification trials; paired-server, accessibility-dependent, Windows and Linux checks remain unverified until performed.
 
 Dependencies: 18. Deliver as two bounded batches: docs (README.md, docs/guide.html, docs/index.html, CHANGELOG.md, tasks/todo.md), then existing fixture media scripts/assets. Verification: existing media/size/link/render commands plus final review. Scope: M per batch. No version bump, publication or installed-plugin switch without the separate release instruction.
 
