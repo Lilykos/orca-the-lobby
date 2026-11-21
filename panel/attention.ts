@@ -118,9 +118,6 @@ export function renderAttention(root: HTMLElement, office: OfficeSnapshot, revie
   title.tabIndex = -1
   title.dataset.focusKey = 'attention-heading'
   fragment.append(title)
-  const summary = el('p', 'attention-counts', `${groups.needsInput.length} need input · ${groups.failedToReview.length} failed · ${groups.finishedToReview.length} finished to review`)
-  summary.setAttribute('aria-live', 'polite')
-  fragment.append(summary)
   if (!groups.needsInput.length && !groups.failedToReview.length && !groups.finishedToReview.length)
     fragment.append(el('p', 'attention-empty', filteredOut ? 'No agents match these filters.' : liveAgentCount ? 'Nothing needs your attention right now.' : 'No live agents to show yet.'))
   for (const [key, label, rows] of sections) {

@@ -1072,8 +1072,12 @@ function renderFilters(): void {
   if (!options.includes(projectFilter)) projectFilter = 'all'
   project.value = options.includes(projectFilter) ? projectFilter : 'all'
   const matches = filterAgents(office.agents, office, searchText, projectFilter, nameOf, false).length
-  const count = document.getElementById('filter-count')!
-  count.textContent = searchText || projectFilter !== 'all' ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : `${office.agents.length} ${office.agents.length === 1 ? 'agent' : 'agents'}`
+  const active = Number(Boolean(searchText)) + Number(projectFilter !== 'all')
+  document.getElementById('filter-active-count')!.textContent = active ? `${active} active` : ''
+  document.getElementById('filter-summary')!.setAttribute('aria-label', active ? `Filter, ${active} active ${active === 1 ? 'filter' : 'filters'}` : 'Filter')
+  document.getElementById('filter-count')!.textContent = active ? `${matches} ${matches === 1 ? 'match' : 'matches'}` : ''
+  const clear = document.getElementById('clear-filters') as HTMLButtonElement
+  clear.hidden = active === 0
 }
 
 const searchInput = document.createElement('input')
@@ -1084,7 +1088,15 @@ searchInput.dataset.focusKey = 'shared-search'
 const projectSelect = document.createElement('select')
 projectSelect.setAttribute('aria-label', 'Filter by project')
 projectSelect.dataset.focusKey = 'shared-project'
-filterBar.append(searchInput, projectSelect)
+filterBar.querySelector('#filter-controls')!.append(searchInput, projectSelect)
+const clearFilters = document.getElementById('clear-filters') as HTMLButtonElement
+clearFilters.addEventListener('click', () => {
+  searchText = ''
+  projectFilter = 'all'
+  renderFilters()
+  showOrder()
+  if (currentPage === 'attention') renderAttentionPage()
+})
 searchInput.addEventListener('input', () => { searchText = searchInput.value; renderFilters(); showOrder(); if (currentPage === 'attention') renderAttentionPage() })
 projectSelect.addEventListener('change', () => { projectFilter = projectSelect.value; renderFilters(); showOrder(); if (currentPage === 'attention') renderAttentionPage() })
 
